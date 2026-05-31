@@ -9,6 +9,7 @@ import SwiftUI
 import CoreLocation
 import Combine
 import UserNotifications
+import ActivityKit
 
 // MARK: - Data Models
 struct StopResponse: Codable { let data: [StopInfo] }
@@ -129,6 +130,9 @@ struct ContentView: View {
     // Auto-scroll target Stop ID/Name
     @State private var targetScrollStopName: String? = nil
     
+    // NEW: Custom Keyboard State
+    @State private var showCustomKeyboard = false
+    
     init() {
         // Remove Segmented Control white background track to match background color
         UISegmentedControl.appearance().backgroundColor = .clear
@@ -137,7 +141,38 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             ScrollViewReader { proxy in
-                List {
+                VStack(spacing: 0) {
+                    // Custom Search Bar Top
+                HStack {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundColor(.secondary)
+                    Text(searchText.isEmpty ? "輸入路線 (例如 1A)" : searchText)
+                        .foregroundColor(searchText.isEmpty ? .secondary : .primary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    
+                    if !searchText.isEmpty {
+                        Button(action: {
+                            searchText = ""
+                            displayData = []
+                            navigationTitle = "九巴即時到站"
+                        }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.secondary)
+                                .font(.system(size: 18))
+                        }
+                    }
+                }
+                .padding(10)
+                .background(Color(.systemGray5))
+                .cornerRadius(10)
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+                .background(themeBackground)
+                .onTapGesture {
+                    withAnimation(.spring()) { showCustomKeyboard = true }
+                }
+
+                    List {
                     if let timer = activeTimer {
                         activeTimerCard(timer: timer)
                             .listRowBackground(Color.clear)
@@ -167,18 +202,30 @@ struct ContentView: View {
                             .listRowBackground(Color.clear)
                             .listRowInsets(EdgeInsets())
                     }
-                }
-                .listStyle(.insetGrouped)
-                .scrollContentBackground(.hidden)
-                .background(themeBackground)
-            .navigationTitle(searchText.isEmpty ? "九巴即時到站" : navigationTitle)
-            .navigationBarTitleDisplayMode(.large) // Native large title support
-            .searchable(text: $searchText, prompt: "輸入路線 (例如 1A)")
-            .onSubmit(of: .search) {
-                Task {
-                    await searchRoute(route: searchText.uppercased())
+                    }
+                    .listStyle(.insetGrouped)
+                    .scrollContentBackground(.hidden)
+                    .background(themeBackground)
+            } // Close VStack
+            .overlay(alignment: .bottom) {
+                if showCustomKeyboard {
+                    CustomKeyboardView(
+                        text: $searchText,
+                        onSearch: {
+                            showCustomKeyboard = false
+                            Task {
+                                await searchRoute(route: searchText.uppercased())
+                            }
+                        },
+                        onDismiss: {
+                            withAnimation(.spring()) { showCustomKeyboard = false }
+                        }
+                    )
+                    .transition(.move(edge: .bottom))
                 }
             }
+            .navigationTitle(searchText.isEmpty ? "九巴即時到站" : navigationTitle)
+            .navigationBarTitleDisplayMode(.large) // Native large title support
             .onChange(of: searchText) { newValue in
                 if newValue.isEmpty {
                     displayData = []
@@ -235,6 +282,7 @@ struct ContentView: View {
                         generator.notificationOccurred(.success)
                         showingTimerCompletedAlert = true
                         activeTimer = nil
+                        endLiveActivity()
                         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["KMBTimeAlarm"])
                     }
                 }
@@ -263,12 +311,15 @@ struct ContentView: View {
                             }
                         }
                         
+                        startLiveActivity(routeName: timerRouteName, destination: timerDestination, etaDate: etaDate, startTime: Date())
+                        
                         withAnimation {
                             activeTimer = ActiveTimerModel(
                                 routeName: timerRouteName,
                                 destination: timerDestination,
                                 etaDate: etaDate,
-                                targetAlertDate: etaDate.addingTimeInterval(-120)
+                                targetAlertDate: etaDate.addingTimeInterval(-120),
+                                startTime: Date()
                             )
                         }
                     }
@@ -297,9 +348,9 @@ struct ContentView: View {
                     }
                 }
             }
+            } // Close ScrollViewReader
         }
     }
-}
     
     // MARK: - Core Theme Background (Pure Native Apple Style)
     private var themeBackground: some View {
@@ -828,78 +879,139 @@ struct ContentView: View {
     
     @ViewBuilder
     private func activeTimerCard(timer: ActiveTimerModel) -> some View {
-        let secondsLeft = max(0, Int(timer.targetAlertDate.timeIntervalSince(currentTime)))
+        let totalTime = timer.etaDate.timeIntervalSince(timer.startTime)
+        let elapsedTime = currentTime.timeIntervalSince(timer.startTime)
+        let progress = totalTime > 0 ? min(1.0, max(0.0, elapsedTime / totalTime)) : 1.0
+        
+        let secondsLeft = max(0, Int(timer.etaDate.timeIntervalSince(currentTime)))
         let minutes = secondsLeft / 60
         let seconds = secondsLeft % 60
         
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .center) {
-                HStack(spacing: 8) {
+        // Uber Style Live Tracker
+        VStack(spacing: 0) {
+            // Header: Live Tracking
+            HStack {
+                HStack(spacing: 6) {
                     Circle()
-                        .fill(secondsLeft > 0 ? Color.green : Color.red)
+                        .fill(Color.green)
                         .frame(width: 8, height: 8)
-                        .opacity(secondsLeft > 0 && (Int(currentTime.timeIntervalSince1970) % 2 == 0) ? 0.4 : 1.0)
-                    
-                    Text("倒數提醒中 (巴士抵站前 2 分鐘)")
+                        .opacity(secondsLeft > 0 && (Int(currentTime.timeIntervalSince1970) % 2 == 0) ? 0.3 : 1.0)
+                        .animation(.easeInOut(duration: 0.5), value: currentTime)
+                    Text("實時追蹤")
                         .font(.caption)
-                        .fontWeight(.bold)
-                        .foregroundColor(.blue)
+                        .fontWeight(.heavy)
+                        .foregroundColor(.green)
                 }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(Color.green.opacity(0.15))
+                .cornerRadius(10)
                 
                 Spacer()
                 
                 Button(action: {
-                    withAnimation {
+                    withAnimation(.easeInOut(duration: 0.3)) {
                         activeTimer = nil
-                        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["KMBTimeAlarm"])
                     }
+                    endLiveActivity()
+                    UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["KMBTimeAlarm"])
                 }) {
                     Image(systemName: "xmark.circle.fill")
-                        .foregroundColor(.secondary)
-                        .font(.title3)
+                        .foregroundColor(.gray)
+                        .font(.title2)
                 }
-                .buttonStyle(.plain)
             }
+            .padding([.top, .horizontal], 16)
             
-            HStack(spacing: 16) {
-                Text(timer.routeName)
-                    .font(.system(.title3, design: .rounded))
-                    .fontWeight(.bold)
-                    .foregroundColor(.white)
-                    .frame(width: 64, height: 38)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(Color.blue)
-                    )
+            // ETA and Route info
+            VStack(spacing: 6) {
+                Text(minutes > 0 ? "\(minutes) 分鐘後抵達" : "即將抵達")
+                    .font(.system(size: 28, weight: .bold, design: .rounded))
+                    .foregroundColor(.primary)
                 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("往 \(timer.destination)")
+                HStack(spacing: 8) {
+                    Text(timer.routeName)
                         .font(.headline)
-                        .fontWeight(.semibold)
-                    Text("預計抵達: \(formattedTime(timer.etaDate))")
+                        .fontWeight(.black)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color(red: 0.85, green: 0.1, blue: 0.15))
+                        .foregroundColor(.white)
+                        .cornerRadius(6)
+                    
+                    Text("往 \(timer.destination)")
                         .font(.subheadline)
+                        .fontWeight(.semibold)
                         .foregroundColor(.secondary)
                 }
-                
-                Spacer()
-                
-                Text(String(format: "%02d:%02d", minutes, seconds))
-                    .font(.system(.title, design: .monospaced))
-                    .fontWeight(.bold)
-                    .foregroundColor(.blue)
             }
+            .padding(.top, 10)
+            
+            // Progress Bar and Bus Icon
+            GeometryReader { geometry in
+                let barWidth = geometry.size.width
+                let busPosition = barWidth * CGFloat(progress)
+                
+                ZStack(alignment: .leading) {
+                    // Background Track
+                    Capsule()
+                        .fill(Color.gray.opacity(0.2))
+                        .frame(height: 10)
+                    
+                    // Fill Track
+                    Capsule()
+                        .fill(LinearGradient(colors: [.blue, .cyan], startPoint: .leading, endPoint: .trailing))
+                        .frame(width: max(0, busPosition), height: 10)
+                        .animation(.linear(duration: 1.0), value: progress)
+                    
+                    // Bus Icon
+                    Image(systemName: "bus.fill")
+                        .font(.system(size: 18))
+                        .foregroundColor(.white)
+                        .padding(8)
+                        .background(Circle().fill(Color.blue).shadow(radius: 3))
+                        .offset(x: max(0, min(busPosition - 17, barWidth - 34)))
+                        .animation(.linear(duration: 1.0), value: progress)
+                }
+            }
+            .frame(height: 34)
+            .padding(.horizontal, 20)
+            .padding(.top, 20)
+            .padding(.bottom, 24)
+            
+            // Footer Info
+            HStack {
+                VStack(alignment: .leading) {
+                    Text("預計時間")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text(formattedTime(timer.etaDate))
+                        .font(.headline)
+                        .fontWeight(.bold)
+                }
+                Spacer()
+                VStack(alignment: .trailing) {
+                    Text("剩餘時間")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text(String(format: "%02d:%02d", minutes, seconds))
+                        .font(.headline)
+                        .fontWeight(.bold)
+                        .monospacedDigit()
+                }
+            }
+            .padding(16)
+            .background(Color.gray.opacity(0.05))
         }
-        .padding()
         .background(
-            RoundedRectangle(cornerRadius: 14)
+            RoundedRectangle(cornerRadius: 20)
                 .fill(Color(.secondarySystemGroupedBackground))
-                .shadow(color: Color.blue.opacity(0.12), radius: 8, x: 0, y: 3)
+                .shadow(color: Color.black.opacity(0.1), radius: 15, x: 0, y: 5)
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14)
-                .stroke(Color.blue.opacity(0.3), lineWidth: 1)
-        )
-        .transition(.asymmetric(insertion: .opacity.combined(with: .move(edge: .top)), removal: .opacity))
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+        .padding(.bottom, 8)
+        .transition(.asymmetric(insertion: .opacity.combined(with: .move(edge: .top)), removal: .opacity.combined(with: .scale)))
     }
     
     func formattedTime(_ date: Date?) -> String {
@@ -930,6 +1042,29 @@ struct ContentView: View {
             }
         }
     }
+    
+    func startLiveActivity(routeName: String, destination: String, etaDate: Date, startTime: Date) {
+        if ActivityAuthorizationInfo().areActivitiesEnabled {
+            do {
+                let attributes = BusETAAttributes(routeName: routeName, destination: destination, startTime: startTime)
+                let remaining = Int(etaDate.timeIntervalSince(Date()))
+                let state = BusETAAttributes.ContentState(etaDate: etaDate, remainingSeconds: remaining)
+                let content = ActivityContent(state: state, staleDate: nil)
+                let _ = try Activity.request(attributes: attributes, content: content, pushType: nil)
+            } catch {
+                print("Error starting Live Activity: \(error.localizedDescription)")
+            }
+        }
+    }
+    
+    func endLiveActivity() {
+        Task {
+            for activity in Activity<BusETAAttributes>.activities {
+                let state = BusETAAttributes.ContentState(etaDate: activity.content.state.etaDate, remainingSeconds: 0)
+                await activity.end(ActivityContent(state: state, staleDate: nil), dismissalPolicy: .immediate)
+            }
+        }
+    }
 }
 
 struct ActiveTimerModel: Identifiable, Equatable {
@@ -938,6 +1073,86 @@ struct ActiveTimerModel: Identifiable, Equatable {
     let destination: String
     let etaDate: Date
     let targetAlertDate: Date
+    let startTime: Date
+}
+
+// MARK: - Custom Keyboard View
+struct CustomKeyboardView: View {
+    @Binding var text: String
+    var onSearch: () -> Void
+    var onDismiss: () -> Void
+    
+    let rows = [
+        ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"],
+        ["A", "B", "C", "E", "H", "K", "N", "P", "R", "S"],
+        ["T", "W", "X"]
+    ]
+    
+    var body: some View {
+        VStack(spacing: 8) {
+            HStack {
+                Spacer()
+                Button(action: onDismiss) {
+                    Text("完成")
+                        .fontWeight(.bold)
+                        .foregroundColor(.blue)
+                        .padding(.trailing, 20)
+                }
+            }
+            .padding(.top, 12)
+            
+            ForEach(rows, id: \.self) { row in
+                HStack(spacing: 8) {
+                    if row == rows.last {
+                        Spacer(minLength: 4)
+                    }
+                    ForEach(row, id: \.self) { key in
+                        Button(action: { text.append(key) }) {
+                            Text(key)
+                                .font(.system(size: 22, weight: .regular))
+                                .frame(width: 34, height: 46)
+                                .background(Color(.systemBackground))
+                                .cornerRadius(6)
+                                .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 1)
+                                .foregroundColor(.primary)
+                        }
+                    }
+                    if row == rows.last {
+                        Button(action: {
+                            if !text.isEmpty { text.removeLast() }
+                        }) {
+                            Image(systemName: "delete.left")
+                                .font(.system(size: 20))
+                                .frame(width: 50, height: 46)
+                                .background(Color(.systemGray4))
+                                .cornerRadius(6)
+                                .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 1)
+                                .foregroundColor(.primary)
+                        }
+                        
+                        Button(action: {
+                            onSearch()
+                        }) {
+                            Text("搜尋")
+                                .font(.headline)
+                                .frame(width: 60, height: 46)
+                                .background(Color.blue)
+                                .cornerRadius(6)
+                                .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 1)
+                                .foregroundColor(.white)
+                        }
+                        Spacer(minLength: 4)
+                    }
+                }
+            }
+        }
+        .padding(.bottom, 20)
+        .background(
+            Color(UIColor.systemGray3)
+                .shadow(color: .black.opacity(0.1), radius: 10, y: -5)
+                .ignoresSafeArea()
+        )
+    }
 }
 
 

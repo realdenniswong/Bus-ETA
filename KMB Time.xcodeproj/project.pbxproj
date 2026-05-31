@@ -6,19 +6,75 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		05665B0D9E146B424FBA9A31 /* ActivityKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D67C7102DD32977808D61566 /* ActivityKit.framework */; };
+		325EC24499DE7E08B53FE342 /* BusETAWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = D12D3BEC3C504EAAAAC7BB01 /* BusETAWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		3906688E11A120FBDE153607 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BD4033AED1EC9C3A10FF09AF /* Foundation.framework */; };
+		823725432BD6229828ECE5B7 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 48E2096D6D267034D00DC1D2 /* WidgetKit.framework */; };
+		8814592D793FCCCC55FB3892 /* BusETAWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13EF61C1DE8E6C0AF47A9E8 /* BusETAWidget.swift */; };
+		9B1A40019B3922AC9EBB2508 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B6FCE1155B119538C5F5B618 /* SwiftUI.framework */; };
+		B136454415B3383C51334F6A /* BusETAAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6BA22E065B936234152A74E /* BusETAAttributes.swift */; };
+		F39A9C42BACD12980E5167B0 /* BusETAAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6BA22E065B936234152A74E /* BusETAAttributes.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		08E96F9B0DB3E9F922DE2FCD /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = AD7150182FCC7A9200DD9837 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 24BDDCF4053D496AB2EE6A7A;
+			remoteInfo = BusETAWidget;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		42A25BDF7044130EC3E1441D /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				325EC24499DE7E08B53FE342 /* BusETAWidget.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		48BCD3E16C484F351D18B42C /* BusETAWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BusETAWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		48E2096D6D267034D00DC1D2 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = DEVELOPER_DIR; };
+		A13EF61C1DE8E6C0AF47A9E8 /* BusETAWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BusETAWidget.swift; sourceTree = "<group>"; };
 		AD7150202FCC7A9200DD9837 /* KMB Time.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "KMB Time.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		B6FCE1155B119538C5F5B618 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = DEVELOPER_DIR; };
+		BD4033AED1EC9C3A10FF09AF /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
+		D12D3BEC3C504EAAAAC7BB01 /* BusETAWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BusETAWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		D67C7102DD32977808D61566 /* ActivityKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ActivityKit.framework; path = System/Library/Frameworks/ActivityKit.framework; sourceTree = DEVELOPER_DIR; };
+		F6BA22E065B936234152A74E /* BusETAAttributes.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BusETAAttributes.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		AD7150222FCC7A9200DD9837 /* KMB Time */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = "KMB Time";
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		3C7599628AB5971C3224D3DA /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3906688E11A120FBDE153607 /* Foundation.framework in Frameworks */,
+				9B1A40019B3922AC9EBB2508 /* SwiftUI.framework in Frameworks */,
+				823725432BD6229828ECE5B7 /* WidgetKit.framework in Frameworks */,
+				05665B0D9E146B424FBA9A31 /* ActivityKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		AD71501D2FCC7A9200DD9837 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -29,11 +85,41 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		97423D554CAE635EE12F76BB /* BusETAWidget */ = {
+			isa = PBXGroup;
+			children = (
+				A13EF61C1DE8E6C0AF47A9E8 /* BusETAWidget.swift */,
+			);
+			path = BusETAWidget;
+			sourceTree = "<group>";
+		};
+		AC590914519D720EF22F7040 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				AC9A2EDC165F09A7572A1F89 /* iOS */,
+				B6FCE1155B119538C5F5B618 /* SwiftUI.framework */,
+				48E2096D6D267034D00DC1D2 /* WidgetKit.framework */,
+				D67C7102DD32977808D61566 /* ActivityKit.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		AC9A2EDC165F09A7572A1F89 /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				BD4033AED1EC9C3A10FF09AF /* Foundation.framework */,
+			);
+			name = iOS;
+			sourceTree = "<group>";
+		};
 		AD7150172FCC7A9200DD9837 = {
 			isa = PBXGroup;
 			children = (
 				AD7150222FCC7A9200DD9837 /* KMB Time */,
 				AD7150212FCC7A9200DD9837 /* Products */,
+				AC590914519D720EF22F7040 /* Frameworks */,
+				97423D554CAE635EE12F76BB /* BusETAWidget */,
+				E710EF9C9C581BF7DC465DEC /* SharedModels */,
 			);
 			sourceTree = "<group>";
 		};
@@ -41,13 +127,41 @@
 			isa = PBXGroup;
 			children = (
 				AD7150202FCC7A9200DD9837 /* KMB Time.app */,
+				D12D3BEC3C504EAAAAC7BB01 /* BusETAWidget.appex */,
+				48BCD3E16C484F351D18B42C /* BusETAWidget.appex */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		E710EF9C9C581BF7DC465DEC /* SharedModels */ = {
+			isa = PBXGroup;
+			children = (
+				F6BA22E065B936234152A74E /* BusETAAttributes.swift */,
+			);
+			name = SharedModels;
+			path = SharedModels;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		24BDDCF4053D496AB2EE6A7A /* BusETAWidget */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 0CA0033685E1089C86CA7C1C /* Build configuration list for PBXNativeTarget "BusETAWidget" */;
+			buildPhases = (
+				045A4E95A64CB5C8777294E1 /* Sources */,
+				3C7599628AB5971C3224D3DA /* Frameworks */,
+				4E8366B4AE45EDD1EACC4D30 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = BusETAWidget;
+			productName = BusETAWidget;
+			productReference = D12D3BEC3C504EAAAAC7BB01 /* BusETAWidget.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		AD71501F2FCC7A9200DD9837 /* KMB Time */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = AD71502D2FCC7A9300DD9837 /* Build configuration list for PBXNativeTarget "KMB Time" */;
@@ -55,17 +169,17 @@
 				AD71501C2FCC7A9200DD9837 /* Sources */,
 				AD71501D2FCC7A9200DD9837 /* Frameworks */,
 				AD71501E2FCC7A9200DD9837 /* Resources */,
+				42A25BDF7044130EC3E1441D /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				01D4F417C8A352E262698C7D /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				AD7150222FCC7A9200DD9837 /* KMB Time */,
 			);
 			name = "KMB Time";
-			packageProductDependencies = (
-			);
 			productName = "KMB Time";
 			productReference = AD7150202FCC7A9200DD9837 /* KMB Time.app */;
 			productType = "com.apple.product-type.application";
@@ -100,11 +214,19 @@
 			projectRoot = "";
 			targets = (
 				AD71501F2FCC7A9200DD9837 /* KMB Time */,
+				24BDDCF4053D496AB2EE6A7A /* BusETAWidget */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		4E8366B4AE45EDD1EACC4D30 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		AD71501E2FCC7A9200DD9837 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -115,16 +237,86 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		045A4E95A64CB5C8777294E1 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8814592D793FCCCC55FB3892 /* BusETAWidget.swift in Sources */,
+				B136454415B3383C51334F6A /* BusETAAttributes.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		AD71501C2FCC7A9200DD9837 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F39A9C42BACD12980E5167B0 /* BusETAAttributes.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		01D4F417C8A352E262698C7D /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = BusETAWidget;
+			target = 24BDDCF4053D496AB2EE6A7A /* BusETAWidget */;
+			targetProxy = 08E96F9B0DB3E9F922DE2FCD /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		44D6FE37B64B771869B28013 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = BusETAWidget/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "hk.com.karyee.KMB-Time.BusETAWidget";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A1570BDE68307A8D774B65A1 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = BusETAWidget/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "hk.com.karyee.KMB-Time.BusETAWidget";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 		AD71502B2FCC7A9300DD9837 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -255,6 +447,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "We use your location to find nearby bus stops.";
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -300,6 +493,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "We use your location to find nearby bus stops.";
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -334,6 +528,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		0CA0033685E1089C86CA7C1C /* Build configuration list for PBXNativeTarget "BusETAWidget" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A1570BDE68307A8D774B65A1 /* Release */,
+				44D6FE37B64B771869B28013 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		AD71501B2FCC7A9200DD9837 /* Build configuration list for PBXProject "KMB Time" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

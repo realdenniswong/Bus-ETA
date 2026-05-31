@@ -7,6 +7,8 @@
 
 import SwiftUI
 import CoreLocation
+import Combine
+import UserNotifications
 
 // MARK: - Data Models
 struct StopResponse: Codable { let data: [StopInfo] }
@@ -40,12 +42,18 @@ struct ETAItem: Codable {
     let rmk_tc: String?
 }
 
+struct ETADisplayInfo: Identifiable, Hashable {
+    let id = UUID()
+    let etaDate: Date?
+    let remark: String?
+}
+
 struct StopDisplayModel: Identifiable {
     let id = UUID()
     let seq: Int
     let stopNameTc: String
     let stopNameEn: String
-    let etas: [String]
+    let etas: [ETADisplayInfo]
 }
 
 struct NearbyStopModel: Identifiable {
@@ -61,7 +69,7 @@ struct NearbyRouteModel: Identifiable {
     let directionCode: String // "O" or "I"
     let destNameEn: String
     let destNameTc: String
-    let etas: [String]
+    let etas: [ETADisplayInfo]
 }
 
 struct StopETAResponse: Codable {
@@ -103,6 +111,24 @@ struct ContentView: View {
     // Explicit Navigation Title State
     @State private var navigationTitle = "九巴即時到站"
     
+    // Auto-refresh timer to keep ETA countdowns fresh (ticks every 30 seconds)
+    private let refreshTimer = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
+    
+    // Local clock timer to update countdowns smoothly (ticks every 1 second)
+    private let clockTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    @State private var currentTime = Date()
+    
+    // Active Timer and Alert States
+    @State private var activeTimer: ActiveTimerModel? = nil
+    @State private var showingAddTimerAlert = false
+    @State private var showingTimerCompletedAlert = false
+    @State private var timerTargetDate: Date? = nil
+    @State private var timerRouteName = ""
+    @State private var timerDestination = ""
+    
+    // Auto-scroll target Stop ID/Name
+    @State private var targetScrollStopName: String? = nil
+    
     init() {
         // Remove Segmented Control white background track to match background color
         UISegmentedControl.appearance().backgroundColor = .clear
@@ -110,8 +136,14 @@ struct ContentView: View {
     
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
+            ScrollViewReader { proxy in
+                List {
+                    if let timer = activeTimer {
+                        activeTimerCard(timer: timer)
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets())
+                    }
+                    
                     if searchText.isEmpty {
                         nearbyDashboardSection
                     } else {
@@ -128,16 +160,20 @@ struct ContentView: View {
                                 }
                             }
                         }
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
                         
                         timetableSection
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets())
                     }
                 }
-                .padding()
-            }
-            .background(themeBackground) // Set unified background on ScrollView child
+                .listStyle(.insetGrouped)
+                .scrollContentBackground(.hidden)
+                .background(themeBackground)
             .navigationTitle(searchText.isEmpty ? "九巴即時到站" : navigationTitle)
             .navigationBarTitleDisplayMode(.large) // Native large title support
-            .searchable(text: $searchText, prompt: "輸入路線 (例如 1A)") // Restored to default placement
+            .searchable(text: $searchText, prompt: "輸入路線 (例如 1A)")
             .onSubmit(of: .search) {
                 Task {
                     await searchRoute(route: searchText.uppercased())
@@ -178,11 +214,81 @@ struct ContentView: View {
                     }
                 }
             }
+            .onReceive(refreshTimer) { _ in
+                // Automatically refresh ETAs when the app remains open
+                Task {
+                    if searchText.isEmpty {
+                        if let location = locationManager.location {
+                            await updateNearbyStops(userLocation: location)
+                        }
+                    } else if !displayData.isEmpty {
+                        await searchRoute(route: searchText.uppercased())
+                    }
+                }
+            }
+            .onReceive(clockTimer) { _ in
+                currentTime = Date()
+                if let timer = activeTimer {
+                    let secondsLeft = timer.targetAlertDate.timeIntervalSince(currentTime)
+                    if secondsLeft <= 0 {
+                        let generator = UINotificationFeedbackGenerator()
+                        generator.notificationOccurred(.success)
+                        showingTimerCompletedAlert = true
+                        activeTimer = nil
+                        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["KMBTimeAlarm"])
+                    }
+                }
+            }
+            .onChange(of: displayData.isEmpty) { isEmpty in
+                if !isEmpty, let target = targetScrollStopName {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) {
+                            proxy.scrollTo(target, anchor: .center)
+                        }
+                        targetScrollStopName = nil
+                    }
+                }
+            }
+            .alert("設定巴士抵站提醒", isPresented: $showingAddTimerAlert) {
+                Button("設定提醒", role: .none) {
+                    if let etaDate = timerTargetDate {
+                        // Request notification permissions dynamically and schedule background reminder
+                        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
+                            if granted {
+                                scheduleLocalNotification(
+                                    routeName: timerRouteName,
+                                    destination: timerDestination,
+                                    alertDate: etaDate.addingTimeInterval(-120)
+                                )
+                            }
+                        }
+                        
+                        withAnimation {
+                            activeTimer = ActiveTimerModel(
+                                routeName: timerRouteName,
+                                destination: timerDestination,
+                                etaDate: etaDate,
+                                targetAlertDate: etaDate.addingTimeInterval(-120)
+                            )
+                        }
+                    }
+                }
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("您是否要為 \(timerRouteName) 路線設定提醒？系統將在巴士預計抵達前 2 分鐘（即 \(formattedTime(timerTargetDate?.addingTimeInterval(-120) ?? Date()))）提醒您。")
+            }
+            .alert("巴士即將抵達！", isPresented: $showingTimerCompletedAlert) {
+                Button("好", role: .cancel) {}
+            } message: {
+                Text("您設定的巴士即將在 2 分鐘內抵達，請準備上車。")
+            }
             .task {
                 await loadAllStops()
                 if locationManager.authorizationStatus == .authorizedWhenInUse || locationManager.authorizationStatus == .authorizedAlways {
                     locationManager.requestLocation()
                 }
+                // Request background alert permissions on startup
+                UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
             }
             .onChange(of: locationManager.location) { _ in
                 if let location = locationManager.location {
@@ -193,6 +299,7 @@ struct ContentView: View {
             }
         }
     }
+}
     
     // MARK: - Core Theme Background (Pure Native Apple Style)
     private var themeBackground: some View {
@@ -235,15 +342,25 @@ struct ContentView: View {
                                 // Always displays exactly 3 lines of ETAs, filling blank spaces with "-"
                                 VStack(alignment: .leading, spacing: 4) {
                                     ForEach(0..<3, id: \.self) { index in
-                                        let eta = index < stop.etas.count ? stop.etas[index] : "-"
-                                        Text(eta.replacingOccurrences(of: "分鐘", with: "分"))
-                                            .font(.system(size: 15, weight: .semibold, design: .rounded))
-                                            .foregroundColor(.primary)
+                                        let etaInfo = index < stop.etas.count ? stop.etas[index] : nil
+                                        if let etaInfo = etaInfo, let etaDate = etaInfo.etaDate {
+                                            let minutesLeft = max(0, Int(etaDate.timeIntervalSince(currentTime) / 60))
+                                            let remark = etaInfo.remark ?? ""
+                                            let formattedRemark = remark.isEmpty ? "" : " (\(remark))"
+                                            Text("\(minutesLeft)分\(formattedRemark)")
+                                                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                                .foregroundColor(.primary)
+                                        } else {
+                                            Text("-")
+                                                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                                .foregroundColor(.primary)
+                                        }
                                     }
                                 }
                             }
                             .padding(.bottom, index < displayData.count - 1 ? 20 : 0)
                         }
+                        .id(stop.stopNameTc)
                     }
                 }
                 .padding()
@@ -255,259 +372,270 @@ struct ContentView: View {
     }
     
     // MARK: - Nearby Dashboard View
+    @ViewBuilder
     private var nearbyDashboardSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Text("附近巴士站")
-                    .font(.title2)
-                    .fontWeight(.bold)
-                
-                Spacer()
-                
-                if isSearchingNearby {
-                    ProgressView()
-                } else if locationManager.location != nil {
-                    Button(action: {
-                        locationManager.requestLocation()
-                    }) {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.subheadline)
-                            .foregroundColor(.blue)
-                    }
+        // Stop Header
+        HStack {
+            Text("附近巴士站")
+                .font(.title2)
+                .fontWeight(.bold)
+            
+            Spacer()
+            
+            if isSearchingNearby {
+                ProgressView()
+            } else if locationManager.location != nil {
+                Button(action: {
+                    locationManager.requestLocation()
+                }) {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.subheadline)
+                        .foregroundColor(.blue)
                 }
             }
-            
-            let status = locationManager.authorizationStatus
-            
-            if status == .notDetermined {
-                VStack(alignment: .center, spacing: 12) {
-                    Image(systemName: "location.circle.fill")
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: 60, height: 60)
-                        .foregroundColor(.blue)
-                        .padding(.top, 10)
-                    
-                    Text("尋找附近巴士站及抵達時間")
+        }
+        .listRowBackground(Color.clear)
+        .listRowInsets(EdgeInsets(top: 0, leading: 4, bottom: 0, trailing: 4))
+        
+        let status = locationManager.authorizationStatus
+        
+        if status == .notDetermined {
+            VStack(alignment: .center, spacing: 12) {
+                Image(systemName: "location.circle.fill")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 60, height: 60)
+                    .foregroundColor(.blue)
+                    .padding(.top, 10)
+                
+                Text("尋找附近巴士站及抵達時間")
+                    .font(.headline)
+                    .fontWeight(.semibold)
+                
+                Text("啟用定位權限，系統會自動探索您目前位置附近的巴士站與即時路線資訊。")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 16)
+                
+                Button(action: {
+                    locationManager.requestLocation()
+                }) {
+                    Text("分享目前位置")
                         .font(.headline)
-                        .fontWeight(.semibold)
-                    
-                    Text("啟用定位權限，系統會自動探索您目前位置附近的巴士站與即時路線資訊。")
+                        .foregroundColor(.white)
+                        .padding()
+                        .frame(maxWidth: .infinity)
+                        .background(
+                            LinearGradient(colors: [Color.blue, Color.cyan], startPoint: .leading, endPoint: .trailing)
+                        )
+                        .cornerRadius(12)
+                        .shadow(color: Color.blue.opacity(0.3), radius: 6, x: 0, y: 3)
+                }
+                .padding(.horizontal, 24)
+                .padding(.bottom, 10)
+            }
+            .padding()
+            .background(Color(.secondarySystemGroupedBackground))
+            .cornerRadius(14)
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets())
+        } else if status == .denied || status == .restricted {
+            VStack(alignment: .center, spacing: 12) {
+                Image(systemName: "location.slash.circle.fill")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 60, height: 60)
+                    .foregroundColor(.red)
+                    .padding(.top, 10)
+                
+                Text("定位權限已關閉")
+                    .font(.headline)
+                    .fontWeight(.semibold)
+                
+                Text("如欲使用此定位功能，請至系統設定開啟此應用的定位服務。")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 16)
+                
+                Button(action: {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                }) {
+                    Text("開啟系統設定")
+                        .font(.headline)
+                        .foregroundColor(.white)
+                        .padding()
+                        .frame(maxWidth: .infinity)
+                        .background(Color.blue)
+                        .cornerRadius(12)
+                }
+                .padding(.horizontal, 24)
+                .padding(.bottom, 10)
+            }
+            .padding()
+            .background(Color(.secondarySystemGroupedBackground))
+            .cornerRadius(14)
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets())
+        } else {
+            if locationManager.location == nil || allStops.isEmpty {
+                VStack(spacing: 12) {
+                    ProgressView()
+                        .scaleEffect(1.2)
+                    Text(allStops.isEmpty ? "正在載入巴士站數據庫..." : "正在尋找您的位置...")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 16)
-                    
-                    Button(action: {
-                        locationManager.requestLocation()
-                    }) {
-                        Text("分享目前位置")
-                            .font(.headline)
-                            .foregroundColor(.white)
-                            .padding()
-                            .frame(maxWidth: .infinity)
-                            .background(
-                                LinearGradient(colors: [Color.blue, Color.cyan], startPoint: .leading, endPoint: .trailing)
-                            )
-                            .cornerRadius(12)
-                            .shadow(color: Color.blue.opacity(0.3), radius: 6, x: 0, y: 3)
-                    }
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 10)
                 }
-                .padding()
-                .background(Color(.secondarySystemGroupedBackground))
-                .cornerRadius(14)
-                .shadow(color: Color.black.opacity(0.04), radius: 5, x: 0, y: 2)
-            } else if status == .denied || status == .restricted {
-                VStack(alignment: .center, spacing: 12) {
-                    Image(systemName: "location.slash.circle.fill")
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: 60, height: 60)
-                        .foregroundColor(.red)
-                        .padding(.top, 10)
-                    
-                    Text("定位權限已關閉")
-                        .font(.headline)
-                        .fontWeight(.semibold)
-                    
-                    Text("如欲使用此定位功能，請至系統設定開啟此應用的定位服務。")
-                        .font(.subheadline)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 40)
+                .listRowBackground(Color.clear)
+            } else if nearbyStops.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "mappin.slash")
+                        .font(.largeTitle)
                         .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 16)
-                    
-                    Button(action: {
-                        if let url = URL(string: UIApplication.openSettingsURLString) {
-                            UIApplication.shared.open(url)
-                        }
-                    }) {
-                        Text("開啟系統設定")
-                            .font(.headline)
-                            .foregroundColor(.white)
-                            .padding()
-                            .frame(maxWidth: .infinity)
-                            .background(Color.blue)
-                            .cornerRadius(12)
-                    }
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 10)
+                    Text("附近未發現巴士站。")
+                        .font(.headline)
+                        .foregroundColor(.secondary)
                 }
-                .padding()
-                .background(Color(.secondarySystemGroupedBackground))
-                .cornerRadius(14)
-                .shadow(color: Color.black.opacity(0.04), radius: 5, x: 0, y: 2)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 40)
+                .listRowBackground(Color.clear)
             } else {
-                if locationManager.location == nil || allStops.isEmpty {
-                    VStack(spacing: 12) {
-                        ProgressView()
-                            .scaleEffect(1.2)
-                        Text(allStops.isEmpty ? "正在載入巴士站數據庫..." : "正在尋找您的位置...")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 40)
-                } else if nearbyStops.isEmpty {
-                    VStack(spacing: 8) {
-                        Image(systemName: "mappin.slash")
-                            .font(.largeTitle)
-                            .foregroundColor(.secondary)
-                        Text("附近未發現巴士站。")
-                            .font(.headline)
-                            .foregroundColor(.secondary)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 40)
-                } else {
-                    ForEach(nearbyStops) { stopModel in
-                        let isExpanded = expandedStopIds.contains(stopModel.stopInfo.stop)
-                        
-                        VStack(alignment: .leading, spacing: isExpanded ? 12 : 0) {
-                            // Station Header Row (Vertically centered, simple grey chevron)
-                            Button(action: {
-                                withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
-                                    toggleStopExpanded(stopModel.stopInfo.stop)
-                                }
-                            }) {
-                                HStack(alignment: .center) {
-                                    Image(systemName: "mappin.and.ellipse")
-                                        .foregroundColor(.red)
+                ForEach(nearbyStops) { stopModel in
+                    let isExpanded = expandedStopIds.contains(stopModel.stopInfo.stop)
+                    
+                    Section {
+                        // Header Row (toggles expansion)
+                        Button(action: {
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
+                                toggleStopExpanded(stopModel.stopInfo.stop)
+                            }
+                        }) {
+                            HStack(alignment: .center) {
+                                Image(systemName: "mappin.and.ellipse")
+                                    .foregroundColor(.red)
+                                    .font(.headline)
+                                
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(stopModel.stopInfo.name_tc)
                                         .font(.headline)
+                                        .fontWeight(.semibold)
+                                        .foregroundColor(.primary)
+                                        .multilineTextAlignment(.leading)
+                                    Text(stopModel.stopInfo.name_en)
+                                        .font(.subheadline)
+                                        .foregroundColor(.secondary)
+                                        .multilineTextAlignment(.leading)
+                                }
+                                
+                                Spacer()
+                                
+                                HStack(spacing: 12) {
+                                    Text(formatDistance(stopModel.distance))
+                                        .font(.caption2)
+                                        .fontWeight(.bold)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(Color.blue.opacity(0.12))
+                                        .foregroundColor(.blue)
+                                        .cornerRadius(6)
                                     
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(stopModel.stopInfo.name_tc)
-                                            .font(.headline)
-                                            .fontWeight(.semibold)
-                                            .foregroundColor(.primary)
-                                            .multilineTextAlignment(.leading)
-                                        Text(stopModel.stopInfo.name_en)
-                                            .font(.subheadline)
-                                            .foregroundColor(.secondary)
-                                            .multilineTextAlignment(.leading)
-                                    }
-                                    
-                                    Spacer()
-                                    
-                                    HStack(spacing: 12) {
-                                        Text(formatDistance(stopModel.distance))
-                                            .font(.caption2)
-                                            .fontWeight(.bold)
-                                            .padding(.horizontal, 8)
-                                            .padding(.vertical, 4)
-                                            .background(Color.blue.opacity(0.12))
-                                            .foregroundColor(.blue)
-                                            .cornerRadius(6)
-                                        
-                                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                                            .font(.system(size: 14, weight: .bold))
-                                            .foregroundColor(.secondary)
-                                    }
+                                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                                        .font(.system(size: 14, weight: .bold))
+                                        .foregroundColor(.secondary)
                                 }
                             }
-                            .buttonStyle(.plain)
-                            
-                            if isExpanded {
-                                Divider()
-                                
-                                if stopModel.routes.isEmpty {
-                                    Text("目前無即時抵達班次或路線")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                        .padding(.vertical, 4)
-                                } else {
-                                    VStack(spacing: 12) {
-                                        ForEach(stopModel.routes) { route in
-                                            Button(action: {
-                                                selectedDirection = route.directionCode == "O" ? "outbound" : "inbound"
-                                                searchText = route.route
-                                                navigationTitle = route.route.uppercased()
-                                                Task {
-                                                    await searchRoute(route: route.route)
+                            .padding(.vertical, 4)
+                        }
+                        
+                        // Route items (if expanded)
+                        if isExpanded {
+                            if stopModel.routes.isEmpty {
+                                Text("目前無即時抵達班次或路線")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .padding(.vertical, 4)
+                            } else {
+                                ForEach(stopModel.routes) { route in
+                                    Button(action: {
+                                        selectedDirection = route.directionCode == "O" ? "outbound" : "inbound"
+                                        searchText = route.route
+                                        navigationTitle = route.route.uppercased()
+                                        targetScrollStopName = stopModel.stopInfo.name_tc
+                                        Task {
+                                            await searchRoute(route: route.route)
+                                        }
+                                    }) {
+                                        HStack(alignment: .center, spacing: 12) {
+                                            Text(route.route)
+                                                .font(.system(.body, design: .rounded))
+                                                .fontWeight(.bold)
+                                                .foregroundColor(.white)
+                                                .frame(width: 64, height: 36)
+                                                .background(
+                                                    RoundedRectangle(cornerRadius: 8)
+                                                        .fill(Color(red: 0.65, green: 0.08, blue: 0.12))
+                                                )
+                                            
+                                            VStack(alignment: .leading, spacing: 3) {
+                                                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                                                    Text("往")
+                                                        .font(.caption)
+                                                        .foregroundColor(.secondary)
+                                                    Text(route.destNameTc)
+                                                        .font(.system(size: 15, weight: .bold))
+                                                        .foregroundColor(.primary)
+                                                        .lineLimit(1)
                                                 }
-                                            }) {
-                                                HStack(alignment: .center, spacing: 12) {
-                                                    // Larger, fixed-size route badge for aligned column layout
-                                                    Text(route.route)
-                                                        .font(.system(.body, design: .rounded))
-                                                        .fontWeight(.bold)
-                                                        .foregroundColor(.white)
-                                                        .frame(width: 64, height: 36)
-                                                        .background(
-                                                            RoundedRectangle(cornerRadius: 8)
-                                                                .fill(Color(red: 0.65, green: 0.08, blue: 0.12))
-                                                        )
-                                                    
-                                                    // Uniformly aligned destination texts
-                                                    VStack(alignment: .leading, spacing: 3) {
-                                                        HStack(alignment: .firstTextBaseline, spacing: 4) {
-                                                            Text("往")
-                                                                .font(.caption)
-                                                                .foregroundColor(.secondary)
-                                                            Text(route.destNameTc)
-                                                                .font(.system(size: 15, weight: .bold))
-                                                                .foregroundColor(.primary)
-                                                                .lineLimit(1)
-                                                        }
-                                                        Text("to \(route.destNameEn)")
-                                                            .font(.system(size: 12))
-                                                            .foregroundColor(.secondary)
-                                                            .lineLimit(1)
-                                                    }
-                                                    
-                                                    Spacer()
-                                                    
-                                                    // Displays only the nearest (single closest) arrival time on the main page
-                                                    HStack(spacing: 6) {
-                                                        if let firstEta = route.etas.first {
-                                                            Text(firstEta.replacingOccurrences(of: "分鐘", with: "分"))
-                                                                .font(.system(size: 14, weight: .semibold, design: .rounded))
-                                                                .foregroundColor(.primary)
-                                                        } else {
-                                                            Text("無即時班次")
-                                                                .font(.caption2)
-                                                                .foregroundColor(.secondary)
-                                                        }
-                                                        
-                                                        Image(systemName: "chevron.right")
-                                                            .font(.caption)
-                                                            .foregroundColor(.secondary)
-                                                    }
-                                                }
-                                                .padding(.vertical, 6)
-                                                .contentShape(Rectangle())
+                                                Text("to \(route.destNameEn)")
+                                                    .font(.system(size: 12))
+                                                    .foregroundColor(.secondary)
+                                                    .lineLimit(1)
                                             }
-                                            .buttonStyle(.plain)
+                                            
+                                            Spacer()
+                                            
+                                            HStack(spacing: 6) {
+                                                if let firstEta = route.etas.first, let etaDate = firstEta.etaDate {
+                                                    let minutesLeft = max(0, Int(etaDate.timeIntervalSince(currentTime) / 60))
+                                                    Text("\(minutesLeft)分")
+                                                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                                        .foregroundColor(.primary)
+                                                } else {
+                                                    Text("無即時班次")
+                                                        .font(.caption2)
+                                                        .foregroundColor(.secondary)
+                                                }
+                                                
+                                                Image(systemName: "chevron.right")
+                                                    .font(.caption)
+                                                    .foregroundColor(.secondary)
+                                            }
+                                        }
+                                        .padding(.vertical, 4)
+                                        .contentShape(Rectangle())
+                                    }
+                                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                        if let firstEtaDate = route.etas.first?.etaDate,
+                                           firstEtaDate.timeIntervalSince(currentTime) > 120 {
+                                            Button {
+                                                timerTargetDate = firstEtaDate
+                                                timerRouteName = route.route
+                                                timerDestination = route.destNameTc
+                                                showingAddTimerAlert = true
+                                            } label: {
+                                                Label("提醒", systemImage: "bell.fill")
+                                            }
+                                            .tint(.blue)
                                         }
                                     }
                                 }
                             }
                         }
-                        .padding()
-                        .background(Color(.secondarySystemGroupedBackground))
-                        .cornerRadius(14)
-                        .shadow(color: Color.black.opacity(0.04), radius: 5, x: 0, y: 2)
                     }
                 }
             }
@@ -587,8 +715,6 @@ struct ContentView: View {
         await MainActor.run {
             self.nearbyStops = populated
             self.isSearchingNearby = false
-            // Keep stops collapsed by default
-            self.expandedStopIds = []
         }
     }
     
@@ -612,13 +738,10 @@ struct ContentView: View {
                 guard let first = items.first else { continue }
                 let sortedItems = items.sorted { $0.eta_seq < $1.eta_seq }
                 
-                var etaStrings: [String] = []
+                var etaInfos: [ETADisplayInfo] = []
                 for etaItem in sortedItems {
                     if let etaString = etaItem.eta, let etaDate = dateFormatter.date(from: etaString) {
-                        let minutesLeft = max(0, Int(etaDate.timeIntervalSince(now) / 60))
-                        let remark = etaItem.rmk_tc ?? ""
-                        let formattedRemark = remark.isEmpty ? "" : " (\(remark))"
-                        etaStrings.append("\(minutesLeft)分鐘\(formattedRemark)")
+                        etaInfos.append(ETADisplayInfo(etaDate: etaDate, remark: etaItem.rmk_tc))
                     }
                 }
                 
@@ -627,7 +750,7 @@ struct ContentView: View {
                     directionCode: first.dir,
                     destNameEn: first.dest_en,
                     destNameTc: first.dest_tc,
-                    etas: etaStrings
+                    etas: etaInfos
                 ))
             }
             
@@ -676,13 +799,10 @@ struct ContentView: View {
                 let seqInt = Int(routeStop.seq) ?? 0
                 let stopEtas = filteredEtas.filter { $0.seq == seqInt }
                 
-                var parsedEtas: [String] = []
+                var parsedEtas: [ETADisplayInfo] = []
                 for etaItem in stopEtas {
                     if let etaString = etaItem.eta, let etaDate = dateFormatter.date(from: etaString) {
-                        let minutesLeft = max(0, Int(etaDate.timeIntervalSince(now) / 60))
-                        let remark = etaItem.rmk_tc ?? ""
-                        let formattedRemark = remark.isEmpty ? "" : " (\(remark))"
-                        parsedEtas.append("\(minutesLeft)分鐘\(formattedRemark)")
+                        parsedEtas.append(ETADisplayInfo(etaDate: etaDate, remark: etaItem.rmk_tc))
                     }
                 }
                 
@@ -705,4 +825,119 @@ struct ContentView: View {
         
         isLoading = false
     }
+    
+    @ViewBuilder
+    private func activeTimerCard(timer: ActiveTimerModel) -> some View {
+        let secondsLeft = max(0, Int(timer.targetAlertDate.timeIntervalSince(currentTime)))
+        let minutes = secondsLeft / 60
+        let seconds = secondsLeft % 60
+        
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center) {
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(secondsLeft > 0 ? Color.green : Color.red)
+                        .frame(width: 8, height: 8)
+                        .opacity(secondsLeft > 0 && (Int(currentTime.timeIntervalSince1970) % 2 == 0) ? 0.4 : 1.0)
+                    
+                    Text("倒數提醒中 (巴士抵站前 2 分鐘)")
+                        .font(.caption)
+                        .fontWeight(.bold)
+                        .foregroundColor(.blue)
+                }
+                
+                Spacer()
+                
+                Button(action: {
+                    withAnimation {
+                        activeTimer = nil
+                        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["KMBTimeAlarm"])
+                    }
+                }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.secondary)
+                        .font(.title3)
+                }
+                .buttonStyle(.plain)
+            }
+            
+            HStack(spacing: 16) {
+                Text(timer.routeName)
+                    .font(.system(.title3, design: .rounded))
+                    .fontWeight(.bold)
+                    .foregroundColor(.white)
+                    .frame(width: 64, height: 38)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color.blue)
+                    )
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("往 \(timer.destination)")
+                        .font(.headline)
+                        .fontWeight(.semibold)
+                    Text("預計抵達: \(formattedTime(timer.etaDate))")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+                
+                Spacer()
+                
+                Text(String(format: "%02d:%02d", minutes, seconds))
+                    .font(.system(.title, design: .monospaced))
+                    .fontWeight(.bold)
+                    .foregroundColor(.blue)
+            }
+        }
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 14)
+                .fill(Color(.secondarySystemGroupedBackground))
+                .shadow(color: Color.blue.opacity(0.12), radius: 8, x: 0, y: 3)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(Color.blue.opacity(0.3), lineWidth: 1)
+        )
+        .transition(.asymmetric(insertion: .opacity.combined(with: .move(edge: .top)), removal: .opacity))
+    }
+    
+    func formattedTime(_ date: Date?) -> String {
+        guard let date = date else { return "" }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: date)
+    }
+    
+    func scheduleLocalNotification(routeName: String, destination: String, alertDate: Date) {
+        // Cancel existing timer notification
+        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["KMBTimeAlarm"])
+        
+        let content = UNMutableNotificationContent()
+        content.title = "巴士即將抵達！"
+        content.body = "您設定的 \(routeName) (往 \(destination)) 巴士即將在 2 分鐘內抵達，請準備上車。"
+        content.sound = .default
+        
+        let timeInterval = alertDate.timeIntervalSince(Date())
+        guard timeInterval > 0 else { return }
+        
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: timeInterval, repeats: false)
+        let request = UNNotificationRequest(identifier: "KMBTimeAlarm", content: content, trigger: trigger)
+        
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error = error {
+                print("Failed to schedule local notification: \(error)")
+            }
+        }
+    }
 }
+
+struct ActiveTimerModel: Identifiable, Equatable {
+    let id = UUID()
+    let routeName: String
+    let destination: String
+    let etaDate: Date
+    let targetAlertDate: Date
+}
+
+

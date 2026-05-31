@@ -139,218 +139,225 @@ struct ContentView: View {
     }
     
     var body: some View {
-        NavigationStack {
-            ScrollViewReader { proxy in
-                VStack(spacing: 0) {
-                    // Custom Search Bar Top
-                HStack {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundColor(.secondary)
-                    Text(searchText.isEmpty ? "輸入路線 (例如 1A)" : searchText)
-                        .foregroundColor(searchText.isEmpty ? .secondary : .primary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    
-                    if !searchText.isEmpty {
-                        Button(action: {
-                            searchText = ""
-                            displayData = []
-                            navigationTitle = "九巴即時到站"
-                        }) {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundColor(.secondary)
-                                .font(.system(size: 18))
-                        }
-                    }
-                }
-                .padding(10)
-                .background(Color(.systemGray5))
-                .cornerRadius(10)
-                .padding(.horizontal)
-                .padding(.vertical, 8)
-                .background(themeBackground)
-                .onTapGesture {
-                    withAnimation(.spring()) { showCustomKeyboard = true }
-                }
-
+            NavigationStack {
+                ScrollViewReader { proxy in
                     List {
-                    if let timer = activeTimer {
-                        activeTimerCard(timer: timer)
-                            .listRowBackground(Color.clear)
-                            .listRowInsets(EdgeInsets())
-                    }
-                    
-                    if searchText.isEmpty {
-                        nearbyDashboardSection
-                    } else {
-                        // Segmented direction switcher inside ScrollView content
-                        Picker("Direction", selection: $selectedDirection) {
-                            Text("去程 (Outbound)").tag("outbound")
-                            Text("回程 (Inbound)").tag("inbound")
-                        }
-                        .pickerStyle(.segmented)
-                        .onChange(of: selectedDirection) { _ in
+                        // 1. Native-Looking Custom Search Bar (Inside the List)
+                        HStack(spacing: 6) {
+                            Image(systemName: "magnifyingglass")
+                                .foregroundColor(Color(UIColor.systemGray))
+                                .font(.system(size: 17))
+                            
+                            Text(searchText.isEmpty ? "輸入路線 (例如 1A)" : searchText)
+                                .foregroundColor(searchText.isEmpty ? Color(UIColor.placeholderText) : .primary)
+                                .font(.system(size: 17))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            
                             if !searchText.isEmpty {
-                                Task {
-                                    await searchRoute(route: searchText.uppercased())
+                                Button(action: {
+                                    searchText = ""
+                                    displayData = []
+                                    navigationTitle = "九巴即時到站"
+                                }) {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .foregroundColor(Color(UIColor.systemGray3))
+                                        .font(.system(size: 17))
                                 }
                             }
                         }
-                        .listRowBackground(Color.clear)
+                        .padding(.horizontal, 8)
+                        .frame(height: 36)
+                        .background(Color(UIColor.systemGray5)) // 1. Inner pill background (slightly darker so it pops)
+                        .cornerRadius(20)
+                        .padding(.vertical, 8)
+                        .listRowBackground(themeBackground) // 2. Fills the empty space around the bar with your theme color
                         .listRowInsets(EdgeInsets())
+                        .listRowSeparator(.hidden)
+                        .onTapGesture {
+                            withAnimation(.spring()) { showCustomKeyboard = true }
+                        }
+
+                        // 2. Active Timer Card
+                        if let timer = activeTimer {
+                            activeTimerCard(timer: timer)
+                                .listRowBackground(Color.clear)
+                                .listRowInsets(EdgeInsets())
+                                .listRowSeparator(.hidden)
+                        }
                         
-                        timetableSection
+                        // 3. Main Content Sections
+                        if searchText.isEmpty {
+                            nearbyDashboardSection
+                        } else {
+                            // Segmented direction switcher
+                            Picker("Direction", selection: $selectedDirection) {
+                                Text("去程 (Outbound)").tag("outbound")
+                                Text("回程 (Inbound)").tag("inbound")
+                            }
+                            .pickerStyle(.segmented)
+                            .onChange(of: selectedDirection) { _ in
+                                if !searchText.isEmpty {
+                                    Task {
+                                        await searchRoute(route: searchText.uppercased())
+                                    }
+                                }
+                            }
                             .listRowBackground(Color.clear)
                             .listRowInsets(EdgeInsets())
-                    }
+                            .listRowSeparator(.hidden)
+                            
+                            timetableSection
+                                .listRowBackground(Color.clear)
+                                .listRowInsets(EdgeInsets())
+                                .listRowSeparator(.hidden)
+                        }
                     }
                     .listStyle(.insetGrouped)
                     .scrollContentBackground(.hidden)
                     .background(themeBackground)
-            } // Close VStack
-            .overlay(alignment: .bottom) {
-                if showCustomKeyboard {
-                    CustomKeyboardView(
-                        text: $searchText,
-                        onSearch: {
-                            showCustomKeyboard = false
-                            Task {
-                                await searchRoute(route: searchText.uppercased())
-                            }
-                        },
-                        onDismiss: {
-                            withAnimation(.spring()) { showCustomKeyboard = false }
+                    
+                    // 4. Custom Keyboard Overlay & Modifiers
+                    .overlay(alignment: .bottom) {
+                        if showCustomKeyboard {
+                            CustomKeyboardView(
+                                text: $searchText,
+                                onSearch: {
+                                    showCustomKeyboard = false
+                                    Task {
+                                        await searchRoute(route: searchText.uppercased())
+                                    }
+                                },
+                                onDismiss: {
+                                    withAnimation(.spring()) { showCustomKeyboard = false }
+                                }
+                            )
+                            .transition(.move(edge: .bottom))
                         }
-                    )
-                    .transition(.move(edge: .bottom))
-                }
-            }
-            .navigationTitle(searchText.isEmpty ? "九巴即時到站" : navigationTitle)
-            .navigationBarTitleDisplayMode(.large) // Native large title support
-            .onChange(of: searchText) { newValue in
-                if newValue.isEmpty {
-                    displayData = []
-                    navigationTitle = "九巴即時到站"
-                } else {
-                    navigationTitle = newValue.uppercased()
-                }
-            }
-            .overlay {
-                if isLoading {
-                    ProgressView("正在獲取數據...")
-                } else if displayData.isEmpty && !searchText.isEmpty {
-                    Text(systemMessage)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding()
-                }
-            }
-            .toolbar {
-                if !searchText.isEmpty {
-                    ToolbarItem(placement: .navigationBarLeading) {
-                        Button(action: {
-                            searchText = ""
+                    }
+                    .navigationTitle(searchText.isEmpty ? "九巴即時到站" : navigationTitle)
+                    .navigationBarTitleDisplayMode(.large)
+                    .onChange(of: searchText) { newValue in
+                        if newValue.isEmpty {
                             displayData = []
                             navigationTitle = "九巴即時到站"
-                        }) {
-                            HStack(spacing: 4) {
-                                Image(systemName: "chevron.left")
-                                    .fontWeight(.bold)
-                                Text("返回")
+                        } else {
+                            navigationTitle = newValue.uppercased()
+                        }
+                    }
+                    .overlay {
+                        if isLoading {
+                            ProgressView("正在獲取數據...")
+                        } else if displayData.isEmpty && !searchText.isEmpty {
+                            Text(systemMessage)
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                                .padding()
+                        }
+                    }
+                    .toolbar {
+                        if !searchText.isEmpty {
+                            ToolbarItem(placement: .navigationBarLeading) {
+                                Button(action: {
+                                    searchText = ""
+                                    displayData = []
+                                    navigationTitle = "九巴即時到站"
+                                }) {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "chevron.left")
+                                            .fontWeight(.bold)
+                                        Text("返回")
+                                    }
+                                }
                             }
                         }
                     }
-                }
-            }
-            .onReceive(refreshTimer) { _ in
-                // Automatically refresh ETAs when the app remains open
-                Task {
-                    if searchText.isEmpty {
+                    .onReceive(refreshTimer) { _ in
+                        Task {
+                            if searchText.isEmpty {
+                                if let location = locationManager.location {
+                                    await updateNearbyStops(userLocation: location)
+                                }
+                            } else if !displayData.isEmpty {
+                                await searchRoute(route: searchText.uppercased())
+                            }
+                        }
+                    }
+                    .onReceive(clockTimer) { _ in
+                        currentTime = Date()
+                        if let timer = activeTimer {
+                            let secondsLeft = timer.targetAlertDate.timeIntervalSince(currentTime)
+                            if secondsLeft <= 0 {
+                                let generator = UINotificationFeedbackGenerator()
+                                generator.notificationOccurred(.success)
+                                showingTimerCompletedAlert = true
+                                activeTimer = nil
+                                endLiveActivity()
+                                UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["KMBTimeAlarm"])
+                            }
+                        }
+                    }
+                    .onChange(of: displayData.isEmpty) { isEmpty in
+                        if !isEmpty, let target = targetScrollStopName {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) {
+                                    proxy.scrollTo(target, anchor: .center)
+                                }
+                                targetScrollStopName = nil
+                            }
+                        }
+                    }
+                    .alert("設定巴士抵站提醒", isPresented: $showingAddTimerAlert) {
+                        Button("設定提醒", role: .none) {
+                            if let etaDate = timerTargetDate {
+                                UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
+                                    if granted {
+                                        scheduleLocalNotification(
+                                            routeName: timerRouteName,
+                                            destination: timerDestination,
+                                            alertDate: etaDate.addingTimeInterval(-120)
+                                        )
+                                    }
+                                }
+                                
+                                startLiveActivity(routeName: timerRouteName, destination: timerDestination, etaDate: etaDate, startTime: Date())
+                                
+                                withAnimation {
+                                    activeTimer = ActiveTimerModel(
+                                        routeName: timerRouteName,
+                                        destination: timerDestination,
+                                        etaDate: etaDate,
+                                        targetAlertDate: etaDate.addingTimeInterval(-120),
+                                        startTime: Date()
+                                    )
+                                }
+                            }
+                        }
+                        Button("取消", role: .cancel) {}
+                    } message: {
+                        Text("您是否要為 \(timerRouteName) 路線設定提醒？系統將在巴士預計抵達前 2 分鐘（即 \(formattedTime(timerTargetDate?.addingTimeInterval(-120) ?? Date()))）提醒您。")
+                    }
+                    .alert("巴士即將抵達！", isPresented: $showingTimerCompletedAlert) {
+                        Button("好", role: .cancel) {}
+                    } message: {
+                        Text("您設定的巴士即將在 2 分鐘內抵達，請準備上車。")
+                    }
+                    .task {
+                        await loadAllStops()
+                        if locationManager.authorizationStatus == .authorizedWhenInUse || locationManager.authorizationStatus == .authorizedAlways {
+                            locationManager.requestLocation()
+                        }
+                        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+                    }
+                    .onChange(of: locationManager.location) { _ in
                         if let location = locationManager.location {
-                            await updateNearbyStops(userLocation: location)
-                        }
-                    } else if !displayData.isEmpty {
-                        await searchRoute(route: searchText.uppercased())
-                    }
-                }
-            }
-            .onReceive(clockTimer) { _ in
-                currentTime = Date()
-                if let timer = activeTimer {
-                    let secondsLeft = timer.targetAlertDate.timeIntervalSince(currentTime)
-                    if secondsLeft <= 0 {
-                        let generator = UINotificationFeedbackGenerator()
-                        generator.notificationOccurred(.success)
-                        showingTimerCompletedAlert = true
-                        activeTimer = nil
-                        endLiveActivity()
-                        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["KMBTimeAlarm"])
-                    }
-                }
-            }
-            .onChange(of: displayData.isEmpty) { isEmpty in
-                if !isEmpty, let target = targetScrollStopName {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) {
-                            proxy.scrollTo(target, anchor: .center)
-                        }
-                        targetScrollStopName = nil
-                    }
-                }
-            }
-            .alert("設定巴士抵站提醒", isPresented: $showingAddTimerAlert) {
-                Button("設定提醒", role: .none) {
-                    if let etaDate = timerTargetDate {
-                        // Request notification permissions dynamically and schedule background reminder
-                        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
-                            if granted {
-                                scheduleLocalNotification(
-                                    routeName: timerRouteName,
-                                    destination: timerDestination,
-                                    alertDate: etaDate.addingTimeInterval(-120)
-                                )
+                            Task {
+                                await updateNearbyStops(userLocation: location)
                             }
                         }
-                        
-                        startLiveActivity(routeName: timerRouteName, destination: timerDestination, etaDate: etaDate, startTime: Date())
-                        
-                        withAnimation {
-                            activeTimer = ActiveTimerModel(
-                                routeName: timerRouteName,
-                                destination: timerDestination,
-                                etaDate: etaDate,
-                                targetAlertDate: etaDate.addingTimeInterval(-120),
-                                startTime: Date()
-                            )
-                        }
-                    }
-                }
-                Button("取消", role: .cancel) {}
-            } message: {
-                Text("您是否要為 \(timerRouteName) 路線設定提醒？系統將在巴士預計抵達前 2 分鐘（即 \(formattedTime(timerTargetDate?.addingTimeInterval(-120) ?? Date()))）提醒您。")
-            }
-            .alert("巴士即將抵達！", isPresented: $showingTimerCompletedAlert) {
-                Button("好", role: .cancel) {}
-            } message: {
-                Text("您設定的巴士即將在 2 分鐘內抵達，請準備上車。")
-            }
-            .task {
-                await loadAllStops()
-                if locationManager.authorizationStatus == .authorizedWhenInUse || locationManager.authorizationStatus == .authorizedAlways {
-                    locationManager.requestLocation()
-                }
-                // Request background alert permissions on startup
-                UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
-            }
-            .onChange(of: locationManager.location) { _ in
-                if let location = locationManager.location {
-                    Task {
-                        await updateNearbyStops(userLocation: location)
                     }
                 }
             }
-            } // Close ScrollViewReader
         }
-    }
     
     // MARK: - Core Theme Background (Pure Native Apple Style)
     private var themeBackground: some View {
@@ -1089,70 +1096,72 @@ struct CustomKeyboardView: View {
     ]
     
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 12) {
+            // Toolbar Area
             HStack {
                 Spacer()
                 Button(action: onDismiss) {
                     Text("完成")
-                        .fontWeight(.bold)
+                        .font(.system(size: 16, weight: .bold))
                         .foregroundColor(.blue)
-                        .padding(.trailing, 20)
+                        .padding(.trailing, 16)
                 }
             }
-            .padding(.top, 12)
+            .padding(.top, 10)
             
-            ForEach(rows, id: \.self) { row in
-                HStack(spacing: 8) {
-                    if row == rows.last {
-                        Spacer(minLength: 4)
-                    }
-                    ForEach(row, id: \.self) { key in
-                        Button(action: { text.append(key) }) {
-                            Text(key)
-                                .font(.system(size: 22, weight: .regular))
-                                .frame(width: 34, height: 46)
-                                .background(Color(.systemBackground))
-                                .cornerRadius(6)
-                                .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 1)
-                                .foregroundColor(.primary)
-                        }
-                    }
-                    if row == rows.last {
-                        Button(action: {
-                            if !text.isEmpty { text.removeLast() }
-                        }) {
-                            Image(systemName: "delete.left")
-                                .font(.system(size: 20))
-                                .frame(width: 50, height: 46)
-                                .background(Color(.systemGray4))
-                                .cornerRadius(6)
-                                .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 1)
-                                .foregroundColor(.primary)
+            // Keys Area
+            VStack(spacing: 12) {
+                ForEach(rows, id: \.self) { row in
+                    HStack(spacing: 6) {
+                        ForEach(row, id: \.self) { key in
+                            Button(action: { text.append(key) }) {
+                                Text(key)
+                                    .font(.system(size: 24, weight: .regular))
+                                    .frame(maxWidth: .infinity, minHeight: 46)
+                                    .background(Color(UIColor.systemBackground)) // Pure white/black key
+                                    .cornerRadius(5) // Standard Apple key radius
+                                    .shadow(color: Color.black.opacity(0.3), radius: 0, x: 0, y: 1) // Apple key drop shadow
+                                    .foregroundColor(.primary)
+                            }
                         }
                         
-                        Button(action: {
-                            onSearch()
-                        }) {
-                            Text("搜尋")
-                                .font(.headline)
-                                .frame(width: 60, height: 46)
-                                .background(Color.blue)
-                                .cornerRadius(6)
-                                .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 1)
-                                .foregroundColor(.white)
+                        // For the last row, seamlessly append Delete and Search keys
+                        if row == rows.last {
+                            Button(action: {
+                                if !text.isEmpty { text.removeLast() }
+                            }) {
+                                Image(systemName: "delete.left")
+                                    .font(.system(size: 20))
+                                    .frame(maxWidth: .infinity, minHeight: 46)
+                                    .background(Color(UIColor.systemGray4)) // Action keys are slightly darker
+                                    .cornerRadius(5)
+                                    .shadow(color: Color.black.opacity(0.3), radius: 0, x: 0, y: 1)
+                                    .foregroundColor(.primary)
+                            }
+                            
+                            Button(action: {
+                                onSearch()
+                            }) {
+                                Text("搜尋")
+                                    .font(.system(size: 16, weight: .bold))
+                                    .frame(maxWidth: .infinity, minHeight: 46)
+                                    .background(Color.blue)
+                                    .cornerRadius(5)
+                                    .shadow(color: Color.black.opacity(0.3), radius: 0, x: 0, y: 1)
+                                    .foregroundColor(.white)
+                            }
                         }
-                        Spacer(minLength: 4)
                     }
                 }
             }
+            .padding(.horizontal, 6) // Padding to prevent bleeding to the absolute edge
         }
         .padding(.bottom, 20)
         .background(
-            Color(UIColor.systemGray3)
+            Color(UIColor.systemGray5) // Native iOS keyboard background color
                 .shadow(color: .black.opacity(0.1), radius: 10, y: -5)
                 .ignoresSafeArea()
         )
     }
 }
-
 

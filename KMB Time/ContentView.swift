@@ -110,7 +110,8 @@ struct ContentView: View {
     @State private var isSearchingNearby = false
     
     // Explicit Navigation Title State
-    @State private var navigationTitle = "九巴即時到站"
+   
+    @State private var timerStationName = ""
     
     // Auto-refresh timer to keep ETA countdowns fresh (ticks every 30 seconds)
     private let refreshTimer = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
@@ -153,23 +154,12 @@ struct ContentView: View {
                                 .font(.system(size: 17))
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             
-                            if !searchText.isEmpty {
-                                Button(action: {
-                                    searchText = ""
-                                    displayData = []
-                                    navigationTitle = "九巴即時到站"
-                                }) {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .foregroundColor(Color(UIColor.systemGray3))
-                                        .font(.system(size: 17))
-                                }
-                            }
                         }
                         .padding(.horizontal, 8)
-                        .frame(height: 36)
+                        .frame(height: 48)
                         .background(Color(UIColor.systemGray5)) // 1. Inner pill background (slightly darker so it pops)
                         .cornerRadius(20)
-                        .padding(.vertical, 8)
+                        .padding(.top, 16)
                         .listRowBackground(themeBackground) // 2. Fills the empty space around the bar with your theme color
                         .listRowInsets(EdgeInsets())
                         .listRowSeparator(.hidden)
@@ -215,6 +205,7 @@ struct ContentView: View {
                     .listStyle(.insetGrouped)
                     .scrollContentBackground(.hidden)
                     .background(themeBackground)
+                    .listSectionSpacing(.custom(16))
                     
                     // 4. Custom Keyboard Overlay & Modifiers
                     .overlay(alignment: .bottom) {
@@ -234,16 +225,8 @@ struct ContentView: View {
                             .transition(.move(edge: .bottom))
                         }
                     }
-                    .navigationTitle(searchText.isEmpty ? "九巴即時到站" : navigationTitle)
+                    .navigationTitle(searchText.isEmpty ? "九巴到站預報" : "路線資料")
                     .navigationBarTitleDisplayMode(.large)
-                    .onChange(of: searchText) { newValue in
-                        if newValue.isEmpty {
-                            displayData = []
-                            navigationTitle = "九巴即時到站"
-                        } else {
-                            navigationTitle = newValue.uppercased()
-                        }
-                    }
                     .overlay {
                         if isLoading {
                             ProgressView("正在獲取數據...")
@@ -260,7 +243,6 @@ struct ContentView: View {
                                 Button(action: {
                                     searchText = ""
                                     displayData = []
-                                    navigationTitle = "九巴即時到站"
                                 }) {
                                     HStack(spacing: 4) {
                                         Image(systemName: "chevron.left")
@@ -319,7 +301,7 @@ struct ContentView: View {
                                     }
                                 }
                                 
-                                startLiveActivity(routeName: timerRouteName, destination: timerDestination, etaDate: etaDate, startTime: Date())
+                                startLiveActivity(routeName: timerRouteName, destination: timerDestination, stationName: timerStationName, etaDate: etaDate, startTime: Date())
                                 
                                 withAnimation {
                                     activeTimer = ActiveTimerModel(
@@ -452,8 +434,11 @@ struct ContentView: View {
                 }
             }
         }
+        .padding(.top, 12)    // 稍微將文字同上面嘅元素推開少少
+        .padding(.bottom, -10) // ✨ 加入呢行！利用負數 padding 將第一張卡片強行向上拉近
         .listRowBackground(Color.clear)
-        .listRowInsets(EdgeInsets(top: 0, leading: 4, bottom: 0, trailing: 4))
+        // .listRowInsets(EdgeInsets(top: 0, leading: 4, bottom: 0, trailing: 4))
+        .listRowSeparator(.hidden) // <--- ADD THIS LINE HERE
         
         let status = locationManager.authorizationStatus
         
@@ -547,9 +532,10 @@ struct ContentView: View {
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 40)
+                // 1. Change the frame to have a minHeight to push it down
+                .frame(maxWidth: .infinity, minHeight: 250)
                 .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden) // 2. Hide the separator line here too!
             } else if nearbyStops.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "mappin.slash")
@@ -622,7 +608,6 @@ struct ContentView: View {
                                     Button(action: {
                                         selectedDirection = route.directionCode == "O" ? "outbound" : "inbound"
                                         searchText = route.route
-                                        navigationTitle = route.route.uppercased()
                                         targetScrollStopName = stopModel.stopInfo.name_tc
                                         Task {
                                             await searchRoute(route: route.route)
@@ -684,6 +669,7 @@ struct ContentView: View {
                                                 timerTargetDate = firstEtaDate
                                                 timerRouteName = route.route
                                                 timerDestination = route.destNameTc
+                                                timerStationName = stopModel.stopInfo.name_tc // <-- 喺度攞返個站名！
                                                 showingAddTimerAlert = true
                                             } label: {
                                                 Label("提醒", systemImage: "bell.fill")
@@ -871,9 +857,6 @@ struct ContentView: View {
                 systemMessage = "沒有找到路線 \(route) 的 \(selectedDirection == "outbound" ? "去程" : "回程") 班次數據。"
             } else {
                 displayData = results
-                await MainActor.run {
-                    self.navigationTitle = route.uppercased()
-                }
             }
             
         } catch {
@@ -931,27 +914,57 @@ struct ContentView: View {
             .padding([.top, .horizontal], 16)
             
             // ETA and Route info
-            VStack(spacing: 6) {
-                Text(minutes > 0 ? "\(minutes) 分鐘後抵達" : "即將抵達")
-                    .font(.system(size: 28, weight: .bold, design: .rounded))
-                    .foregroundColor(.primary)
-                
-                HStack(spacing: 8) {
+            HStack(alignment: .center) {
+                // 1. 左邊：路線資訊
+                HStack(spacing: 12) {
+                    // 路線號碼
                     Text(timer.routeName)
-                        .font(.headline)
-                        .fontWeight(.black)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
+                        .font(.system(size: 24, weight: .black))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
                         .background(Color(red: 0.85, green: 0.1, blue: 0.15))
                         .foregroundColor(.white)
-                        .cornerRadius(6)
+                        .cornerRadius(8)
                     
-                    Text("往 \(timer.destination)")
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.secondary)
+                    // 目的地及站名
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("往 \(timer.destination)")
+                            .font(.subheadline)
+                            .fontWeight(.bold)
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                        
+                        Text(timerStationName)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
                 }
+                
+                Spacer() // 🌟 這個 Spacer 會自動將左邊和右邊推到最盡，完美填滿兩側空間！
+                
+                // 2. 右邊：倒數時間
+                
+                if minutes > 0 {
+                    // 將數字和「分鐘」分開放，數字可以放到超大
+                    HStack(alignment: .firstTextBaseline, spacing: 2) {
+                        Text("\(minutes)")
+                            .font(.system(size: 38, weight: .bold, design: .rounded))
+                            .foregroundColor(.blue)
+                        
+                        Text("分鐘")
+                            .font(.subheadline)
+                            .fontWeight(.bold)
+                            .foregroundColor(.secondary)
+                    }
+                } else {
+                    Text("即將抵達")
+                        .font(.system(size: 24, weight: .bold, design: .rounded))
+                        .foregroundColor(.green)
+                }
+                
             }
+            .padding(.horizontal, 16)
             .padding(.top, 10)
             
             // Progress Bar and Bus Icon
@@ -1013,9 +1026,7 @@ struct ContentView: View {
         .background(
             RoundedRectangle(cornerRadius: 20)
                 .fill(Color(.secondarySystemGroupedBackground))
-                .shadow(color: Color.black.opacity(0.1), radius: 15, x: 0, y: 5)
         )
-        .padding(.horizontal, 16)
         .padding(.top, 8)
         .padding(.bottom, 8)
         .transition(.asymmetric(insertion: .opacity.combined(with: .move(edge: .top)), removal: .opacity.combined(with: .scale)))
@@ -1050,10 +1061,10 @@ struct ContentView: View {
         }
     }
     
-    func startLiveActivity(routeName: String, destination: String, etaDate: Date, startTime: Date) {
+    func startLiveActivity(routeName: String, destination: String, stationName: String, etaDate: Date, startTime: Date) {
         if ActivityAuthorizationInfo().areActivitiesEnabled {
             do {
-                let attributes = BusETAAttributes(routeName: routeName, destination: destination, startTime: startTime)
+                let attributes = BusETAAttributes(routeName: routeName, destination: destination, stationName: stationName, startTime: startTime)
                 let remaining = Int(etaDate.timeIntervalSince(Date()))
                 let state = BusETAAttributes.ContentState(etaDate: etaDate, remainingSeconds: remaining)
                 let content = ActivityContent(state: state, staleDate: nil)

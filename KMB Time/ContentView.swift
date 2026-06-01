@@ -52,7 +52,7 @@ struct ETADisplayInfo: Identifiable, Hashable {
 struct StopDisplayModel: Identifiable {
     let id = UUID()
     let seq: Int
-    let stopId: String // <--- 新增呢行
+    let stopId: String
     let stopNameTc: String
     let stopNameEn: String
     let etas: [ETADisplayInfo]
@@ -91,6 +91,22 @@ struct StopETAItem: Codable {
     let rmk_en: String?
 }
 
+// MARK: - Route Suggestion Models
+struct AllRoutesResponse: Codable { let data: [RouteItem] }
+struct RouteItem: Codable {
+    let route: String
+    let bound: String    // "O" (Outbound) or "I" (Inbound)
+    let orig_tc: String  // Origin Station
+    let dest_tc: String  // Destination Station
+}
+
+struct RouteSuggestion: Hashable {
+    let route: String
+    let bound: String
+    let origin: String
+    let destination: String
+}
+
 // MARK: - User Interface
 struct ContentView: View {
     @State private var searchText = ""
@@ -99,6 +115,9 @@ struct ContentView: View {
     @State private var stopDictionary: [String: String] = [:]
     @State private var stopInfoDictionary: [String: StopInfo] = [:]
     @State private var displayData: [StopDisplayModel] = []
+    
+    // Auto-complete variables
+    @State private var allRoutes: [RouteSuggestion] = []
     
     @State private var isLoading = false
     @State private var systemMessage = "搜尋九巴路線 (例如 1A, 281A)"
@@ -110,8 +129,6 @@ struct ContentView: View {
     @State private var expandedStopIds: Set<String> = []
     @State private var isSearchingNearby = false
     
-    // Explicit Navigation Title State
-   
     @State private var timerStationName = ""
     
     // Auto-refresh timer to keep ETA countdowns fresh (ticks every 30 seconds)
@@ -132,11 +149,17 @@ struct ContentView: View {
     // Auto-scroll target Stop ID/Name
     @State private var targetScrollStopId: String? = nil
     
-    // NEW: Custom Keyboard State
+    // Custom Keyboard State
     @State private var showCustomKeyboard = false
     
+    // Computed property to filter routes for auto-complete suggestions
+    var searchSuggestions: [RouteSuggestion] {
+        guard !searchText.isEmpty else { return [] }
+        let query = searchText.uppercased()
+        return allRoutes.filter { $0.route.uppercased().hasPrefix(query) }.prefix(30).map { $0 }
+    }
+    
     init() {
-        // Remove Segmented Control white background track to match background color
         UISegmentedControl.appearance().backgroundColor = .clear
     }
     
@@ -155,13 +178,24 @@ struct ContentView: View {
                                 .font(.system(size: 17))
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             
+                            // "X" Clear Button
+                            if !searchText.isEmpty {
+                                Button(action: {
+                                    searchText = ""
+                                    displayData = []
+                                }) {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .foregroundColor(Color(UIColor.systemGray3))
+                                        .font(.system(size: 17))
+                                }
+                            }
                         }
                         .padding(.horizontal, 8)
                         .frame(height: 48)
-                        .background(Color(UIColor.systemGray5)) // 1. Inner pill background (slightly darker so it pops)
+                        .background(Color(UIColor.systemGray5))
                         .cornerRadius(20)
                         .padding(.top, 16)
-                        .listRowBackground(themeBackground) // 2. Fills the empty space around the bar with your theme color
+                        .listRowBackground(themeBackground)
                         .listRowInsets(EdgeInsets())
                         .listRowSeparator(.hidden)
                         .onTapGesture {
@@ -177,10 +211,19 @@ struct ContentView: View {
                         }
                         
                         // 3. Main Content Sections
-                        if searchText.isEmpty {
+                        if showCustomKeyboard && !searchText.isEmpty {
+                            // SHOW SUGGESTIONS LIST WHILE TYPING
+                            suggestionsSection
+                                .listRowBackground(Color.clear)
+                                .listRowInsets(EdgeInsets())
+                                .listRowSeparator(.hidden)
+                            
+                        } else if searchText.isEmpty {
+                            // SHOW NEARBY DASHBOARD
                             nearbyDashboardSection
+                            
                         } else {
-                            // Segmented direction switcher
+                            // SHOW TIMETABLE RESULTS
                             Picker("Direction", selection: $selectedDirection) {
                                 Text("去程 (Outbound)").tag("outbound")
                                 Text("回程 (Inbound)").tag("inbound")
@@ -215,9 +258,7 @@ struct ContentView: View {
                                 text: $searchText,
                                 onSearch: {
                                     showCustomKeyboard = false
-                                    Task {
-                                        await searchRoute(route: searchText.uppercased())
-                                    }
+                                    Task { await searchRoute(route: searchText.uppercased()) }
                                 },
                                 onDismiss: {
                                     withAnimation(.spring()) { showCustomKeyboard = false }
@@ -226,16 +267,19 @@ struct ContentView: View {
                             .transition(.move(edge: .bottom))
                         }
                     }
-                    .navigationTitle(searchText.isEmpty ? "九巴到站預報" : "路線資料")
+                    .navigationTitle(searchText.isEmpty ? "九巴到站預報" : (showCustomKeyboard ? "搜尋路線" : "路線資料"))
                     .navigationBarTitleDisplayMode(.large)
                     .overlay {
-                        if isLoading {
-                            ProgressView("正在獲取數據...")
-                        } else if displayData.isEmpty && !searchText.isEmpty {
-                            Text(systemMessage)
-                                .foregroundColor(.secondary)
-                                .multilineTextAlignment(.center)
-                                .padding()
+                        // Display status messages when NOT actively typing
+                        if !showCustomKeyboard {
+                            if isLoading {
+                                ProgressView("正在獲取數據...")
+                            } else if displayData.isEmpty && !searchText.isEmpty {
+                                Text(systemMessage)
+                                    .foregroundColor(.secondary)
+                                    .multilineTextAlignment(.center)
+                                    .padding()
+                            }
                         }
                     }
                     .toolbar {
@@ -244,6 +288,7 @@ struct ContentView: View {
                                 Button(action: {
                                     searchText = ""
                                     displayData = []
+                                    withAnimation { showCustomKeyboard = false }
                                 }) {
                                     HStack(spacing: 4) {
                                         Image(systemName: "chevron.left")
@@ -260,7 +305,7 @@ struct ContentView: View {
                                 if let location = locationManager.location {
                                     await updateNearbyStops(userLocation: location)
                                 }
-                            } else if !displayData.isEmpty {
+                            } else if !displayData.isEmpty && !showCustomKeyboard {
                                 await searchRoute(route: searchText.uppercased())
                             }
                         }
@@ -281,7 +326,6 @@ struct ContentView: View {
                     }
                     .onChange(of: displayData.isEmpty) { isEmpty in
                         if !isEmpty, let target = targetScrollStopId {
-                            // 稍微拉長 delay 至 0.4 秒，確保 SwiftUI List 已經生成好 UI
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                                 withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) {
                                     proxy.scrollTo(target, anchor: .center)
@@ -327,6 +371,7 @@ struct ContentView: View {
                     }
                     .task {
                         await loadAllStops()
+                        await loadAllRoutes() // Fetch routes on launch
                         if locationManager.authorizationStatus == .authorizedWhenInUse || locationManager.authorizationStatus == .authorizedAlways {
                             locationManager.requestLocation()
                         }
@@ -343,10 +388,86 @@ struct ContentView: View {
             }
         }
     
-    // MARK: - Core Theme Background (Pure Native Apple Style)
+    // MARK: - Core Theme Background
     private var themeBackground: some View {
         Color(.systemGroupedBackground)
             .ignoresSafeArea()
+    }
+    
+    // MARK: - Auto-complete Suggestions Section (IN-PAGE)
+    @ViewBuilder
+    private var suggestionsSection: some View {
+        VStack(spacing: 0) {
+            if searchSuggestions.isEmpty {
+                HStack {
+                    Spacer()
+                    Text("找不到相關路線")
+                        .foregroundColor(.secondary)
+                        .padding(.vertical, 30)
+                    Spacer()
+                }
+            } else {
+                ForEach(searchSuggestions, id: \.self) { suggestion in
+                    Button(action: {
+                        // Apply selection and close keyboard
+                        searchText = suggestion.route
+                        selectedDirection = suggestion.bound == "O" ? "outbound" : "inbound"
+                        
+                        withAnimation(.spring()) {
+                            showCustomKeyboard = false
+                        }
+                        
+                        Task {
+                            await searchRoute(route: suggestion.route.uppercased())
+                        }
+                    }) {
+                        HStack(spacing: 16) {
+                            Text(suggestion.route)
+                                .font(.system(size: 16, weight: .bold, design: .rounded))
+                                .foregroundColor(.white)
+                                .frame(width: 52, height: 32)
+                                .background(Color(red: 0.65, green: 0.08, blue: 0.12))
+                                .cornerRadius(8)
+                            
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack(spacing: 4) {
+                                    Text(suggestion.origin)
+                                        .font(.system(size: 15, weight: .medium))
+                                        .foregroundColor(.primary)
+                                    
+                                    Image(systemName: "arrow.right")
+                                        .font(.system(size: 12, weight: .bold))
+                                        .foregroundColor(.secondary)
+                                    
+                                    Text(suggestion.destination)
+                                        .font(.system(size: 15, weight: .bold))
+                                        .foregroundColor(.primary)
+                                }
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.85)
+                            }
+                            
+                            Spacer()
+                            
+                            Image(systemName: "magnifyingglass")
+                                .font(.system(size: 14))
+                                .foregroundColor(Color(UIColor.tertiaryLabel))
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .contentShape(Rectangle())
+                    }
+                    
+                    if suggestion != searchSuggestions.last {
+                        Divider()
+                            .padding(.leading, 84) // Aligns with the text
+                    }
+                }
+            }
+        }
+        .background(Color(.secondarySystemGroupedBackground))
+        .cornerRadius(14)
+        .shadow(color: Color.black.opacity(0.04), radius: 5, x: 0, y: 2)
     }
     
     // MARK: - Timetable Route Content Section
@@ -386,12 +507,10 @@ struct ContentView: View {
                                     ForEach(0..<3, id: \.self) { index in
                                         let etaInfo = index < stop.etas.count ? stop.etas[index] : nil
                                         if let etaInfo = etaInfo, let etaDate = etaInfo.etaDate {
-                                            // 1. Calculate raw seconds left instead of shifting straight to minutes
                                             let secondsLeft = etaDate.timeIntervalSince(currentTime)
                                             let remark = etaInfo.remark ?? ""
                                             let formattedRemark = remark.isEmpty ? "" : " (\(remark))"
                                             
-                                            // 2. Apply the < 2 minutes (120 seconds) "Arriving" rule
                                             if secondsLeft < 120 {
                                                 Text("即將抵達\(formattedRemark)")
                                                     .font(.system(size: 15, weight: .bold, design: .rounded))
@@ -426,7 +545,6 @@ struct ContentView: View {
     // MARK: - Nearby Dashboard View
     @ViewBuilder
     private var nearbyDashboardSection: some View {
-        // Stop Header
         HStack {
             Text("附近巴士站")
                 .font(.title2)
@@ -446,11 +564,10 @@ struct ContentView: View {
                 }
             }
         }
-        .padding(.top, 12)    // 稍微將文字同上面嘅元素推開少少
-        .padding(.bottom, -10) // ✨ 加入呢行！利用負數 padding 將第一張卡片強行向上拉近
+        .padding(.top, 12)
+        .padding(.bottom, -10)
         .listRowBackground(Color.clear)
-        // .listRowInsets(EdgeInsets(top: 0, leading: 4, bottom: 0, trailing: 4))
-        .listRowSeparator(.hidden) // <--- ADD THIS LINE HERE
+        .listRowSeparator(.hidden)
         
         let status = locationManager.authorizationStatus
         
@@ -544,10 +661,9 @@ struct ContentView: View {
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                 }
-                // 1. Change the frame to have a minHeight to push it down
                 .frame(maxWidth: .infinity, minHeight: 250)
                 .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden) // 2. Hide the separator line here too!
+                .listRowSeparator(.hidden)
             } else if nearbyStops.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "mappin.slash")
@@ -565,7 +681,6 @@ struct ContentView: View {
                     let isExpanded = expandedStopIds.contains(stopModel.stopInfo.stop)
                     
                     Section {
-                        // Header Row (toggles expansion)
                         Button(action: {
                             withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
                                 toggleStopExpanded(stopModel.stopInfo.stop)
@@ -608,7 +723,6 @@ struct ContentView: View {
                             .padding(.vertical, 4)
                         }
                         
-                        // Route items (if expanded)
                         if isExpanded {
                             if stopModel.routes.isEmpty {
                                 Text("目前無即時抵達班次或路線")
@@ -618,20 +732,15 @@ struct ContentView: View {
                             } else {
                                 ForEach(stopModel.routes) { route in
                                     Button(action: {
-                                        // 1. 決定方向
                                         let newDir = route.directionCode == "O" ? "outbound" : "inbound"
-                                        
-                                        // 2. 同步更新所有狀態
                                         selectedDirection = newDir
                                         searchText = route.route
-                                        targetScrollStopId = stopModel.stopInfo.stop // 繼續保留用精準嘅 ID 來做 Scroll
+                                        targetScrollStopId = stopModel.stopInfo.stop
                                         
-                                        // 3. 刪除多餘嘅 if/else，每次都無條件直接手動 Call API！
                                         Task {
                                             await searchRoute(route: route.route)
                                         }
                                     }) {
-                                        // 呢度下面維持你原本嘅 HStack UI 設計...
                                         HStack(alignment: .center, spacing: 12) {
                                             Text(route.route)
                                                 .font(.system(.body, design: .rounded))
@@ -661,10 +770,7 @@ struct ContentView: View {
                                             
                                             Spacer()
                                             
-                                            // Look for this block inside nearbyDashboardSection:
                                             HStack(spacing: 6) {
-                                                
-                                                // 搵返 Dashboard 修改第一班車 ETA 嘅位置，換成呢段：
                                                 if let firstEta = route.etas.first, let etaDate = firstEta.etaDate {
                                                     let secondsLeft = etaDate.timeIntervalSince(currentTime)
                                                     
@@ -673,7 +779,6 @@ struct ContentView: View {
                                                             .font(.system(size: 14, weight: .bold, design: .rounded))
                                                             .foregroundColor(.green)
                                                     } else {
-                                                        // 改回顯示剩餘分鐘（例如：15 分鐘）
                                                         let minutesLeft = Int(secondsLeft / 60)
                                                         Text("\(minutesLeft) 分鐘")
                                                             .font(.system(size: 14, weight: .semibold, design: .rounded))
@@ -700,7 +805,7 @@ struct ContentView: View {
                                                 timerTargetDate = firstEtaDate
                                                 timerRouteName = route.route
                                                 timerDestination = route.destNameTc
-                                                timerStationName = stopModel.stopInfo.name_tc // <-- 喺度攞返個站名！
+                                                timerStationName = stopModel.stopInfo.name_tc
                                                 showingAddTimerAlert = true
                                             } label: {
                                                 Label("提醒", systemImage: "bell.fill")
@@ -734,6 +839,39 @@ struct ContentView: View {
     }
     
     // MARK: - Network Functions
+    func loadAllRoutes() async {
+        guard let url = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/route/") else { return }
+        do {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            let response = try JSONDecoder().decode(AllRoutesResponse.self, from: data)
+            
+            var uniqueSuggestions: [String: RouteSuggestion] = [:]
+            
+            for item in response.data {
+                let key = "\(item.route)-\(item.bound)"
+                if uniqueSuggestions[key] == nil {
+                    uniqueSuggestions[key] = RouteSuggestion(
+                        route: item.route,
+                        bound: item.bound,
+                        origin: item.orig_tc,
+                        destination: item.dest_tc
+                    )
+                }
+            }
+            
+            // Sort alphanumerically
+            let sortedRoutes = uniqueSuggestions.values.sorted {
+                if $0.route == $1.route { return $0.bound > $1.bound }
+                return $0.route.localizedStandardCompare($1.route) == .orderedAscending
+            }
+            
+            await MainActor.run {
+                self.allRoutes = sortedRoutes
+            }
+        } catch {
+            print("Failed to load all routes: \(error)")
+        }
+    }
     
     func loadAllStops() async {
         guard let url = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/stop/") else { return }
@@ -807,7 +945,6 @@ struct ContentView: View {
             
             var routes: [NearbyRouteModel] = []
             let dateFormatter = ISO8601DateFormatter()
-            let now = Date()
             
             for (_, items) in grouped {
                 guard let first = items.first else { continue }
@@ -857,7 +994,6 @@ struct ContentView: View {
             let filteredEtas = allEtas.filter { $0.dir == targetDirectionCode }
             
             let dateFormatter = ISO8601DateFormatter()
-            let now = Date()
             var results: [StopDisplayModel] = []
             
             for routeStop in routeStops {
@@ -883,7 +1019,7 @@ struct ContentView: View {
                 
                 results.append(StopDisplayModel(
                     seq: seqInt,
-                    stopId: routeStop.stop, // <--- 新增呢行，將 API 嘅真實 stop 碼記錄低
+                    stopId: routeStop.stop,
                     stopNameTc: stopNameTc,
                     stopNameEn: stopNameEn,
                     etas: parsedEtas
@@ -910,12 +1046,9 @@ struct ContentView: View {
             let elapsedTime = currentTime.timeIntervalSince(timer.startTime)
             let progress = totalTime > 0 ? min(1.0, max(0.0, elapsedTime / totalTime)) : 1.0
             
-            // 計算剩餘秒數用作判斷狀態
             let secondsLeft = max(0, Int(timer.etaDate.timeIntervalSince(currentTime)))
             
-            // Uber Style Live Tracker
             VStack(spacing: 0) {
-                // Header: Live Tracking
                 HStack {
                     HStack(spacing: 6) {
                         Circle()
@@ -949,20 +1082,16 @@ struct ContentView: View {
                 }
                 .padding([.top, .horizontal], 16)
                 
-                // ETA and Route info
                 HStack(alignment: .center) {
-                    // 1. 左邊：路線資訊
                     HStack(spacing: 12) {
-                        // 路線號碼
                         Text(timer.routeName)
                             .font(.system(size: 24, weight: .black))
                             .padding(.horizontal, 10)
                             .padding(.vertical, 6)
-                            .background(Color(red: 0.65, green: 0.08, blue: 0.12)) // 統一使用九巴標準紅
+                            .background(Color(red: 0.65, green: 0.08, blue: 0.12))
                             .foregroundColor(.white)
                             .cornerRadius(8)
                         
-                        // 目的地及站名
                         VStack(alignment: .leading, spacing: 4) {
                             Text("往 \(timer.destination)")
                                 .font(.subheadline)
@@ -979,7 +1108,6 @@ struct ContentView: View {
                     
                     Spacer()
                     
-                    // 2. 右邊：預計時間狀態（已移除倒數，改為大字絕對時間或即將抵達）
                     if secondsLeft < 120 {
                         Text("即將抵達")
                             .font(.system(size: 24, weight: .bold, design: .rounded))
@@ -993,24 +1121,20 @@ struct ContentView: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 10)
                 
-                // Progress Bar and Bus Icon
                 GeometryReader { geometry in
                     let barWidth = geometry.size.width
                     let busPosition = barWidth * CGFloat(progress)
                     
                     ZStack(alignment: .leading) {
-                        // Background Track
                         Capsule()
                             .fill(Color.gray.opacity(0.2))
                             .frame(height: 10)
                         
-                        // Fill Track
                         Capsule()
                             .fill(LinearGradient(colors: [.blue, .cyan], startPoint: .leading, endPoint: .trailing))
                             .frame(width: max(0, busPosition), height: 10)
                             .animation(.linear(duration: 1.0), value: progress)
                         
-                        // Bus Icon
                         Image(systemName: "bus.fill")
                             .font(.system(size: 18))
                             .foregroundColor(.white)
@@ -1025,7 +1149,6 @@ struct ContentView: View {
                 .padding(.top, 20)
                 .padding(.bottom, 24)
                 
-                // Footer Info（已完全移除 MM:SS 倒數時鐘）
                 HStack {
                     VStack(alignment: .leading) {
                         Text("預計到站時間")
@@ -1066,7 +1189,6 @@ struct ContentView: View {
     }
     
     func scheduleLocalNotification(routeName: String, destination: String, alertDate: Date) {
-        // Cancel existing timer notification
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["KMBTimeAlarm"])
         
         let content = UNMutableNotificationContent()
@@ -1134,6 +1256,7 @@ struct CustomKeyboardView: View {
     
     var body: some View {
         VStack(spacing: 12) {
+            
             // Toolbar Area
             HStack {
                 Spacer()
@@ -1155,14 +1278,13 @@ struct CustomKeyboardView: View {
                                 Text(key)
                                     .font(.system(size: 24, weight: .regular))
                                     .frame(maxWidth: .infinity, minHeight: 46)
-                                    .background(Color(UIColor.systemBackground)) // Pure white/black key
-                                    .cornerRadius(5) // Standard Apple key radius
-                                    .shadow(color: Color.black.opacity(0.3), radius: 0, x: 0, y: 1) // Apple key drop shadow
+                                    .background(Color(UIColor.systemBackground))
+                                    .cornerRadius(5)
+                                    .shadow(color: Color.black.opacity(0.3), radius: 0, x: 0, y: 1)
                                     .foregroundColor(.primary)
                             }
                         }
                         
-                        // For the last row, seamlessly append Delete and Search keys
                         if row == rows.last {
                             Button(action: {
                                 if !text.isEmpty { text.removeLast() }
@@ -1170,7 +1292,7 @@ struct CustomKeyboardView: View {
                                 Image(systemName: "delete.left")
                                     .font(.system(size: 20))
                                     .frame(maxWidth: .infinity, minHeight: 46)
-                                    .background(Color(UIColor.systemGray4)) // Action keys are slightly darker
+                                    .background(Color(UIColor.systemGray4))
                                     .cornerRadius(5)
                                     .shadow(color: Color.black.opacity(0.3), radius: 0, x: 0, y: 1)
                                     .foregroundColor(.primary)
@@ -1191,14 +1313,13 @@ struct CustomKeyboardView: View {
                     }
                 }
             }
-            .padding(.horizontal, 6) // Padding to prevent bleeding to the absolute edge
+            .padding(.horizontal, 6)
         }
         .padding(.bottom, 20)
         .background(
-            Color(UIColor.systemGray5) // Native iOS keyboard background color
+            Color(UIColor.systemGray5)
                 .shadow(color: .black.opacity(0.1), radius: 10, y: -5)
                 .ignoresSafeArea()
         )
     }
 }
-

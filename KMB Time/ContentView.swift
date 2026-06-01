@@ -16,7 +16,6 @@ struct StopResponse: Codable { let data: [StopInfo] }
 struct StopInfo: Codable {
     let stop: String
     let name_tc: String
-    let name_en: String
     let lat: String?
     let long: String?
 }
@@ -50,11 +49,11 @@ struct ETADisplayInfo: Identifiable, Hashable {
 }
 
 struct StopDisplayModel: Identifiable {
-    let id = UUID()
+    // Deterministic ID ensures background refreshes don't break the active scroll position
+    var id: String { "\(seq)-\(stopId)" }
     let seq: Int
     let stopId: String
     let stopNameTc: String
-    let stopNameEn: String
     let etas: [ETADisplayInfo]
 }
 
@@ -69,7 +68,6 @@ struct NearbyRouteModel: Identifiable {
     let id = UUID()
     let route: String
     let directionCode: String // "O" or "I"
-    let destNameEn: String
     let destNameTc: String
     let etas: [ETADisplayInfo]
 }
@@ -84,11 +82,9 @@ struct StopETAItem: Codable {
     let dir: String
     let service_type: Int
     let dest_tc: String
-    let dest_en: String
     let eta_seq: Int
     let eta: String?
     let rmk_tc: String?
-    let rmk_en: String?
 }
 
 // MARK: - Route Suggestion Models
@@ -146,8 +142,9 @@ struct ContentView: View {
     @State private var timerRouteName = ""
     @State private var timerDestination = ""
     
-    // Auto-scroll target Stop ID/Name
-    @State private var targetScrollStopId: String? = nil
+    // Track the targeted/closest station for highlighting & auto-scrolling
+    @State private var highlightedStopId: String? = nil
+    @State private var scrollTriggerId: UUID = UUID()
     
     // Custom Keyboard State
     @State private var showCustomKeyboard = false
@@ -167,7 +164,7 @@ struct ContentView: View {
             NavigationStack {
                 ScrollViewReader { proxy in
                     List {
-                        // 1. Native-Looking Custom Search Bar (Inside the List)
+                        // 1. Native-Looking Custom Search Bar
                         HStack(spacing: 6) {
                             Image(systemName: "magnifyingglass")
                                 .foregroundColor(Color(UIColor.systemGray))
@@ -177,18 +174,6 @@ struct ContentView: View {
                                 .foregroundColor(searchText.isEmpty ? Color(UIColor.placeholderText) : .primary)
                                 .font(.system(size: 17))
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                            
-                            // "X" Clear Button
-                            if !searchText.isEmpty {
-                                Button(action: {
-                                    searchText = ""
-                                    displayData = []
-                                }) {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .foregroundColor(Color(UIColor.systemGray3))
-                                        .font(.system(size: 17))
-                                }
-                            }
                         }
                         .padding(.horizontal, 8)
                         .frame(height: 48)
@@ -232,7 +217,7 @@ struct ContentView: View {
                             .onChange(of: selectedDirection) { _ in
                                 if !searchText.isEmpty {
                                     Task {
-                                        await searchRoute(route: searchText.uppercased())
+                                        await searchRoute(route: searchText.uppercased(), findNearest: true, shouldScroll: true)
                                     }
                                 }
                             }
@@ -258,7 +243,7 @@ struct ContentView: View {
                                 text: $searchText,
                                 onSearch: {
                                     showCustomKeyboard = false
-                                    Task { await searchRoute(route: searchText.uppercased()) }
+                                    Task { await searchRoute(route: searchText.uppercased(), findNearest: true, shouldScroll: true) }
                                 },
                                 onDismiss: {
                                     withAnimation(.spring()) { showCustomKeyboard = false }
@@ -270,7 +255,6 @@ struct ContentView: View {
                     .navigationTitle(searchText.isEmpty ? "九巴到站預報" : (showCustomKeyboard ? "搜尋路線" : "路線資料"))
                     .navigationBarTitleDisplayMode(.large)
                     .overlay {
-                        // Display status messages when NOT actively typing
                         if !showCustomKeyboard {
                             if isLoading {
                                 ProgressView("正在獲取數據...")
@@ -288,6 +272,7 @@ struct ContentView: View {
                                 Button(action: {
                                     searchText = ""
                                     displayData = []
+                                    highlightedStopId = nil
                                     withAnimation { showCustomKeyboard = false }
                                 }) {
                                     HStack(spacing: 4) {
@@ -306,7 +291,8 @@ struct ContentView: View {
                                     await updateNearbyStops(userLocation: location)
                                 }
                             } else if !displayData.isEmpty && !showCustomKeyboard {
-                                await searchRoute(route: searchText.uppercased())
+                                // Background refresh - preserve highlight but do not scroll again
+                                await searchRoute(route: searchText.uppercased(), findNearest: false, shouldScroll: false)
                             }
                         }
                     }
@@ -324,13 +310,14 @@ struct ContentView: View {
                             }
                         }
                     }
-                    .onChange(of: displayData.isEmpty) { isEmpty in
-                        if !isEmpty, let target = targetScrollStopId {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                    // MARK: 🐛 DEBUG Scroll Trigger
+                    .onChange(of: scrollTriggerId) { _ in
+                        if let target = highlightedStopId {
+                            // 只需單次延遲 0.3 秒，等 UI 畫好就觸發平滑捲動
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                                 withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) {
                                     proxy.scrollTo(target, anchor: .center)
                                 }
-                                targetScrollStopId = nil
                             }
                         }
                     }
@@ -371,7 +358,7 @@ struct ContentView: View {
                     }
                     .task {
                         await loadAllStops()
-                        await loadAllRoutes() // Fetch routes on launch
+                        await loadAllRoutes()
                         if locationManager.authorizationStatus == .authorizedWhenInUse || locationManager.authorizationStatus == .authorizedAlways {
                             locationManager.requestLocation()
                         }
@@ -418,7 +405,7 @@ struct ContentView: View {
                         }
                         
                         Task {
-                            await searchRoute(route: suggestion.route.uppercased())
+                            await searchRoute(route: suggestion.route.uppercased(), findNearest: true, shouldScroll: true)
                         }
                     }) {
                         HStack(spacing: 16) {
@@ -429,29 +416,31 @@ struct ContentView: View {
                                 .background(Color(red: 0.65, green: 0.08, blue: 0.12))
                                 .cornerRadius(8)
                             
-                            VStack(alignment: .leading, spacing: 2) {
-                                HStack(spacing: 4) {
-                                    Text(suggestion.origin)
-                                        .font(.system(size: 15, weight: .medium))
-                                        .foregroundColor(.primary)
-                                    
-                                    Image(systemName: "arrow.right")
-                                        .font(.system(size: 12, weight: .bold))
-                                        .foregroundColor(.secondary)
-                                    
-                                    Text(suggestion.destination)
-                                        .font(.system(size: 15, weight: .bold))
-                                        .foregroundColor(.primary)
-                                }
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.85)
+                            HStack(spacing: 6) {
+                                Text(suggestion.origin)
+                                    .font(.system(size: 15, weight: .bold))
+                                    .foregroundColor(.primary)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                
+                                Image(systemName: "arrow.right")
+                                    .font(.system(size: 12, weight: .bold))
+                                    .foregroundColor(.secondary)
+                                    .layoutPriority(1)
+                                
+                                Text(suggestion.destination)
+                                    .font(.system(size: 15, weight: .bold))
+                                    .foregroundColor(.primary)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
                             }
                             
-                            Spacer()
+                            Spacer(minLength: 4)
                             
                             Image(systemName: "magnifyingglass")
                                 .font(.system(size: 14))
                                 .foregroundColor(Color(UIColor.tertiaryLabel))
+                                .layoutPriority(1)
                         }
                         .padding(.horizontal, 16)
                         .padding(.vertical, 12)
@@ -460,7 +449,7 @@ struct ContentView: View {
                     
                     if suggestion != searchSuggestions.last {
                         Divider()
-                            .padding(.leading, 84) // Aligns with the text
+                            .padding(.leading, 84)
                     }
                 }
             }
@@ -474,14 +463,17 @@ struct ContentView: View {
     private var timetableSection: some View {
         Group {
             if !displayData.isEmpty {
-                VStack(alignment: .leading, spacing: 0) {
+                // 1. 拆除 VStack，改用 Section！等 List 知道每個站都係獨立嘅 Row
+                Section {
                     ForEach(Array(displayData.enumerated()), id: \.element.id) { index, stop in
+                        let isHighlighted = stop.id == highlightedStopId
+                        
                         HStack(alignment: .top, spacing: 14) {
                             VStack(spacing: 0) {
                                 Circle()
-                                    .fill(Color(red: 0.65, green: 0.08, blue: 0.12)) // KMB Red
-                                    .frame(width: 12, height: 12)
-                                    .padding(.top, 6)
+                                    .fill(isHighlighted ? Color.blue : Color(red: 0.65, green: 0.08, blue: 0.12))
+                                    .frame(width: isHighlighted ? 16 : 12, height: isHighlighted ? 16 : 12)
+                                    .padding(.top, isHighlighted ? 4 : 6)
                                 
                                 if index < displayData.count - 1 {
                                     Rectangle()
@@ -495,17 +487,14 @@ struct ContentView: View {
                             VStack(alignment: .leading, spacing: 8) {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text("\(stop.seq). \(stop.stopNameTc)")
-                                        .font(.headline)
-                                        .fontWeight(.semibold)
-                                    Text(stop.stopNameEn)
-                                        .font(.subheadline)
-                                        .foregroundColor(.secondary)
+                                        .font(isHighlighted ? .title3 : .headline)
+                                        .fontWeight(isHighlighted ? .black : .semibold)
+                                        .foregroundColor(isHighlighted ? .blue : .primary)
                                 }
                                 
-                                // Always displays exactly 3 lines of ETAs, filling blank spaces with "-"
                                 VStack(alignment: .leading, spacing: 4) {
-                                    ForEach(0..<3, id: \.self) { index in
-                                        let etaInfo = index < stop.etas.count ? stop.etas[index] : nil
+                                    ForEach(0..<3, id: \.self) { etaIndex in
+                                        let etaInfo = etaIndex < stop.etas.count ? stop.etas[etaIndex] : nil
                                         if let etaInfo = etaInfo, let etaDate = etaInfo.etaDate {
                                             let secondsLeft = etaDate.timeIntervalSince(currentTime)
                                             let remark = etaInfo.remark ?? ""
@@ -514,7 +503,7 @@ struct ContentView: View {
                                             if secondsLeft < 120 {
                                                 Text("即將抵達\(formattedRemark)")
                                                     .font(.system(size: 15, weight: .bold, design: .rounded))
-                                                    .foregroundColor(.green) // Visual cue: Green for arriving
+                                                    .foregroundColor(.green)
                                             } else {
                                                 let minutesLeft = Int(secondsLeft / 60)
                                                 Text("\(minutesLeft) 分鐘\(formattedRemark)")
@@ -529,15 +518,24 @@ struct ContentView: View {
                                     }
                                 }
                             }
+                            // 保持站與站之間嘅距離，灰線會自動穿透呢個空間
                             .padding(.bottom, index < displayData.count - 1 ? 20 : 0)
+                            
+                            Spacer(minLength: 0)
                         }
-                        .id(stop.stopId)
+                        // 為 Section 嘅第一行同最後一行加返頂/底 Padding，扮返原本卡片嘅邊界
+                        .padding(.top, index == 0 ? 16 : 0)
+                        .padding(.bottom, index == displayData.count - 1 ? 16 : 0)
+                        
+                        // 2. 將 .id 放喺呢度！而家佢係 List 認可嘅獨立 Row ID
+                        .id(stop.id)
+                        
+                        // 3. 消除預設 Row 邊距，等灰線完美連接
+                        .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color(.secondarySystemGroupedBackground))
                     }
                 }
-                .padding()
-                .background(Color(.secondarySystemGroupedBackground))
-                .cornerRadius(14)
-                .shadow(color: Color.black.opacity(0.04), radius: 5, x: 0, y: 2)
             }
         }
     }
@@ -697,10 +695,6 @@ struct ContentView: View {
                                         .fontWeight(.semibold)
                                         .foregroundColor(.primary)
                                         .multilineTextAlignment(.leading)
-                                    Text(stopModel.stopInfo.name_en)
-                                        .font(.subheadline)
-                                        .foregroundColor(.secondary)
-                                        .multilineTextAlignment(.leading)
                                 }
                                 
                                 Spacer()
@@ -735,10 +729,10 @@ struct ContentView: View {
                                         let newDir = route.directionCode == "O" ? "outbound" : "inbound"
                                         selectedDirection = newDir
                                         searchText = route.route
-                                        targetScrollStopId = stopModel.stopInfo.stop
                                         
                                         Task {
-                                            await searchRoute(route: route.route)
+                                            // Pass the station Code so we strictly highlight what was tapped!
+                                            await searchRoute(route: route.route, findNearest: false, targetStopCode: stopModel.stopInfo.stop, shouldScroll: true)
                                         }
                                     }) {
                                         HStack(alignment: .center, spacing: 12) {
@@ -762,10 +756,6 @@ struct ContentView: View {
                                                         .foregroundColor(.primary)
                                                         .lineLimit(1)
                                                 }
-                                                Text("to \(route.destNameEn)")
-                                                    .font(.system(size: 12))
-                                                    .foregroundColor(.secondary)
-                                                    .lineLimit(1)
                                             }
                                             
                                             Spacer()
@@ -859,7 +849,6 @@ struct ContentView: View {
                 }
             }
             
-            // Sort alphanumerically
             let sortedRoutes = uniqueSuggestions.values.sorted {
                 if $0.route == $1.route { return $0.bound > $1.bound }
                 return $0.route.localizedStandardCompare($1.route) == .orderedAscending
@@ -882,7 +871,7 @@ struct ContentView: View {
             var newDict: [String: String] = [:]
             var newInfoDict: [String: StopInfo] = [:]
             for stop in response.data {
-                newDict[stop.stop] = stop.name_en
+                newDict[stop.stop] = stop.name_tc // Store TC name as fallback mapping
                 newInfoDict[stop.stop] = stop
             }
             
@@ -939,7 +928,7 @@ struct ContentView: View {
             
             var grouped: [String: [StopETAItem]] = [:]
             for item in response.data {
-                let key = "\(item.route)-\(item.dir)-\(item.dest_en)"
+                let key = "\(item.route)-\(item.dir)-\(item.dest_tc)"
                 grouped[key, default: []].append(item)
             }
             
@@ -960,7 +949,6 @@ struct ContentView: View {
                 routes.append(NearbyRouteModel(
                     route: first.route,
                     directionCode: first.dir,
-                    destNameEn: first.dest_en,
                     destNameTc: first.dest_tc,
                     etas: etaInfos
                 ))
@@ -973,11 +961,17 @@ struct ContentView: View {
         }
     }
     
-    func searchRoute(route: String) async {
+    // MARK: 🐛 DEBUG Search Route Logic
+    func searchRoute(route: String, findNearest: Bool = false, targetStopCode: String? = nil, shouldScroll: Bool = false) async {
         guard !route.isEmpty else { return }
         
-        isLoading = true
-        displayData = []
+        print("🐛 [DEBUG] 開始搜尋路線: \(route) | findNearest: \(findNearest) | shouldScroll: \(shouldScroll)")
+        
+        await MainActor.run {
+            isLoading = true
+            displayData = [] // 先清空，強迫 List 重新載入
+            highlightedStopId = nil
+        }
         
         let routeStopUrl = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/route-stop/\(route)/\(selectedDirection)/1")!
         let etaUrl = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/route-eta/\(route)/1")!
@@ -998,13 +992,10 @@ struct ContentView: View {
             
             for routeStop in routeStops {
                 let stopNameTc: String
-                let stopNameEn: String
                 if let stopInfo = stopInfoDictionary[routeStop.stop] {
                     stopNameTc = stopInfo.name_tc
-                    stopNameEn = stopInfo.name_en
                 } else {
                     stopNameTc = stopDictionary[routeStop.stop] ?? "未知車站"
-                    stopNameEn = "Unknown Stop"
                 }
                 
                 let seqInt = Int(routeStop.seq) ?? 0
@@ -1021,23 +1012,63 @@ struct ContentView: View {
                     seq: seqInt,
                     stopId: routeStop.stop,
                     stopNameTc: stopNameTc,
-                    stopNameEn: stopNameEn,
                     etas: parsedEtas
                 ))
             }
             
-            if results.isEmpty {
-                systemMessage = "沒有找到路線 \(route) 的 \(selectedDirection == "outbound" ? "去程" : "回程") 班次數據。"
+            // Highlight Logic matching
+            var targetId: String? = nil
+            
+            if findNearest {
+                if let userLoc = locationManager.location, !results.isEmpty {
+                    print("🐛 [DEBUG] 正在根據 GPS 尋找最近車站...")
+                    var minDistance: CLLocationDistance = .infinity
+                    for rs in results {
+                        let loc: CLLocation? = stopInfoDictionary[rs.stopId]?.clLocation ?? allStops.first(where: { $0.stop == rs.stopId })?.clLocation
+                        if let stopLoc = loc {
+                            let dist = userLoc.distance(from: stopLoc)
+                            if dist < minDistance {
+                                minDistance = dist
+                                targetId = rs.id // Use deterministic ID string
+                            }
+                        }
+                    }
+                    print("🐛 [DEBUG] 根據 GPS 搵到最近車站 ID: \(targetId ?? "nil")")
+                } else {
+                    print("🐛 [DEBUG] 警告：findNearest 係 true，但無 GPS 定位 (locationManager.location 為 nil)！")
+                }
+            } else if let code = targetStopCode {
+                targetId = results.first(where: { $0.stopId == code })?.id
+                print("🐛 [DEBUG] 根據點擊嘅 targetStopCode 搵到車站 ID: \(targetId ?? "nil")")
             } else {
-                displayData = results
+                targetId = highlightedStopId
             }
             
+            await MainActor.run {
+                self.highlightedStopId = targetId
+                
+                if results.isEmpty {
+                    systemMessage = "沒有找到路線 \(route) 的 \(selectedDirection == "outbound" ? "去程" : "回程") 班次數據。"
+                    displayData = []
+                } else {
+                    displayData = results
+                }
+                
+                if shouldScroll {
+                    print("🐛 [DEBUG] 更新 scrollTriggerId，準備觸發捲動")
+                    self.scrollTriggerId = UUID() // 更新 UUID 強制觸發
+                }
+                
+                isLoading = false
+            }
         } catch {
-            systemMessage = "無法加載數據或找不到此路線。"
-            print(error)
+            await MainActor.run {
+                systemMessage = "無法加載數據或找不到此路線。"
+                displayData = []
+                isLoading = false
+            }
+            print("🐛 [DEBUG] Error: \(error)")
         }
-        
-        isLoading = false
     }
     
     @ViewBuilder
@@ -1262,94 +1293,91 @@ struct CustomKeyboardView: View {
             }
             .padding(.top, 10)
             
-            // Main Keyboard Layout
+            // Main Keyboard Layout (Exactly 7 mathematical columns)
             GeometryReader { geo in
-                // We have 2 gaps of 16pt between our 3 main columns = 32pt total spacing
-                let availableWidth = geo.size.width - 32
+                let spacing: CGFloat = 8
+                // 7 equal columns with 6 gaps of `spacing`
+                let colWidth = (geo.size.width - (spacing * 6)) / 7
+                let keyHeight: CGFloat = 46
                 
-                // Perfect mathematical 8-column grid proportions
-                let numpadWidth = availableWidth * 0.375  // 3 columns
-                let alphaWidth = availableWidth * 0.50    // 4 columns
-                let actionWidth = availableWidth * 0.125  // 1 column
-                
-                // 4 rows total with 3 gaps of 8pt
-                let rowHeight = (geo.size.height - 24) / 4
-                
-                HStack(spacing: 16) {
+                VStack(spacing: spacing) {
                     
-                    // LEFT SIDE: Numpad (3 columns)
-                    VStack(spacing: 8) {
-                        let numpad = [
-                            ["1", "2", "3"],
-                            ["4", "5", "6"],
-                            ["7", "8", "9"]
-                        ]
+                    // TOP SECTION: Numpad (Left) + Alpha (Right)
+                    HStack(spacing: spacing) {
                         
-                        ForEach(numpad, id: \.self) { row in
-                            HStack(spacing: 8) {
-                                ForEach(row, id: \.self) { key in
-                                    keyboardButton(key, fontSize: 24) { text.append(key) }
+                        // LEFT SIDE: Numpad (3 cols wide)
+                        VStack(spacing: spacing) {
+                            let numpad = [
+                                ["1", "2", "3"],
+                                ["4", "5", "6"],
+                                ["7", "8", "9"]
+                            ]
+                            
+                            ForEach(numpad, id: \.self) { row in
+                                HStack(spacing: spacing) {
+                                    ForEach(row, id: \.self) { key in
+                                        keyboardButton(key, width: colWidth, height: keyHeight) { text.append(key) }
+                                    }
                                 }
+                            }
+                            
+                            // Bottom Numpad Row: '0' safely isolated below '8'
+                            HStack(spacing: spacing) {
+                                Color.clear.frame(width: colWidth, height: keyHeight)
+                                keyboardButton("0", width: colWidth, height: keyHeight) { text.append("0") }
+                                Color.clear.frame(width: colWidth, height: keyHeight)
                             }
                         }
                         
-                        // Bottom Numpad Row: '0' spans all 3 columns
-                        keyboardButton("0", fontSize: 24) { text.append("0") }
-                    }
-                    .frame(width: numpadWidth)
-                    
-                    // MIDDLE SIDE: Specific KMB Alphabet (4 columns)
-                    VStack(spacing: 8) {
-                        let alphaRows = [
-                            ["A", "B", "C", "E"],
-                            ["H", "K", "N", "P"],
-                            ["R", "S", "T", "W"]
-                        ]
-                        
-                        ForEach(alphaRows, id: \.self) { row in
-                            HStack(spacing: 8) {
-                                ForEach(row, id: \.self) { key in
-                                    keyboardButton(key, fontSize: 20) { text.append(key) }
+                        // RIGHT SIDE: Alpha (4 cols wide)
+                        VStack(spacing: spacing) {
+                            let alphaRows = [
+                                ["A", "B", "C", "D"],
+                                ["E", "F", "H", "K"],
+                                ["M", "N", "P", "R"],
+                                ["S", "T", "W", "X"]
+                            ]
+                            
+                            ForEach(alphaRows, id: \.self) { row in
+                                HStack(spacing: spacing) {
+                                    ForEach(row, id: \.self) { key in
+                                        keyboardButton(key, width: colWidth, height: keyHeight) { text.append(key) }
+                                    }
                                 }
                             }
                         }
-                        
-                        // Bottom Alphabet Row: 'X' spans all 4 columns
-                        keyboardButton("X", fontSize: 20) { text.append("X") }
                     }
-                    .frame(width: alphaWidth)
                     
-                    // RIGHT SIDE: Action Column (1 column)
-                    VStack(spacing: 8) {
-                        // Top: Backspace
-                        actionButton(Image(systemName: "delete.left"), color: Color(UIColor.systemGray4)) {
-                            if !text.isEmpty { text.removeLast() }
-                        }
-                        .frame(height: rowHeight)
-                        
-                        // Middle: Clear All
-                        actionButton("清空", color: Color(UIColor.systemGray4)) {
+                    // BOTTOM SECTION: Action Row
+                    HStack(spacing: spacing) {
+                        // Clear All (Spans 2 columns + 1 inner spacing)
+                        let clearWidth = (colWidth * 2) + spacing
+                        actionButton("清空", width: clearWidth, height: keyHeight, color: Color(UIColor.systemGray4)) {
                             text = ""
                         }
-                        .frame(height: rowHeight)
                         
-                        // Bottom: Search (Spans 2 rows + the 8pt gap between them)
+                        // Search (Spans 3 columns + 2 inner spacings)
+                        let searchWidth = (colWidth * 3) + (spacing * 2)
                         Button(action: onSearch) {
                             Text("搜尋")
                                 .font(.system(size: 16, weight: .bold))
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .frame(width: searchWidth, height: keyHeight)
                                 .background(Color.blue)
                                 .cornerRadius(6)
                                 .shadow(color: Color.black.opacity(0.3), radius: 0, x: 0, y: 1)
                                 .foregroundColor(.white)
                         }
-                        .frame(height: (rowHeight * 2) + 8)
+                        
+                        // Backspace (Spans 2 columns + 1 inner spacing)
+                        let backspaceWidth = (colWidth * 2) + spacing
+                        actionButton(Image(systemName: "delete.left"), width: backspaceWidth, height: keyHeight, color: Color(UIColor.systemGray4)) {
+                            if !text.isEmpty { text.removeLast() }
+                        }
                     }
-                    .frame(width: actionWidth)
                 }
             }
             .padding(.horizontal, 8)
-            .frame(height: 240) // Fixed, comfortable height
+            .frame(height: 270) // Accommodates 5 distinct rows + paddings
         }
         .padding(.bottom, 20)
         .background(
@@ -1361,11 +1389,11 @@ struct CustomKeyboardView: View {
     
     // MARK: - Reusable Button Builders
     @ViewBuilder
-    private func keyboardButton(_ text: String, fontSize: CGFloat, action: @escaping () -> Void) -> some View {
+    private func keyboardButton(_ text: String, width: CGFloat, height: CGFloat, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(text)
-                .font(.system(size: fontSize, weight: .regular))
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .font(.system(size: 22, weight: .regular))
+                .frame(width: width, height: height)
                 .background(Color(UIColor.systemBackground))
                 .cornerRadius(6)
                 .shadow(color: Color.black.opacity(0.3), radius: 0, x: 0, y: 1)
@@ -1374,11 +1402,11 @@ struct CustomKeyboardView: View {
     }
     
     @ViewBuilder
-    private func actionButton(_ title: String, color: Color, action: @escaping () -> Void) -> some View {
+    private func actionButton(_ title: String, width: CGFloat, height: CGFloat, color: Color, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 14, weight: .bold)) // Smaller font for "清空" to fit narrow width
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .font(.system(size: 16, weight: .bold))
+                .frame(width: width, height: height)
                 .background(color)
                 .cornerRadius(6)
                 .shadow(color: Color.black.opacity(0.3), radius: 0, x: 0, y: 1)
@@ -1387,11 +1415,11 @@ struct CustomKeyboardView: View {
     }
     
     @ViewBuilder
-    private func actionButton(_ icon: Image, color: Color, action: @escaping () -> Void) -> some View {
+    private func actionButton(_ icon: Image, width: CGFloat, height: CGFloat, color: Color, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             icon
-                .font(.system(size: 18))
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .font(.system(size: 20))
+                .frame(width: width, height: height)
                 .background(color)
                 .cornerRadius(6)
                 .shadow(color: Color.black.opacity(0.3), radius: 0, x: 0, y: 1)

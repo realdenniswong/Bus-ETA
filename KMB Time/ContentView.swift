@@ -1248,15 +1248,8 @@ struct CustomKeyboardView: View {
     var onSearch: () -> Void
     var onDismiss: () -> Void
     
-    let rows = [
-        ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"],
-        ["A", "B", "C", "E", "H", "K", "N", "P", "R", "S"],
-        ["T", "W", "X"]
-    ]
-    
     var body: some View {
-        VStack(spacing: 12) {
-            
+        VStack(spacing: 8) {
             // Toolbar Area
             HStack {
                 Spacer()
@@ -1269,51 +1262,94 @@ struct CustomKeyboardView: View {
             }
             .padding(.top, 10)
             
-            // Keys Area
-            VStack(spacing: 12) {
-                ForEach(rows, id: \.self) { row in
-                    HStack(spacing: 6) {
-                        ForEach(row, id: \.self) { key in
-                            Button(action: { text.append(key) }) {
-                                Text(key)
-                                    .font(.system(size: 24, weight: .regular))
-                                    .frame(maxWidth: .infinity, minHeight: 46)
-                                    .background(Color(UIColor.systemBackground))
-                                    .cornerRadius(5)
-                                    .shadow(color: Color.black.opacity(0.3), radius: 0, x: 0, y: 1)
-                                    .foregroundColor(.primary)
+            // Main Keyboard Layout
+            GeometryReader { geo in
+                // We have 2 gaps of 16pt between our 3 main columns = 32pt total spacing
+                let availableWidth = geo.size.width - 32
+                
+                // Perfect mathematical 8-column grid proportions
+                let numpadWidth = availableWidth * 0.375  // 3 columns
+                let alphaWidth = availableWidth * 0.50    // 4 columns
+                let actionWidth = availableWidth * 0.125  // 1 column
+                
+                // 4 rows total with 3 gaps of 8pt
+                let rowHeight = (geo.size.height - 24) / 4
+                
+                HStack(spacing: 16) {
+                    
+                    // LEFT SIDE: Numpad (3 columns)
+                    VStack(spacing: 8) {
+                        let numpad = [
+                            ["1", "2", "3"],
+                            ["4", "5", "6"],
+                            ["7", "8", "9"]
+                        ]
+                        
+                        ForEach(numpad, id: \.self) { row in
+                            HStack(spacing: 8) {
+                                ForEach(row, id: \.self) { key in
+                                    keyboardButton(key, fontSize: 24) { text.append(key) }
+                                }
                             }
                         }
                         
-                        if row == rows.last {
-                            Button(action: {
-                                if !text.isEmpty { text.removeLast() }
-                            }) {
-                                Image(systemName: "delete.left")
-                                    .font(.system(size: 20))
-                                    .frame(maxWidth: .infinity, minHeight: 46)
-                                    .background(Color(UIColor.systemGray4))
-                                    .cornerRadius(5)
-                                    .shadow(color: Color.black.opacity(0.3), radius: 0, x: 0, y: 1)
-                                    .foregroundColor(.primary)
-                            }
-                            
-                            Button(action: {
-                                onSearch()
-                            }) {
-                                Text("搜尋")
-                                    .font(.system(size: 16, weight: .bold))
-                                    .frame(maxWidth: .infinity, minHeight: 46)
-                                    .background(Color.blue)
-                                    .cornerRadius(5)
-                                    .shadow(color: Color.black.opacity(0.3), radius: 0, x: 0, y: 1)
-                                    .foregroundColor(.white)
+                        // Bottom Numpad Row: '0' spans all 3 columns
+                        keyboardButton("0", fontSize: 24) { text.append("0") }
+                    }
+                    .frame(width: numpadWidth)
+                    
+                    // MIDDLE SIDE: Specific KMB Alphabet (4 columns)
+                    VStack(spacing: 8) {
+                        let alphaRows = [
+                            ["A", "B", "C", "E"],
+                            ["H", "K", "N", "P"],
+                            ["R", "S", "T", "W"]
+                        ]
+                        
+                        ForEach(alphaRows, id: \.self) { row in
+                            HStack(spacing: 8) {
+                                ForEach(row, id: \.self) { key in
+                                    keyboardButton(key, fontSize: 20) { text.append(key) }
+                                }
                             }
                         }
+                        
+                        // Bottom Alphabet Row: 'X' spans all 4 columns
+                        keyboardButton("X", fontSize: 20) { text.append("X") }
                     }
+                    .frame(width: alphaWidth)
+                    
+                    // RIGHT SIDE: Action Column (1 column)
+                    VStack(spacing: 8) {
+                        // Top: Backspace
+                        actionButton(Image(systemName: "delete.left"), color: Color(UIColor.systemGray4)) {
+                            if !text.isEmpty { text.removeLast() }
+                        }
+                        .frame(height: rowHeight)
+                        
+                        // Middle: Clear All
+                        actionButton("清空", color: Color(UIColor.systemGray4)) {
+                            text = ""
+                        }
+                        .frame(height: rowHeight)
+                        
+                        // Bottom: Search (Spans 2 rows + the 8pt gap between them)
+                        Button(action: onSearch) {
+                            Text("搜尋")
+                                .font(.system(size: 16, weight: .bold))
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .background(Color.blue)
+                                .cornerRadius(6)
+                                .shadow(color: Color.black.opacity(0.3), radius: 0, x: 0, y: 1)
+                                .foregroundColor(.white)
+                        }
+                        .frame(height: (rowHeight * 2) + 8)
+                    }
+                    .frame(width: actionWidth)
                 }
             }
-            .padding(.horizontal, 6)
+            .padding(.horizontal, 8)
+            .frame(height: 240) // Fixed, comfortable height
         }
         .padding(.bottom, 20)
         .background(
@@ -1321,5 +1357,45 @@ struct CustomKeyboardView: View {
                 .shadow(color: .black.opacity(0.1), radius: 10, y: -5)
                 .ignoresSafeArea()
         )
+    }
+    
+    // MARK: - Reusable Button Builders
+    @ViewBuilder
+    private func keyboardButton(_ text: String, fontSize: CGFloat, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(text)
+                .font(.system(size: fontSize, weight: .regular))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color(UIColor.systemBackground))
+                .cornerRadius(6)
+                .shadow(color: Color.black.opacity(0.3), radius: 0, x: 0, y: 1)
+                .foregroundColor(.primary)
+        }
+    }
+    
+    @ViewBuilder
+    private func actionButton(_ title: String, color: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 14, weight: .bold)) // Smaller font for "清空" to fit narrow width
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(color)
+                .cornerRadius(6)
+                .shadow(color: Color.black.opacity(0.3), radius: 0, x: 0, y: 1)
+                .foregroundColor(.primary)
+        }
+    }
+    
+    @ViewBuilder
+    private func actionButton(_ icon: Image, color: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            icon
+                .font(.system(size: 18))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(color)
+                .cornerRadius(6)
+                .shadow(color: Color.black.opacity(0.3), radius: 0, x: 0, y: 1)
+                .foregroundColor(.primary)
+        }
     }
 }

@@ -52,6 +52,7 @@ struct ETADisplayInfo: Identifiable, Hashable {
 struct StopDisplayModel: Identifiable {
     let id = UUID()
     let seq: Int
+    let stopId: String // <--- 新增呢行
     let stopNameTc: String
     let stopNameEn: String
     let etas: [ETADisplayInfo]
@@ -129,7 +130,7 @@ struct ContentView: View {
     @State private var timerDestination = ""
     
     // Auto-scroll target Stop ID/Name
-    @State private var targetScrollStopName: String? = nil
+    @State private var targetScrollStopId: String? = nil
     
     // NEW: Custom Keyboard State
     @State private var showCustomKeyboard = false
@@ -279,12 +280,13 @@ struct ContentView: View {
                         }
                     }
                     .onChange(of: displayData.isEmpty) { isEmpty in
-                        if !isEmpty, let target = targetScrollStopName {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        if !isEmpty, let target = targetScrollStopId {
+                            // 稍微拉長 delay 至 0.4 秒，確保 SwiftUI List 已經生成好 UI
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                                 withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) {
                                     proxy.scrollTo(target, anchor: .center)
                                 }
-                                targetScrollStopName = nil
+                                targetScrollStopId = nil
                             }
                         }
                     }
@@ -384,12 +386,22 @@ struct ContentView: View {
                                     ForEach(0..<3, id: \.self) { index in
                                         let etaInfo = index < stop.etas.count ? stop.etas[index] : nil
                                         if let etaInfo = etaInfo, let etaDate = etaInfo.etaDate {
-                                            let minutesLeft = max(0, Int(etaDate.timeIntervalSince(currentTime) / 60))
+                                            // 1. Calculate raw seconds left instead of shifting straight to minutes
+                                            let secondsLeft = etaDate.timeIntervalSince(currentTime)
                                             let remark = etaInfo.remark ?? ""
                                             let formattedRemark = remark.isEmpty ? "" : " (\(remark))"
-                                            Text("\(minutesLeft)分\(formattedRemark)")
-                                                .font(.system(size: 15, weight: .semibold, design: .rounded))
-                                                .foregroundColor(.primary)
+                                            
+                                            // 2. Apply the < 2 minutes (120 seconds) "Arriving" rule
+                                            if secondsLeft < 120 {
+                                                Text("即將抵達\(formattedRemark)")
+                                                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                                                    .foregroundColor(.green) // Visual cue: Green for arriving
+                                            } else {
+                                                let minutesLeft = Int(secondsLeft / 60)
+                                                Text("\(minutesLeft) 分鐘\(formattedRemark)")
+                                                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                                    .foregroundColor(.primary)
+                                            }
                                         } else {
                                             Text("-")
                                                 .font(.system(size: 15, weight: .semibold, design: .rounded))
@@ -400,7 +412,7 @@ struct ContentView: View {
                             }
                             .padding(.bottom, index < displayData.count - 1 ? 20 : 0)
                         }
-                        .id(stop.stopNameTc)
+                        .id(stop.stopId)
                     }
                 }
                 .padding()
@@ -606,13 +618,20 @@ struct ContentView: View {
                             } else {
                                 ForEach(stopModel.routes) { route in
                                     Button(action: {
-                                        selectedDirection = route.directionCode == "O" ? "outbound" : "inbound"
+                                        // 1. 決定方向
+                                        let newDir = route.directionCode == "O" ? "outbound" : "inbound"
+                                        
+                                        // 2. 同步更新所有狀態
+                                        selectedDirection = newDir
                                         searchText = route.route
-                                        targetScrollStopName = stopModel.stopInfo.name_tc
+                                        targetScrollStopId = stopModel.stopInfo.stop // 繼續保留用精準嘅 ID 來做 Scroll
+                                        
+                                        // 3. 刪除多餘嘅 if/else，每次都無條件直接手動 Call API！
                                         Task {
                                             await searchRoute(route: route.route)
                                         }
                                     }) {
+                                        // 呢度下面維持你原本嘅 HStack UI 設計...
                                         HStack(alignment: .center, spacing: 12) {
                                             Text(route.route)
                                                 .font(.system(.body, design: .rounded))
@@ -642,12 +661,24 @@ struct ContentView: View {
                                             
                                             Spacer()
                                             
+                                            // Look for this block inside nearbyDashboardSection:
                                             HStack(spacing: 6) {
+                                                
+                                                // 搵返 Dashboard 修改第一班車 ETA 嘅位置，換成呢段：
                                                 if let firstEta = route.etas.first, let etaDate = firstEta.etaDate {
-                                                    let minutesLeft = max(0, Int(etaDate.timeIntervalSince(currentTime) / 60))
-                                                    Text("\(minutesLeft)分")
-                                                        .font(.system(size: 14, weight: .semibold, design: .rounded))
-                                                        .foregroundColor(.primary)
+                                                    let secondsLeft = etaDate.timeIntervalSince(currentTime)
+                                                    
+                                                    if secondsLeft < 120 {
+                                                        Text("即將抵達")
+                                                            .font(.system(size: 14, weight: .bold, design: .rounded))
+                                                            .foregroundColor(.green)
+                                                    } else {
+                                                        // 改回顯示剩餘分鐘（例如：15 分鐘）
+                                                        let minutesLeft = Int(secondsLeft / 60)
+                                                        Text("\(minutesLeft) 分鐘")
+                                                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                                            .foregroundColor(.primary)
+                                                    }
                                                 } else {
                                                     Text("無即時班次")
                                                         .font(.caption2)
@@ -850,7 +881,13 @@ struct ContentView: View {
                     }
                 }
                 
-                results.append(StopDisplayModel(seq: seqInt, stopNameTc: stopNameTc, stopNameEn: stopNameEn, etas: parsedEtas))
+                results.append(StopDisplayModel(
+                    seq: seqInt,
+                    stopId: routeStop.stop, // <--- 新增呢行，將 API 嘅真實 stop 碼記錄低
+                    stopNameTc: stopNameTc,
+                    stopNameEn: stopNameEn,
+                    etas: parsedEtas
+                ))
             }
             
             if results.isEmpty {
@@ -868,169 +905,158 @@ struct ContentView: View {
     }
     
     @ViewBuilder
-    private func activeTimerCard(timer: ActiveTimerModel) -> some View {
-        let totalTime = timer.etaDate.timeIntervalSince(timer.startTime)
-        let elapsedTime = currentTime.timeIntervalSince(timer.startTime)
-        let progress = totalTime > 0 ? min(1.0, max(0.0, elapsedTime / totalTime)) : 1.0
-        
-        let secondsLeft = max(0, Int(timer.etaDate.timeIntervalSince(currentTime)))
-        let minutes = secondsLeft / 60
-        let seconds = secondsLeft % 60
-        
-        // Uber Style Live Tracker
-        VStack(spacing: 0) {
-            // Header: Live Tracking
-            HStack {
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(Color.green)
-                        .frame(width: 8, height: 8)
-                        .opacity(secondsLeft > 0 && (Int(currentTime.timeIntervalSince1970) % 2 == 0) ? 0.3 : 1.0)
-                        .animation(.easeInOut(duration: 0.5), value: currentTime)
-                    Text("實時追蹤")
-                        .font(.caption)
-                        .fontWeight(.heavy)
-                        .foregroundColor(.green)
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
-                .background(Color.green.opacity(0.15))
-                .cornerRadius(10)
-                
-                Spacer()
-                
-                Button(action: {
-                    withAnimation(.easeInOut(duration: 0.3)) {
-                        activeTimer = nil
-                    }
-                    endLiveActivity()
-                    UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["KMBTimeAlarm"])
-                }) {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundColor(.gray)
-                        .font(.title2)
-                }
-            }
-            .padding([.top, .horizontal], 16)
+        private func activeTimerCard(timer: ActiveTimerModel) -> some View {
+            let totalTime = timer.etaDate.timeIntervalSince(timer.startTime)
+            let elapsedTime = currentTime.timeIntervalSince(timer.startTime)
+            let progress = totalTime > 0 ? min(1.0, max(0.0, elapsedTime / totalTime)) : 1.0
             
-            // ETA and Route info
-            HStack(alignment: .center) {
-                // 1. 左邊：路線資訊
-                HStack(spacing: 12) {
-                    // 路線號碼
-                    Text(timer.routeName)
-                        .font(.system(size: 24, weight: .black))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(Color(red: 0.85, green: 0.1, blue: 0.15))
-                        .foregroundColor(.white)
-                        .cornerRadius(8)
+            // 計算剩餘秒數用作判斷狀態
+            let secondsLeft = max(0, Int(timer.etaDate.timeIntervalSince(currentTime)))
+            
+            // Uber Style Live Tracker
+            VStack(spacing: 0) {
+                // Header: Live Tracking
+                HStack {
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(Color.green)
+                            .frame(width: 8, height: 8)
+                            .opacity(secondsLeft > 0 && (Int(currentTime.timeIntervalSince1970) % 2 == 0) ? 0.3 : 1.0)
+                            .animation(.easeInOut(duration: 0.5), value: currentTime)
+                        Text("實時追蹤")
+                            .font(.caption)
+                            .fontWeight(.heavy)
+                            .foregroundColor(.green)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(Color.green.opacity(0.15))
+                    .cornerRadius(10)
                     
-                    // 目的地及站名
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("往 \(timer.destination)")
-                            .font(.subheadline)
-                            .fontWeight(.bold)
-                            .foregroundColor(.primary)
-                            .lineLimit(1)
+                    Spacer()
+                    
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            activeTimer = nil
+                        }
+                        endLiveActivity()
+                        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["KMBTimeAlarm"])
+                    }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundColor(.gray)
+                            .font(.title2)
+                    }
+                }
+                .padding([.top, .horizontal], 16)
+                
+                // ETA and Route info
+                HStack(alignment: .center) {
+                    // 1. 左邊：路線資訊
+                    HStack(spacing: 12) {
+                        // 路線號碼
+                        Text(timer.routeName)
+                            .font(.system(size: 24, weight: .black))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Color(red: 0.65, green: 0.08, blue: 0.12)) // 統一使用九巴標準紅
+                            .foregroundColor(.white)
+                            .cornerRadius(8)
                         
-                        Text(timerStationName)
+                        // 目的地及站名
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("往 \(timer.destination)")
+                                .font(.subheadline)
+                                .fontWeight(.bold)
+                                .foregroundColor(.primary)
+                                .lineLimit(1)
+                            
+                            Text(timerStationName)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                    
+                    Spacer()
+                    
+                    // 2. 右邊：預計時間狀態（已移除倒數，改為大字絕對時間或即將抵達）
+                    if secondsLeft < 120 {
+                        Text("即將抵達")
+                            .font(.system(size: 24, weight: .bold, design: .rounded))
+                            .foregroundColor(.green)
+                    } else {
+                        Text(formattedTime(timer.etaDate))
+                            .font(.system(size: 32, weight: .bold, design: .rounded))
+                            .foregroundColor(.blue)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 10)
+                
+                // Progress Bar and Bus Icon
+                GeometryReader { geometry in
+                    let barWidth = geometry.size.width
+                    let busPosition = barWidth * CGFloat(progress)
+                    
+                    ZStack(alignment: .leading) {
+                        // Background Track
+                        Capsule()
+                            .fill(Color.gray.opacity(0.2))
+                            .frame(height: 10)
+                        
+                        // Fill Track
+                        Capsule()
+                            .fill(LinearGradient(colors: [.blue, .cyan], startPoint: .leading, endPoint: .trailing))
+                            .frame(width: max(0, busPosition), height: 10)
+                            .animation(.linear(duration: 1.0), value: progress)
+                        
+                        // Bus Icon
+                        Image(systemName: "bus.fill")
+                            .font(.system(size: 18))
+                            .foregroundColor(.white)
+                            .padding(8)
+                            .background(Circle().fill(Color.blue).shadow(radius: 3))
+                            .offset(x: max(0, min(busPosition - 17, barWidth - 34)))
+                            .animation(.linear(duration: 1.0), value: progress)
+                    }
+                }
+                .frame(height: 34)
+                .padding(.horizontal, 20)
+                .padding(.top, 20)
+                .padding(.bottom, 24)
+                
+                // Footer Info（已完全移除 MM:SS 倒數時鐘）
+                HStack {
+                    VStack(alignment: .leading) {
+                        Text("預計到站時間")
                             .font(.caption)
                             .foregroundColor(.secondary)
-                            .lineLimit(1)
-                    }
-                }
-                
-                Spacer() // 🌟 這個 Spacer 會自動將左邊和右邊推到最盡，完美填滿兩側空間！
-                
-                // 2. 右邊：倒數時間
-                
-                if minutes > 0 {
-                    // 將數字和「分鐘」分開放，數字可以放到超大
-                    HStack(alignment: .firstTextBaseline, spacing: 2) {
-                        Text("\(minutes)")
-                            .font(.system(size: 38, weight: .bold, design: .rounded))
-                            .foregroundColor(.blue)
-                        
-                        Text("分鐘")
-                            .font(.subheadline)
+                        Text(formattedTime(timer.etaDate))
+                            .font(.headline)
                             .fontWeight(.bold)
-                            .foregroundColor(.secondary)
                     }
-                } else {
-                    Text("即將抵達")
-                        .font(.system(size: 24, weight: .bold, design: .rounded))
-                        .foregroundColor(.green)
+                    Spacer()
+                    VStack(alignment: .trailing) {
+                        Text("狀態")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text(secondsLeft < 120 ? "即將抵達" : "正常行駛中")
+                            .font(.headline)
+                            .fontWeight(.bold)
+                            .foregroundColor(secondsLeft < 120 ? .green : .secondary)
+                    }
                 }
-                
+                .padding(16)
+                .background(Color.gray.opacity(0.05))
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 10)
-            
-            // Progress Bar and Bus Icon
-            GeometryReader { geometry in
-                let barWidth = geometry.size.width
-                let busPosition = barWidth * CGFloat(progress)
-                
-                ZStack(alignment: .leading) {
-                    // Background Track
-                    Capsule()
-                        .fill(Color.gray.opacity(0.2))
-                        .frame(height: 10)
-                    
-                    // Fill Track
-                    Capsule()
-                        .fill(LinearGradient(colors: [.blue, .cyan], startPoint: .leading, endPoint: .trailing))
-                        .frame(width: max(0, busPosition), height: 10)
-                        .animation(.linear(duration: 1.0), value: progress)
-                    
-                    // Bus Icon
-                    Image(systemName: "bus.fill")
-                        .font(.system(size: 18))
-                        .foregroundColor(.white)
-                        .padding(8)
-                        .background(Circle().fill(Color.blue).shadow(radius: 3))
-                        .offset(x: max(0, min(busPosition - 17, barWidth - 34)))
-                        .animation(.linear(duration: 1.0), value: progress)
-                }
-            }
-            .frame(height: 34)
-            .padding(.horizontal, 20)
-            .padding(.top, 20)
-            .padding(.bottom, 24)
-            
-            // Footer Info
-            HStack {
-                VStack(alignment: .leading) {
-                    Text("預計時間")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text(formattedTime(timer.etaDate))
-                        .font(.headline)
-                        .fontWeight(.bold)
-                }
-                Spacer()
-                VStack(alignment: .trailing) {
-                    Text("剩餘時間")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text(String(format: "%02d:%02d", minutes, seconds))
-                        .font(.headline)
-                        .fontWeight(.bold)
-                        .monospacedDigit()
-                }
-            }
-            .padding(16)
-            .background(Color.gray.opacity(0.05))
+            .background(
+                RoundedRectangle(cornerRadius: 20)
+                    .fill(Color(.secondarySystemGroupedBackground))
+            )
+            .padding(.top, 8)
+            .padding(.bottom, 8)
+            .transition(.asymmetric(insertion: .opacity.combined(with: .move(edge: .top)), removal: .opacity.combined(with: .scale)))
         }
-        .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(Color(.secondarySystemGroupedBackground))
-        )
-        .padding(.top, 8)
-        .padding(.bottom, 8)
-        .transition(.asymmetric(insertion: .opacity.combined(with: .move(edge: .top)), removal: .opacity.combined(with: .scale)))
-    }
     
     func formattedTime(_ date: Date?) -> String {
         guard let date = date else { return "" }

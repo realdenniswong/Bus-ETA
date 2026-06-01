@@ -14,10 +14,10 @@ struct BusETAWidgetBundle: WidgetBundle {
 struct BusETAWidget: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: BusETAAttributes.self) { context in
-            // MARK: - 鎖定畫面 (Lock Screen) / Banner UI
+            // MARK: - (Lock Screen) / Banner UI
             VStack(spacing: 16) {
                 
-                // Top Row: Huge Route, Destination/Station, and Huge Countdown
+                // Top Row: Huge Route, Destination/Station, and Absolute Arrival Time
                 HStack(alignment: .center, spacing: 12) {
                     
                     // Huge Route Badge
@@ -25,7 +25,7 @@ struct BusETAWidget: Widget {
                         .font(.system(size: 28, weight: .black, design: .rounded))
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
-                        .background(Color(red: 0.85, green: 0.1, blue: 0.15)) // KMB Red
+                        .background(Color(red: 0.65, green: 0.08, blue: 0.12)) // KMB 標準紅
                         .foregroundColor(.white)
                         .cornerRadius(8)
                     
@@ -46,14 +46,14 @@ struct BusETAWidget: Widget {
                     
                     Spacer(minLength: 4)
                     
-                    // Huge Countdown Timer on the Right
-                    Text(timerInterval: Date()...context.state.etaDate, countsDown: true)
+                    // 右側大字：直接定格顯示絕對預計到站時間（例如 18:30），不再每秒倒數
+                    Text(context.state.etaDate, style: .time)
                         .font(.system(size: 34, weight: .bold, design: .rounded))
                         .monospacedDigit()
-                        .foregroundColor(.primary)
+                        .foregroundColor(.blue)
                 }
                 
-                // Bottom Row: Clean Animated Progress Bar (No extra text!)
+                // Bottom Row: Clean Animated Progress Bar (進度條會跟隨時間自然推進，但上方不留秒數文字)
                 ProgressView(timerInterval: context.attributes.startTime...context.state.etaDate, countsDown: false)
                     .tint(.blue)
                     .background(Color.gray.opacity(0.2))
@@ -64,7 +64,7 @@ struct BusETAWidget: Widget {
             
         } dynamicIsland: { context in
             DynamicIsland {
-                // MARK: - 動態島長按展開 (Expanded)
+                // MARK: - (Expanded 展開狀態)
                 DynamicIslandExpandedRegion(.leading) {
                     Text(context.attributes.routeName)
                         .font(.title2)
@@ -72,7 +72,8 @@ struct BusETAWidget: Widget {
                         .foregroundColor(.red)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    Text(timerInterval: Date()...context.state.etaDate, countsDown: true)
+                    // 靈動島展開右側：顯示絕對到站時間
+                    Text(context.state.etaDate, style: .time)
                         .font(.title3)
                         .fontWeight(.bold)
                         .monospacedDigit()
@@ -91,21 +92,22 @@ struct BusETAWidget: Widget {
                     .padding(.top, 8)
                 }
             } compactLeading: {
-                // MARK: - 動態島左側
+                // MARK: - Compact Leading (緊湊左側)
                 Text(context.attributes.routeName)
                     .font(.system(size: 14, weight: .bold))
                     .foregroundColor(.red)
                     .padding(.leading, 4)
             } compactTrailing: {
-                // MARK: - 動態島右側 (防斬字)
-                Text(timerInterval: Date()...context.state.etaDate, countsDown: true)
+                // MARK: - Compact Trailing (緊湊右側)
+                // 擴大寬度至 50 以確保完美容納 24小時制格式（如 17:05），直接定格時間顯示
+                Text(context.state.etaDate, style: .time)
                     .font(.system(size: 14, weight: .bold))
                     .monospacedDigit()
-                    .frame(maxWidth: 40, alignment: .trailing)
+                    .frame(maxWidth: 50, alignment: .trailing)
                     .minimumScaleFactor(0.6)
                     .foregroundColor(.blue)
             } minimal: {
-                // MARK: - 極簡模式
+                // MARK: - Minimal (最小化獨立狀態)
                 Image(systemName: "bus.fill")
                     .foregroundColor(.red)
             }

@@ -156,6 +156,30 @@ struct ContentView: View {
         return allRoutes.filter { $0.route.uppercased().hasPrefix(query) }.prefix(30).map { $0 }
     }
     
+    // 放入 searchSuggestions 下面
+    var validNextKeys: Set<String>? {
+        // 如果 API 未 load 完或者失敗，回傳 nil 代表「全部按鍵皆可按」
+        guard !allRoutes.isEmpty else { return nil }
+        
+        let query = searchText.uppercased()
+        
+        // 如果未入任何字，就抽哂所有路線嘅第一個字出嚟
+        if query.isEmpty {
+            return Set(allRoutes.compactMap { $0.route.first.map(String.init) })
+        }
+        
+        var nextKeys = Set<String>()
+        for suggestion in allRoutes {
+            let route = suggestion.route.uppercased()
+            if route.hasPrefix(query) && route.count > query.count {
+                // 搵出 Prefix 之後緊接住嗰個字元
+                let index = route.index(route.startIndex, offsetBy: query.count)
+                nextKeys.insert(String(route[index]))
+            }
+        }
+        return nextKeys
+    }
+    
     init() {
         UISegmentedControl.appearance().backgroundColor = .clear
     }
@@ -241,6 +265,7 @@ struct ContentView: View {
                         if showCustomKeyboard {
                             CustomKeyboardView(
                                 text: $searchText,
+                                validKeys: validNextKeys, // <--- 加入呢行
                                 onSearch: {
                                     showCustomKeyboard = false
                                     Task { await searchRoute(route: searchText.uppercased(), findNearest: true, shouldScroll: true) }
@@ -1276,6 +1301,7 @@ struct ActiveTimerModel: Identifiable, Equatable {
 // MARK: - Custom Keyboard View
 struct CustomKeyboardView: View {
     @Binding var text: String
+    var validKeys: Set<String>? // <--- 1. 喺度加入接收變數
     var onSearch: () -> Void
     var onDismiss: () -> Void
     
@@ -1390,15 +1416,22 @@ struct CustomKeyboardView: View {
     // MARK: - Reusable Button Builders
     @ViewBuilder
     private func keyboardButton(_ text: String, width: CGFloat, height: CGFloat, action: @escaping () -> Void) -> some View {
+        // 如果 validKeys 係 nil (API未load完)，或者包含呢個按鍵，就當做 valid
+        let isValid = validKeys?.contains(text) ?? true
+        
         Button(action: action) {
             Text(text)
                 .font(.system(size: 22, weight: .regular))
                 .frame(width: width, height: height)
                 .background(Color(UIColor.systemBackground))
                 .cornerRadius(6)
-                .shadow(color: Color.black.opacity(0.3), radius: 0, x: 0, y: 1)
-                .foregroundColor(.primary)
+                // 如果 Disable 咗，將陰影移除令佢望落去平啲
+                .shadow(color: Color.black.opacity(isValid ? 0.3 : 0.0), radius: 0, x: 0, y: isValid ? 1 : 0)
+                // 如果 Disable 咗，將字體顏色變灰
+                .foregroundColor(isValid ? .primary : Color(UIColor.tertiaryLabel))
         }
+        // 直接封鎖點擊功能
+        .disabled(!isValid)
     }
     
     @ViewBuilder

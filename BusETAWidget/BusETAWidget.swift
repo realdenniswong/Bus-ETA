@@ -17,7 +17,7 @@ struct BusETAWidget: Widget {
             // MARK: - (Lock Screen) / Banner UI
             VStack(spacing: 16) {
                 
-                // Top Row: Huge Route, Destination/Station, and Absolute Arrival Time
+                // Top Row: Huge Route, Destination/Station, and Custom Text Layout
                 HStack(alignment: .center, spacing: 12) {
                     
                     // Huge Route Badge
@@ -46,14 +46,28 @@ struct BusETAWidget: Widget {
                     
                     Spacer(minLength: 4)
                     
-                    // 右側大字：直接定格顯示絕對預計到站時間（例如 18:30），不再每秒倒數
-                    Text(context.state.etaDate, style: .time)
-                        .font(.system(size: 34, weight: .bold, design: .rounded))
-                        .monospacedDigit()
-                        .foregroundColor(.blue)
+                    // 右側大字：完全由代碼控制文字，寫死「分鐘」
+                    VStack(alignment: .trailing, spacing: 2) {
+                        let mins = max(0, Int(context.state.etaDate.timeIntervalSince(Date()) / 60))
+                        
+                        if mins < 2 {
+                            Text("即將抵達")
+                                .font(.system(size: 24, weight: .bold, design: .rounded))
+                                .foregroundColor(.green)
+                        } else {
+                            Text("\(mins) 分鐘")
+                                .font(.system(size: 26, weight: .bold, design: .rounded))
+                                .monospacedDigit()
+                                .foregroundColor(.blue)
+                        }
+                        
+                        Text("\(formattedTime(context.state.etaDate)) 到達")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.secondary)
+                    }
                 }
                 
-                // Bottom Row: Clean Animated Progress Bar (進度條會跟隨時間自然推進，但上方不留秒數文字)
+                // Bottom Row: Clean Animated Progress Bar
                 ProgressView(timerInterval: context.attributes.startTime...context.state.etaDate, countsDown: false)
                     .tint(.blue)
                     .background(Color.gray.opacity(0.2))
@@ -72,16 +86,27 @@ struct BusETAWidget: Widget {
                         .foregroundColor(.red)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    // 靈動島展開右側：顯示絕對到站時間
-                    Text(context.state.etaDate, style: .time)
-                        .font(.title3)
-                        .fontWeight(.bold)
-                        .monospacedDigit()
-                        .foregroundColor(.blue)
+                    // 靈動島展開右側
+                    VStack(alignment: .trailing, spacing: 2) {
+                        let mins = max(0, Int(context.state.etaDate.timeIntervalSince(Date()) / 60))
+                        if mins < 2 {
+                            Text("即將抵達")
+                                .font(.system(size: 16, weight: .bold, design: .rounded))
+                                .foregroundColor(.green)
+                        } else {
+                            Text("\(mins) 分鐘")
+                                .font(.system(size: 18, weight: .bold, design: .rounded))
+                                .monospacedDigit()
+                                .foregroundColor(.blue)
+                        }
+                        Text(formattedTime(context.state.etaDate))
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("往 \(context.attributes.destination)")
+                        Text("往 \(context.attributes.destination) ∙ \(context.attributes.stationName)")
                             .font(.subheadline)
                             .fontWeight(.bold)
                         
@@ -99,18 +124,26 @@ struct BusETAWidget: Widget {
                     .padding(.leading, 4)
             } compactTrailing: {
                 // MARK: - Compact Trailing (緊湊右側)
-                // 擴大寬度至 50 以確保完美容納 24小時制格式（如 17:05），直接定格時間顯示
-                Text(context.state.etaDate, style: .time)
+                // 緊湊模式下空間極小，直接 hardcode 顯示「X分」，既美觀又絕對不會爆位
+                let mins = max(0, Int(context.state.etaDate.timeIntervalSince(Date()) / 60))
+                Text(mins < 2 ? "即將到" : "\(mins)分")
                     .font(.system(size: 14, weight: .bold))
                     .monospacedDigit()
-                    .frame(maxWidth: 50, alignment: .trailing)
-                    .minimumScaleFactor(0.6)
-                    .foregroundColor(.blue)
+                    .frame(maxWidth: 60, alignment: .trailing)
+                    .minimumScaleFactor(0.7)
+                    .foregroundColor(mins < 2 ? .green : .blue)
             } minimal: {
                 // MARK: - Minimal (最小化獨立狀態)
                 Image(systemName: "bus.fill")
                     .foregroundColor(.red)
             }
         }
+    }
+    
+    // 輔助函數：用來格式化 Widget 內部的絕對時間
+    private func formattedTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: date)
     }
 }

@@ -141,6 +141,8 @@ struct ContentView: View {
     @State private var timerTargetDate: Date? = nil
     @State private var timerRouteName = ""
     @State private var timerDestination = ""
+    @State private var timerStopId = ""       // 追蹤設定提醒時的車站 ID
+    @State private var timerDirection = ""    // 追蹤設定提醒時的方向
     
     // Track the targeted/closest station for highlighting & auto-scrolling
     @State private var highlightedStopId: String? = nil
@@ -156,14 +158,11 @@ struct ContentView: View {
         return allRoutes.filter { $0.route.uppercased().hasPrefix(query) }.prefix(30).map { $0 }
     }
     
-    // 放入 searchSuggestions 下面
     var validNextKeys: Set<String>? {
-        // 如果 API 未 load 完或者失敗，回傳 nil 代表「全部按鍵皆可按」
         guard !allRoutes.isEmpty else { return nil }
         
         let query = searchText.uppercased()
         
-        // 如果未入任何字，就抽哂所有路線嘅第一個字出嚟
         if query.isEmpty {
             return Set(allRoutes.compactMap { $0.route.first.map(String.init) })
         }
@@ -172,7 +171,6 @@ struct ContentView: View {
         for suggestion in allRoutes {
             let route = suggestion.route.uppercased()
             if route.hasPrefix(query) && route.count > query.count {
-                // 搵出 Prefix 之後緊接住嗰個字元
                 let index = route.index(route.startIndex, offsetBy: query.count)
                 nextKeys.insert(String(route[index]))
             }
@@ -185,220 +183,225 @@ struct ContentView: View {
     }
     
     var body: some View {
-            NavigationStack {
-                ScrollViewReader { proxy in
-                    List {
-                        // 1. Native-Looking Custom Search Bar
-                        HStack(spacing: 6) {
-                            Image(systemName: "magnifyingglass")
-                                .foregroundColor(Color(UIColor.systemGray))
-                                .font(.system(size: 17))
-                            
-                            Text(searchText.isEmpty ? "輸入路線 (例如 1A)" : searchText)
-                                .foregroundColor(searchText.isEmpty ? Color(UIColor.placeholderText) : .primary)
-                                .font(.system(size: 17))
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .padding(.horizontal, 8)
-                        .frame(height: 48)
-                        .background(Color(UIColor.systemGray5))
-                        .cornerRadius(20)
-                        .padding(.top, 16)
-                        .listRowBackground(themeBackground)
-                        .listRowInsets(EdgeInsets())
-                        .listRowSeparator(.hidden)
-                        .onTapGesture {
-                            withAnimation(.spring()) { showCustomKeyboard = true }
-                        }
-
-                        // 2. Active Timer Card
-                        if let timer = activeTimer {
-                            activeTimerCard(timer: timer)
-                                .listRowBackground(Color.clear)
-                                .listRowInsets(EdgeInsets())
-                                .listRowSeparator(.hidden)
-                        }
+        NavigationStack {
+            ScrollViewReader { proxy in
+                List {
+                    // 1. Native-Looking Custom Search Bar
+                    HStack(spacing: 6) {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundColor(Color(UIColor.systemGray))
+                            .font(.system(size: 17))
                         
-                        // 3. Main Content Sections
-                        if showCustomKeyboard && !searchText.isEmpty {
-                            // SHOW SUGGESTIONS LIST WHILE TYPING
-                            suggestionsSection
-                                .listRowBackground(Color.clear)
-                                .listRowInsets(EdgeInsets())
-                                .listRowSeparator(.hidden)
-                            
-                        } else if searchText.isEmpty {
-                            // SHOW NEARBY DASHBOARD
-                            nearbyDashboardSection
-                            
-                        } else {
-                            // SHOW TIMETABLE RESULTS
-                            Picker("Direction", selection: $selectedDirection) {
-                                Text("去程 (Outbound)").tag("outbound")
-                                Text("回程 (Inbound)").tag("inbound")
-                            }
-                            .pickerStyle(.segmented)
-                            .onChange(of: selectedDirection) { _ in
-                                if !searchText.isEmpty {
-                                    Task {
-                                        await searchRoute(route: searchText.uppercased(), findNearest: true, shouldScroll: true)
-                                    }
-                                }
-                            }
+                        Text(searchText.isEmpty ? "輸入路線 (例如 1A)" : searchText)
+                            .foregroundColor(searchText.isEmpty ? Color(UIColor.placeholderText) : .primary)
+                            .font(.system(size: 17))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .padding(.horizontal, 8)
+                    .frame(height: 48)
+                    .background(Color(UIColor.systemGray5))
+                    .cornerRadius(20)
+                    .padding(.top, 16)
+                    .listRowBackground(themeBackground)
+                    .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
+                    .onTapGesture {
+                        withAnimation(.spring()) { showCustomKeyboard = true }
+                    }
+
+                    // 2. Active Timer Card
+                    if let timer = activeTimer {
+                        activeTimerCard(timer: timer)
                             .listRowBackground(Color.clear)
                             .listRowInsets(EdgeInsets())
                             .listRowSeparator(.hidden)
-                            
-                            timetableSection
-                                .listRowBackground(Color.clear)
-                                .listRowInsets(EdgeInsets())
-                                .listRowSeparator(.hidden)
-                        }
                     }
-                    .listStyle(.insetGrouped)
-                    .scrollContentBackground(.hidden)
-                    .background(themeBackground)
-                    .listSectionSpacing(.custom(16))
                     
-                    // 4. Custom Keyboard Overlay & Modifiers
-                    .overlay(alignment: .bottom) {
-                        if showCustomKeyboard {
-                            CustomKeyboardView(
-                                text: $searchText,
-                                validKeys: validNextKeys, // <--- 加入呢行
-                                onSearch: {
-                                    showCustomKeyboard = false
-                                    Task { await searchRoute(route: searchText.uppercased(), findNearest: true, shouldScroll: true) }
-                                },
-                                onDismiss: {
-                                    withAnimation(.spring()) { showCustomKeyboard = false }
-                                }
-                            )
-                            .transition(.move(edge: .bottom))
+                    // 3. Main Content Sections
+                    if showCustomKeyboard && !searchText.isEmpty {
+                        // SHOW SUGGESTIONS LIST WHILE TYPING
+                        suggestionsSection
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets())
+                            .listRowSeparator(.hidden)
+                        
+                    } else if searchText.isEmpty {
+                        // SHOW NEARBY DASHBOARD
+                        nearbyDashboardSection
+                        
+                    } else {
+                        // SHOW TIMETABLE RESULTS
+                        Picker("Direction", selection: $selectedDirection) {
+                            Text("去程 (Outbound)").tag("outbound")
+                            Text("回程 (Inbound)").tag("inbound")
                         }
-                    }
-                    .navigationTitle(searchText.isEmpty ? "九巴到站預報" : (showCustomKeyboard ? "搜尋路線" : "路線資料"))
-                    .navigationBarTitleDisplayMode(.large)
-                    .overlay {
-                        if !showCustomKeyboard {
-                            if isLoading {
-                                ProgressView("正在獲取數據...")
-                            } else if displayData.isEmpty && !searchText.isEmpty {
-                                Text(systemMessage)
-                                    .foregroundColor(.secondary)
-                                    .multilineTextAlignment(.center)
-                                    .padding()
-                            }
-                        }
-                    }
-                    .toolbar {
-                        if !searchText.isEmpty {
-                            ToolbarItem(placement: .navigationBarLeading) {
-                                Button(action: {
-                                    searchText = ""
-                                    displayData = []
-                                    highlightedStopId = nil
-                                    withAnimation { showCustomKeyboard = false }
-                                }) {
-                                    HStack(spacing: 4) {
-                                        Image(systemName: "chevron.left")
-                                            .fontWeight(.bold)
-                                        Text("返回")
-                                    }
+                        .pickerStyle(.segmented)
+                        .onChange(of: selectedDirection) { _ in
+                            if !searchText.isEmpty {
+                                Task {
+                                    await searchRoute(route: searchText.uppercased(), findNearest: true, shouldScroll: true)
                                 }
                             }
                         }
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
+                        .listRowSeparator(.hidden)
+                        
+                        timetableSection
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets())
+                            .listRowSeparator(.hidden)
                     }
-                    .onReceive(refreshTimer) { _ in
-                        Task {
-                            if searchText.isEmpty {
-                                if let location = locationManager.location {
-                                    await updateNearbyStops(userLocation: location)
+                }
+                .listStyle(.insetGrouped)
+                .scrollContentBackground(.hidden)
+                .background(themeBackground)
+                .listSectionSpacing(.custom(16))
+                
+                // 4. Custom Keyboard Overlay & Modifiers
+                .overlay(alignment: .bottom) {
+                    if showCustomKeyboard {
+                        CustomKeyboardView(
+                            text: $searchText,
+                            validKeys: validNextKeys,
+                            onSearch: {
+                                showCustomKeyboard = false
+                                Task { await searchRoute(route: searchText.uppercased(), findNearest: true, shouldScroll: true) }
+                            },
+                            onDismiss: {
+                                withAnimation(.spring()) { showCustomKeyboard = false }
+                            }
+                        )
+                        .transition(.move(edge: .bottom))
+                    }
+                }
+                .navigationTitle(searchText.isEmpty ? "九巴到站預報" : (showCustomKeyboard ? "搜尋路線" : "路線資料"))
+                .navigationBarTitleDisplayMode(.large)
+                .overlay {
+                    if !showCustomKeyboard {
+                        if isLoading {
+                            ProgressView("正在獲取數據...")
+                        } else if displayData.isEmpty && !searchText.isEmpty {
+                            Text(systemMessage)
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                                .padding()
+                        }
+                    }
+                }
+                .toolbar {
+                    if !searchText.isEmpty {
+                        ToolbarItem(placement: .navigationBarLeading) {
+                            Button(action: {
+                                searchText = ""
+                                displayData = []
+                                highlightedStopId = nil
+                                withAnimation { showCustomKeyboard = false }
+                            }) {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "chevron.left")
+                                        .fontWeight(.bold)
+                                    Text("返回")
                                 }
-                            } else if !displayData.isEmpty && !showCustomKeyboard {
-                                // Background refresh - preserve highlight but do not scroll again
-                                await searchRoute(route: searchText.uppercased(), findNearest: false, shouldScroll: false)
                             }
                         }
                     }
-                    .onReceive(clockTimer) { _ in
-                        currentTime = Date()
-                        if let timer = activeTimer {
-                            let secondsLeft = timer.targetAlertDate.timeIntervalSince(currentTime)
-                            if secondsLeft <= 0 {
-                                let generator = UINotificationFeedbackGenerator()
-                                generator.notificationOccurred(.success)
-                                showingTimerCompletedAlert = true
-                                activeTimer = nil
-                                endLiveActivity()
-                                UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["KMBTimeAlarm"])
+                }
+                .onReceive(refreshTimer) { _ in
+                    Task {
+                        // 背景每 30 秒自動同步計時器與九巴伺服器實時班次
+                        if activeTimer != nil {
+                            await syncActiveTimer()
+                        }
+                        
+                        if searchText.isEmpty {
+                            if let location = locationManager.location {
+                                await updateNearbyStops(userLocation: location)
+                            }
+                        } else if !displayData.isEmpty && !showCustomKeyboard {
+                            await searchRoute(route: searchText.uppercased(), findNearest: false, shouldScroll: false)
+                        }
+                    }
+                }
+                .onReceive(clockTimer) { _ in
+                    currentTime = Date()
+                    if let timer = activeTimer {
+                        let secondsLeft = timer.targetAlertDate.timeIntervalSince(currentTime)
+                        if secondsLeft <= 0 {
+                            let generator = UINotificationFeedbackGenerator()
+                            generator.notificationOccurred(.success)
+                            showingTimerCompletedAlert = true
+                            activeTimer = nil
+                            endLiveActivity()
+                            UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["KMBTimeAlarm"])
+                        }
+                    }
+                }
+                .onChange(of: scrollTriggerId) { _ in
+                    if let target = highlightedStopId {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) {
+                                proxy.scrollTo(target, anchor: .center)
                             }
                         }
                     }
-                    // MARK: 🐛 DEBUG Scroll Trigger
-                    .onChange(of: scrollTriggerId) { _ in
-                        if let target = highlightedStopId {
-                            // 只需單次延遲 0.3 秒，等 UI 畫好就觸發平滑捲動
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) {
-                                    proxy.scrollTo(target, anchor: .center)
-                                }
-                            }
-                        }
-                    }
-                    .alert("設定巴士抵站提醒", isPresented: $showingAddTimerAlert) {
-                        Button("設定提醒", role: .none) {
-                            if let etaDate = timerTargetDate {
-                                UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
-                                    if granted {
-                                        scheduleLocalNotification(
-                                            routeName: timerRouteName,
-                                            destination: timerDestination,
-                                            alertDate: etaDate.addingTimeInterval(-120)
-                                        )
-                                    }
-                                }
-                                
-                                startLiveActivity(routeName: timerRouteName, destination: timerDestination, stationName: timerStationName, etaDate: etaDate, startTime: Date())
-                                
-                                withAnimation {
-                                    activeTimer = ActiveTimerModel(
+                }
+                .alert("設定巴士抵站提醒", isPresented: $showingAddTimerAlert) {
+                    Button("設定提醒", role: .none) {
+                        if let etaDate = timerTargetDate {
+                            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
+                                if granted {
+                                    scheduleLocalNotification(
                                         routeName: timerRouteName,
                                         destination: timerDestination,
-                                        etaDate: etaDate,
-                                        targetAlertDate: etaDate.addingTimeInterval(-120),
-                                        startTime: Date()
+                                        alertDate: etaDate.addingTimeInterval(-120)
                                     )
                                 }
                             }
-                        }
-                        Button("取消", role: .cancel) {}
-                    } message: {
-                        Text("您是否要為 \(timerRouteName) 路線設定提醒？系統將在巴士預計抵達前 2 分鐘（即 \(formattedTime(timerTargetDate?.addingTimeInterval(-120) ?? Date()))）提醒您。")
-                    }
-                    .alert("巴士即將抵達！", isPresented: $showingTimerCompletedAlert) {
-                        Button("好", role: .cancel) {}
-                    } message: {
-                        Text("您設定的巴士即將在 2 分鐘內抵達，請準備上車。")
-                    }
-                    .task {
-                        await loadAllStops()
-                        await loadAllRoutes()
-                        if locationManager.authorizationStatus == .authorizedWhenInUse || locationManager.authorizationStatus == .authorizedAlways {
-                            locationManager.requestLocation()
-                        }
-                        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
-                    }
-                    .onChange(of: locationManager.location) { _ in
-                        if let location = locationManager.location {
-                            Task {
-                                await updateNearbyStops(userLocation: location)
+                            
+                            startLiveActivity(routeName: timerRouteName, destination: timerDestination, stationName: timerStationName, etaDate: etaDate, startTime: Date())
+                            
+                            withAnimation {
+                                activeTimer = ActiveTimerModel(
+                                    routeName: timerRouteName,
+                                    destination: timerDestination,
+                                    etaDate: etaDate,
+                                    targetAlertDate: etaDate.addingTimeInterval(-120),
+                                    startTime: Date(),
+                                    stopId: timerStopId,
+                                    direction: timerDirection,
+                                    stationName: timerStationName
+                                )
                             }
+                        }
+                    }
+                    Button("取消", role: .cancel) {}
+                } message: {
+                    Text("您是否要為 \(timerRouteName) 路線設定提醒？系統將在巴士預計抵達前 2 分鐘（即 \(formattedTime(timerTargetDate?.addingTimeInterval(-120) ?? Date()))）提醒您。")
+                }
+                .alert("巴士即將抵達！", isPresented: $showingTimerCompletedAlert) {
+                    Button("好", role: .cancel) {}
+                } message: {
+                    Text("您設定的巴士即將在 2 分鐘內抵達，請準備上車。")
+                }
+                .task {
+                    await loadAllStops()
+                    await loadAllRoutes()
+                    if locationManager.authorizationStatus == .authorizedWhenInUse || locationManager.authorizationStatus == .authorizedAlways {
+                        locationManager.requestLocation()
+                    }
+                    UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+                }
+                .onChange(of: locationManager.location) { _ in
+                    if let location = locationManager.location {
+                        Task {
+                            await updateNearbyStops(userLocation: location)
                         }
                     }
                 }
             }
         }
+    }
     
     // MARK: - Core Theme Background
     private var themeBackground: some View {
@@ -421,7 +424,6 @@ struct ContentView: View {
             } else {
                 ForEach(searchSuggestions, id: \.self) { suggestion in
                     Button(action: {
-                        // Apply selection and close keyboard
                         searchText = suggestion.route
                         selectedDirection = suggestion.bound == "O" ? "outbound" : "inbound"
                         
@@ -488,7 +490,6 @@ struct ContentView: View {
     private var timetableSection: some View {
         Group {
             if !displayData.isEmpty {
-                // 1. 拆除 VStack，改用 Section！等 List 知道每個站都係獨立嘅 Row
                 Section {
                     ForEach(Array(displayData.enumerated()), id: \.element.id) { index, stop in
                         let isHighlighted = stop.id == highlightedStopId
@@ -543,19 +544,13 @@ struct ContentView: View {
                                     }
                                 }
                             }
-                            // 保持站與站之間嘅距離，灰線會自動穿透呢個空間
                             .padding(.bottom, index < displayData.count - 1 ? 20 : 0)
                             
                             Spacer(minLength: 0)
                         }
-                        // 為 Section 嘅第一行同最後一行加返頂/底 Padding，扮返原本卡片嘅邊界
                         .padding(.top, index == 0 ? 16 : 0)
                         .padding(.bottom, index == displayData.count - 1 ? 16 : 0)
-                        
-                        // 2. 將 .id 放喺呢度！而家佢係 List 認可嘅獨立 Row ID
                         .id(stop.id)
-                        
-                        // 3. 消除預設 Row 邊距，等灰線完美連接
                         .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
                         .listRowSeparator(.hidden)
                         .listRowBackground(Color(.secondarySystemGroupedBackground))
@@ -756,7 +751,6 @@ struct ContentView: View {
                                         searchText = route.route
                                         
                                         Task {
-                                            // Pass the station Code so we strictly highlight what was tapped!
                                             await searchRoute(route: route.route, findNearest: false, targetStopCode: stopModel.stopInfo.stop, shouldScroll: true)
                                         }
                                     }) {
@@ -821,6 +815,8 @@ struct ContentView: View {
                                                 timerRouteName = route.route
                                                 timerDestination = route.destNameTc
                                                 timerStationName = stopModel.stopInfo.name_tc
+                                                timerStopId = stopModel.stopInfo.stop
+                                                timerDirection = route.directionCode == "O" ? "outbound" : "inbound"
                                                 showingAddTimerAlert = true
                                             } label: {
                                                 Label("提醒", systemImage: "bell.fill")
@@ -896,7 +892,7 @@ struct ContentView: View {
             var newDict: [String: String] = [:]
             var newInfoDict: [String: StopInfo] = [:]
             for stop in response.data {
-                newDict[stop.stop] = stop.name_tc // Store TC name as fallback mapping
+                newDict[stop.stop] = stop.name_tc
                 newInfoDict[stop.stop] = stop
             }
             
@@ -986,7 +982,6 @@ struct ContentView: View {
         }
     }
     
-    // MARK: 🐛 DEBUG Search Route Logic
     func searchRoute(route: String, findNearest: Bool = false, targetStopCode: String? = nil, shouldScroll: Bool = false) async {
         guard !route.isEmpty else { return }
         
@@ -994,7 +989,7 @@ struct ContentView: View {
         
         await MainActor.run {
             isLoading = true
-            displayData = [] // 先清空，強迫 List 重新載入
+            displayData = []
             highlightedStopId = nil
         }
         
@@ -1041,7 +1036,6 @@ struct ContentView: View {
                 ))
             }
             
-            // Highlight Logic matching
             var targetId: String? = nil
             
             if findNearest {
@@ -1054,13 +1048,13 @@ struct ContentView: View {
                             let dist = userLoc.distance(from: stopLoc)
                             if dist < minDistance {
                                 minDistance = dist
-                                targetId = rs.id // Use deterministic ID string
+                                targetId = rs.id
                             }
                         }
                     }
                     print("🐛 [DEBUG] 根據 GPS 搵到最近車站 ID: \(targetId ?? "nil")")
                 } else {
-                    print("🐛 [DEBUG] 警告：findNearest 係 true，但無 GPS 定位 (locationManager.location 為 nil)！")
+                    print("🐛 [DEBUG] 警告：findNearest 係 true，但無 GPS 定位！")
                 }
             } else if let code = targetStopCode {
                 targetId = results.first(where: { $0.stopId == code })?.id
@@ -1081,7 +1075,7 @@ struct ContentView: View {
                 
                 if shouldScroll {
                     print("🐛 [DEBUG] 更新 scrollTriggerId，準備觸發捲動")
-                    self.scrollTriggerId = UUID() // 更新 UUID 強制觸發
+                    self.scrollTriggerId = UUID()
                 }
                 
                 isLoading = false
@@ -1096,146 +1090,214 @@ struct ContentView: View {
         }
     }
     
-    @ViewBuilder
-        private func activeTimerCard(timer: ActiveTimerModel) -> some View {
-            let totalTime = timer.etaDate.timeIntervalSince(timer.startTime)
-            let elapsedTime = currentTime.timeIntervalSince(timer.startTime)
-            let progress = totalTime > 0 ? min(1.0, max(0.0, elapsedTime / totalTime)) : 1.0
+    // MARK: - 實時背景同步與追蹤更新函數
+    func syncActiveTimer() async {
+        guard let timer = activeTimer else { return }
+        
+        // 直接調用特定車站的到站預報資料庫
+        guard let url = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/stop-eta/\(timer.stopId)") else { return }
+        
+        do {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            let response = try JSONDecoder().decode(StopETAResponse.self, from: data)
             
-            let secondsLeft = max(0, Int(timer.etaDate.timeIntervalSince(currentTime)))
+            let targetDirCode = timer.direction == "outbound" ? "O" : "I"
+            let matchedItems = response.data.filter { $0.route == timer.routeName && $0.dir == targetDirCode }
+            let sortedItems = matchedItems.sorted { $0.eta_seq < $1.eta_seq }
             
-            VStack(spacing: 0) {
-                HStack {
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(Color.green)
-                            .frame(width: 8, height: 8)
-                            .opacity(secondsLeft > 0 && (Int(currentTime.timeIntervalSince1970) % 2 == 0) ? 0.3 : 1.0)
-                            .animation(.easeInOut(duration: 0.5), value: currentTime)
-                        Text("實時追蹤")
-                            .font(.caption)
-                            .fontWeight(.heavy)
-                            .foregroundColor(.green)
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background(Color.green.opacity(0.15))
-                    .cornerRadius(10)
-                    
-                    Spacer()
-                    
-                    Button(action: {
-                        withAnimation(.easeInOut(duration: 0.3)) {
-                            activeTimer = nil
-                        }
-                        endLiveActivity()
-                        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["KMBTimeAlarm"])
-                    }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(.gray)
-                            .font(.title2)
-                    }
-                }
-                .padding([.top, .horizontal], 16)
+            let dateFormatter = ISO8601DateFormatter()
+            if let firstEtaItem = sortedItems.first,
+               let etaString = firstEtaItem.eta,
+               let newEtaDate = dateFormatter.date(from: etaString) {
                 
-                HStack(alignment: .center) {
-                    HStack(spacing: 12) {
-                        Text(timer.routeName)
-                            .font(.system(size: 24, weight: .black))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(Color(red: 0.65, green: 0.08, blue: 0.12))
-                            .foregroundColor(.white)
-                            .cornerRadius(8)
-                        
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("往 \(timer.destination)")
-                                .font(.subheadline)
-                                .fontWeight(.bold)
-                                .foregroundColor(.primary)
-                                .lineLimit(1)
-                            
-                            Text(timerStationName)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .lineLimit(1)
+                // 比對新舊 ETA 時間是否產生變動（相差超過 10 秒）
+                let difference = abs(newEtaDate.timeIntervalSince(timer.etaDate))
+                if difference > 10 {
+                    print("🐛 [DEBUG] 偵測到最新巴士真實班次已更動！正在進行動態重設...")
+                    
+                    await MainActor.run {
+                        withAnimation {
+                            self.activeTimer?.etaDate = newEtaDate
+                            self.activeTimer?.targetAlertDate = newEtaDate.addingTimeInterval(-120)
                         }
                     }
                     
-                    Spacer()
+                    // 自動重設 iOS 本機提醒通知時間（前 2 分鐘）
+                    let alertDate = newEtaDate.addingTimeInterval(-120)
+                    if alertDate.timeIntervalSince(Date()) > 0 {
+                        scheduleLocalNotification(
+                            routeName: timer.routeName,
+                            destination: timer.destination,
+                            alertDate: alertDate
+                        )
+                    }
                     
-                    if secondsLeft < 120 {
-                        Text("即將抵達")
-                            .font(.system(size: 24, weight: .bold, design: .rounded))
-                            .foregroundColor(.green)
-                    } else {
-                        Text(formattedTime(timer.etaDate))
-                            .font(.system(size: 32, weight: .bold, design: .rounded))
-                            .foregroundColor(.blue)
-                    }
+                    // 即時更新動態島與鎖屏 Live Activity
+                    updateLiveActivity(etaDate: newEtaDate)
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 10)
-                
-                GeometryReader { geometry in
-                    let barWidth = geometry.size.width
-                    let busPosition = barWidth * CGFloat(progress)
-                    
-                    ZStack(alignment: .leading) {
-                        Capsule()
-                            .fill(Color.gray.opacity(0.2))
-                            .frame(height: 10)
-                        
-                        Capsule()
-                            .fill(LinearGradient(colors: [.blue, .cyan], startPoint: .leading, endPoint: .trailing))
-                            .frame(width: max(0, busPosition), height: 10)
-                            .animation(.linear(duration: 1.0), value: progress)
-                        
-                        Image(systemName: "bus.fill")
-                            .font(.system(size: 18))
-                            .foregroundColor(.white)
-                            .padding(8)
-                            .background(Circle().fill(Color.blue).shadow(radius: 3))
-                            .offset(x: max(0, min(busPosition - 17, barWidth - 34)))
-                            .animation(.linear(duration: 1.0), value: progress)
-                    }
-                }
-                .frame(height: 34)
-                .padding(.horizontal, 20)
-                .padding(.top, 20)
-                .padding(.bottom, 24)
-                
-                HStack {
-                    VStack(alignment: .leading) {
-                        Text("預計到站時間")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Text(formattedTime(timer.etaDate))
-                            .font(.headline)
-                            .fontWeight(.bold)
-                    }
-                    Spacer()
-                    VStack(alignment: .trailing) {
-                        Text("狀態")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Text(secondsLeft < 120 ? "即將抵達" : "正常行駛中")
-                            .font(.headline)
-                            .fontWeight(.bold)
-                            .foregroundColor(secondsLeft < 120 ? .green : .secondary)
-                    }
-                }
-                .padding(16)
-                .background(Color.gray.opacity(0.05))
             }
-            .background(
-                RoundedRectangle(cornerRadius: 20)
-                    .fill(Color(.secondarySystemGroupedBackground))
-            )
-            .padding(.top, 8)
-            .padding(.bottom, 8)
-            .transition(.asymmetric(insertion: .opacity.combined(with: .move(edge: .top)), removal: .opacity.combined(with: .scale)))
+        } catch {
+            print("🐛 [DEBUG] 背景計時器即時同步失敗: \(error)")
         }
+    }
+    
+    func updateLiveActivity(etaDate: Date) {
+        Task {
+            for activity in Activity<BusETAAttributes>.activities {
+                let remaining = Int(etaDate.timeIntervalSince(Date()))
+                let state = BusETAAttributes.ContentState(etaDate: etaDate, remainingSeconds: remaining)
+                await activity.update(ActivityContent(state: state, staleDate: nil))
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private func activeTimerCard(timer: ActiveTimerModel) -> some View {
+        let totalTime = timer.etaDate.timeIntervalSince(timer.startTime)
+        let elapsedTime = currentTime.timeIntervalSince(timer.startTime)
+        let progress = totalTime > 0 ? min(1.0, max(0.0, elapsedTime / totalTime)) : 1.0
+        
+        let secondsLeft = max(0, Int(timer.etaDate.timeIntervalSince(currentTime)))
+        
+        VStack(spacing: 0) {
+            HStack {
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(Color.green)
+                        .frame(width: 8, height: 8)
+                        .opacity(secondsLeft > 0 && (Int(currentTime.timeIntervalSince1970) % 2 == 0) ? 0.3 : 1.0)
+                        .animation(.easeInOut(duration: 0.5), value: currentTime)
+                    Text("實時追蹤")
+                        .font(.caption)
+                        .fontWeight(.heavy)
+                        .foregroundColor(.green)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(Color.green.opacity(0.15))
+                .cornerRadius(10)
+                
+                Spacer()
+                
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        activeTimer = nil
+                    }
+                    endLiveActivity()
+                    UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["KMBTimeAlarm"])
+                }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.gray)
+                        .font(.title2)
+                }
+            }
+            .padding([.top, .horizontal], 16)
+            
+            HStack(alignment: .center) {
+                HStack(spacing: 12) {
+                    Text(timer.routeName)
+                        .font(.system(size: 24, weight: .black))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color(red: 0.65, green: 0.08, blue: 0.12))
+                        .foregroundColor(.white)
+                        .cornerRadius(8)
+                    
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("往 \(timer.destination)")
+                            .font(.subheadline)
+                            .fontWeight(.bold)
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                        
+                        Text(timer.stationName)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                
+                Spacer()
+                
+                if secondsLeft < 120 {
+                    Text("即將抵達")
+                        .font(.system(size: 24, weight: .bold, design: .rounded))
+                        .foregroundColor(.green)
+                } else {
+                    // UX 提升：將「剩餘分鐘」放大作為主角，絕對時間用細字置底，形成混合版面
+                    let minutesLeft = Int(secondsLeft / 60)
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text("\(minutesLeft) 分鐘")
+                            .font(.system(size: 28, weight: .bold, design: .rounded))
+                            .foregroundColor(.blue)
+                        Text("\(formattedTime(timer.etaDate)) 到達")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 10)
+            
+            GeometryReader { geometry in
+                let barWidth = geometry.size.width
+                let busPosition = barWidth * CGFloat(progress)
+                
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(Color.gray.opacity(0.2))
+                        .frame(height: 10)
+                    
+                    Capsule()
+                        .fill(LinearGradient(colors: [.blue, .cyan], startPoint: .leading, endPoint: .trailing))
+                        .frame(width: max(0, busPosition), height: 10)
+                        .animation(.linear(duration: 1.0), value: progress)
+                    
+                    Image(systemName: "bus.fill")
+                        .font(.system(size: 18))
+                        .foregroundColor(.white)
+                        .padding(8)
+                        .background(Circle().fill(Color.blue).shadow(radius: 3))
+                        .offset(x: max(0, min(busPosition - 17, barWidth - 34)))
+                        .animation(.linear(duration: 1.0), value: progress)
+                }
+            }
+            .frame(height: 34)
+            .padding(.horizontal, 20)
+            .padding(.top, 20)
+            .padding(.bottom, 24)
+            
+            HStack {
+                VStack(alignment: .leading) {
+                    Text("預計到站時間")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text(formattedTime(timer.etaDate))
+                        .font(.headline)
+                        .fontWeight(.bold)
+                }
+                Spacer()
+                VStack(alignment: .trailing) {
+                    Text("狀態")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text(secondsLeft < 120 ? "即將抵達" : "正常行駛中")
+                        .font(.headline)
+                        .fontWeight(.bold)
+                        .foregroundColor(secondsLeft < 120 ? .green : .secondary)
+                }
+            }
+            .padding(16)
+            .background(Color.gray.opacity(0.05))
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(Color(.secondarySystemGroupedBackground))
+        )
+        .padding(.top, 8)
+        .padding(.bottom, 8)
+        .transition(.asymmetric(insertion: .opacity.combined(with: .move(edge: .top)), removal: .opacity.combined(with: .scale)))
+    }
     
     func formattedTime(_ date: Date?) -> String {
         guard let date = date else { return "" }
@@ -1289,25 +1351,28 @@ struct ContentView: View {
     }
 }
 
+// MARK: - 升級版 ActiveTimerModel 數據結構
 struct ActiveTimerModel: Identifiable, Equatable {
     let id = UUID()
     let routeName: String
     let destination: String
-    let etaDate: Date
-    let targetAlertDate: Date
+    var etaDate: Date            // 允許背景同步時動態修改時間
+    var targetAlertDate: Date    // 允許動態變更提醒鬧鐘點
     let startTime: Date
+    let stopId: String           // 新增車站代碼綁定
+    let direction: String        // 新增方向碼紀錄
+    let stationName: String      // 新增特定車站名稱
 }
 
 // MARK: - Custom Keyboard View
 struct CustomKeyboardView: View {
     @Binding var text: String
-    var validKeys: Set<String>? // <--- 1. 喺度加入接收變數
+    var validKeys: Set<String>?
     var onSearch: () -> Void
     var onDismiss: () -> Void
     
     var body: some View {
         VStack(spacing: 8) {
-            // Toolbar Area
             HStack {
                 Spacer()
                 Button(action: onDismiss) {
@@ -1319,19 +1384,13 @@ struct CustomKeyboardView: View {
             }
             .padding(.top, 10)
             
-            // Main Keyboard Layout (Exactly 7 mathematical columns)
             GeometryReader { geo in
                 let spacing: CGFloat = 8
-                // 7 equal columns with 6 gaps of `spacing`
                 let colWidth = (geo.size.width - (spacing * 6)) / 7
                 let keyHeight: CGFloat = 46
                 
                 VStack(spacing: spacing) {
-                    
-                    // TOP SECTION: Numpad (Left) + Alpha (Right)
                     HStack(spacing: spacing) {
-                        
-                        // LEFT SIDE: Numpad (3 cols wide)
                         VStack(spacing: spacing) {
                             let numpad = [
                                 ["1", "2", "3"],
@@ -1347,7 +1406,6 @@ struct CustomKeyboardView: View {
                                 }
                             }
                             
-                            // Bottom Numpad Row: '0' safely isolated below '8'
                             HStack(spacing: spacing) {
                                 Color.clear.frame(width: colWidth, height: keyHeight)
                                 keyboardButton("0", width: colWidth, height: keyHeight) { text.append("0") }
@@ -1355,7 +1413,6 @@ struct CustomKeyboardView: View {
                             }
                         }
                         
-                        // RIGHT SIDE: Alpha (4 cols wide)
                         VStack(spacing: spacing) {
                             let alphaRows = [
                                 ["A", "B", "C", "D"],
@@ -1374,15 +1431,12 @@ struct CustomKeyboardView: View {
                         }
                     }
                     
-                    // BOTTOM SECTION: Action Row
                     HStack(spacing: spacing) {
-                        // Clear All (Spans 2 columns + 1 inner spacing)
                         let clearWidth = (colWidth * 2) + spacing
                         actionButton("清空", width: clearWidth, height: keyHeight, color: Color(UIColor.systemGray4)) {
                             text = ""
                         }
                         
-                        // Search (Spans 3 columns + 2 inner spacings)
                         let searchWidth = (colWidth * 3) + (spacing * 2)
                         Button(action: onSearch) {
                             Text("搜尋")
@@ -1394,7 +1448,6 @@ struct CustomKeyboardView: View {
                                 .foregroundColor(.white)
                         }
                         
-                        // Backspace (Spans 2 columns + 1 inner spacing)
                         let backspaceWidth = (colWidth * 2) + spacing
                         actionButton(Image(systemName: "delete.left"), width: backspaceWidth, height: keyHeight, color: Color(UIColor.systemGray4)) {
                             if !text.isEmpty { text.removeLast() }
@@ -1403,7 +1456,7 @@ struct CustomKeyboardView: View {
                 }
             }
             .padding(.horizontal, 8)
-            .frame(height: 270) // Accommodates 5 distinct rows + paddings
+            .frame(height: 270)
         }
         .padding(.bottom, 20)
         .background(
@@ -1413,10 +1466,8 @@ struct CustomKeyboardView: View {
         )
     }
     
-    // MARK: - Reusable Button Builders
     @ViewBuilder
     private func keyboardButton(_ text: String, width: CGFloat, height: CGFloat, action: @escaping () -> Void) -> some View {
-        // 如果 validKeys 係 nil (API未load完)，或者包含呢個按鍵，就當做 valid
         let isValid = validKeys?.contains(text) ?? true
         
         Button(action: action) {
@@ -1425,12 +1476,9 @@ struct CustomKeyboardView: View {
                 .frame(width: width, height: height)
                 .background(Color(UIColor.systemBackground))
                 .cornerRadius(6)
-                // 如果 Disable 咗，將陰影移除令佢望落去平啲
                 .shadow(color: Color.black.opacity(isValid ? 0.3 : 0.0), radius: 0, x: 0, y: isValid ? 1 : 0)
-                // 如果 Disable 咗，將字體顏色變灰
                 .foregroundColor(isValid ? .primary : Color(UIColor.tertiaryLabel))
         }
-        // 直接封鎖點擊功能
         .disabled(!isValid)
     }
     

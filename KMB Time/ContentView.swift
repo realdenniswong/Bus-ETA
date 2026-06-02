@@ -315,10 +315,22 @@ struct ContentView: View {
                     if let timer = activeTimer {
                         let secondsLeft = timer.etaDate.timeIntervalSince(currentTime)
                         
-                        // 跌到 -10 秒，正式清除
+                        // 當時間到站並超過 10 秒（你原本寫 <= -10）
                         if secondsLeft <= -10 {
+                            print("🐛 [背景擊殺] 巴士已過站，啟動自動收屍程序...")
+                            
+                            // 1. 清空主 App 頂部卡片
                             activeTimer = nil
+                            
+                            // 2. 徹底擊殺鎖屏、通知中心與靈動島的 Live Activity Banner
                             endLiveActivity()
+                            
+                            // 3. 🌟【核心省電】任務完美完成，立刻叫 locationManager 關閉定位！
+                            // 這行 Code 是精髓：一旦關閉定位，iOS 會在 1-2 秒內將你的 App 重新徹底冰封（Suspend）。
+                            // 這樣平時就絕對不會洩漏任何電量，保持 0 耗電！
+                            self.locationManager.stopBackgroundTracking()
+                            
+                            print("🐛 [背景擊殺] 成功殺死卡片並關閉定位更新，App 已回歸 0 耗電深層睡眠狀態。")
                         }
                     }
                 }
@@ -345,7 +357,7 @@ struct ContentView: View {
                             }
                             
                             startLiveActivity(routeName: timerRouteName, destination: timerDestination, stationName: timerStationName, etaDate: etaDate, startTime: Date())
-                            
+                            self.locationManager.startBackgroundTracking()
                             withAnimation {
                                 activeTimer = ActiveTimerModel(
                                     routeName: timerRouteName,
@@ -1142,20 +1154,22 @@ struct ContentView: View {
         }
     }
     
+    // MARK: - 主介面頂部實時追蹤卡片 (🌟已優化：落實 Q2 老實顯示分鐘 ＆ 整合手動關閉定位)
     @ViewBuilder
     private func activeTimerCard(timer: ActiveTimerModel) -> some View {
         let totalTime = timer.etaDate.timeIntervalSince(timer.startTime)
         let elapsedTime = currentTime.timeIntervalSince(timer.startTime)
         let progress = totalTime > 0 ? min(1.0, max(0.0, elapsedTime / totalTime)) : 1.0
-        
         let secondsLeft = max(0, Int(timer.etaDate.timeIntervalSince(currentTime)))
         
         VStack(spacing: 0) {
+            // --- 卡片頂部：狀態欄與關閉按鈕 ---
             HStack {
                 HStack(spacing: 6) {
                     Circle()
                         .fill(Color.green)
                         .frame(width: 8, height: 8)
+                        // 綠色小圓點會隨時間閃爍，代表正在實時連線
                         .opacity(secondsLeft > 0 && (Int(currentTime.timeIntervalSince1970) % 2 == 0) ? 0.3 : 1.0)
                         .animation(.easeInOut(duration: 0.5), value: currentTime)
                     Text("實時追蹤")
@@ -1170,11 +1184,17 @@ struct ContentView: View {
                 
                 Spacer()
                 
+                // 🌟 點擊右上角「X」手動關閉卡片
                 Button(action: {
                     withAnimation(.easeInOut(duration: 0.3)) {
                         activeTimer = nil
                     }
-                    endLiveActivity()
+                    endLiveActivity() // 1. 殺死鎖屏與靈動島卡片
+                    
+                    // 2. 🌟【核心修正】立刻叫自訂的 LocationManager 關閉背景定位，交還特權，回復 0 耗電！
+                    self.locationManager.stopBackgroundTracking()
+                    
+                    // 3. 清除未發出的 Local Notification 鬧鐘
                     UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["KMBTimeAlarm"])
                 }) {
                     Image(systemName: "xmark.circle.fill")
@@ -1184,8 +1204,10 @@ struct ContentView: View {
             }
             .padding([.top, .horizontal], 16)
             
+            // --- 卡片中部：路線、車站與精準分鐘倒數 ---
             HStack(alignment: .center) {
                 HStack(spacing: 12) {
+                    // 精緻的九巴紅色路線 Badge
                     Text(timer.routeName)
                         .font(.system(size: 24, weight: .black))
                         .padding(.horizontal, 10)
@@ -1210,25 +1232,21 @@ struct ContentView: View {
                 
                 Spacer()
                 
-                if secondsLeft < 120 {
-                    Text("即將抵達")
-                        .font(.system(size: 24, weight: .bold, design: .rounded))
-                        .foregroundColor(.green)
-                } else {
-                    let minutesLeft = Int(secondsLeft / 60)
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text("\(minutesLeft) 分鐘")
-                            .font(.system(size: 28, weight: .bold, design: .rounded))
-                            .foregroundColor(.blue)
-                        Text("\(formattedTime(timer.etaDate)) 到達")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
+                // 🌟【落實 Question 2】不論時間多少，老老實實計算並精確顯示剩餘「X 分鐘」，不再顯示「即將抵達」
+                let minutesLeft = max(0, Int(ceil(Double(secondsLeft) / 60.0)))
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text("\(minutesLeft) 分鐘")
+                        .font(.system(size: 28, weight: .bold, design: .rounded))
+                        .foregroundColor(minutesLeft == 0 ? .green : .blue) // 0 分鐘變綠色，其餘時間藍色
+                    Text("\(formattedTime(timer.etaDate)) 到達")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
             }
             .padding(.horizontal, 16)
             .padding(.top, 10)
             
+            // --- 卡片中下部：動態小巴士進度條 ---
             GeometryReader { geometry in
                 let barWidth = geometry.size.width
                 let busPosition = barWidth * CGFloat(progress)
@@ -1243,6 +1261,7 @@ struct ContentView: View {
                         .frame(width: max(0, busPosition), height: 10)
                         .animation(.linear(duration: 1.0), value: progress)
                     
+                    // 動態前進的小巴士 Icon 🚌
                     Image(systemName: "bus.fill")
                         .font(.system(size: 18))
                         .foregroundColor(.white)
@@ -1257,6 +1276,7 @@ struct ContentView: View {
             .padding(.top, 20)
             .padding(.bottom, 24)
             
+            // --- 卡片底部：灰色資訊底欄 ---
             HStack {
                 VStack(alignment: .leading) {
                     Text("預計到站時間")
@@ -1271,10 +1291,11 @@ struct ContentView: View {
                     Text("狀態")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                    Text(secondsLeft < 120 ? "即將抵達" : "正常行駛中")
+                    let minutesLeft = max(0, Int(ceil(Double(secondsLeft) / 60.0)))
+                    Text(minutesLeft == 0 ? "巴士到站中" : "正常行駛中")
                         .font(.headline)
                         .fontWeight(.bold)
-                        .foregroundColor(secondsLeft < 120 ? .green : .secondary)
+                        .foregroundColor(minutesLeft == 0 ? .green : .secondary)
                 }
             }
             .padding(16)
@@ -1286,6 +1307,7 @@ struct ContentView: View {
         )
         .padding(.top, 8)
         .padding(.bottom, 8)
+        // 優雅的淡入彈出動畫
         .transition(.asymmetric(insertion: .opacity.combined(with: .move(edge: .top)), removal: .opacity.combined(with: .scale)))
     }
     

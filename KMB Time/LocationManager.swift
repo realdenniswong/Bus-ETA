@@ -21,6 +21,11 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyBest
         self.authorizationStatus = manager.authorizationStatus
+        
+        // 🌟 在你的 LocationManager 初始化地方加上：
+        manager.allowsBackgroundLocationUpdates = true  // 允許在背景持續拿定位（這是不被急凍的關鍵）
+        manager.showsBackgroundLocationIndicator = false // 設為 false，用家頂部唔會出現藍色定位長條，最神祕、最唔打擾
+        manager.pausesLocationUpdatesAutomatically = false // 防止 iOS 覺得你停喺度等車就自動幫你熄咗定位
     }
     
     func requestLocation() {
@@ -60,5 +65,23 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         DispatchQueue.main.async {
             self.isLocating = false
         }
+    }
+    
+    // 🌟 請加在你的 LocationManager 類別入面：
+    func startBackgroundTracking() {
+        // 確保開啟背景特權配置
+        self.manager.allowsBackgroundLocationUpdates = true
+        self.manager.showsBackgroundLocationIndicator = false
+        self.manager.pausesLocationUpdatesAutomatically = false
+        
+        // 正式開火
+        self.manager.startUpdatingLocation()
+        print("🐛 [LocationManager] 背景定位已成功開火！")
+    }
+
+    func stopBackgroundTracking() {
+        // 關燈收工，交還特權
+        self.manager.stopUpdatingLocation()
+        print("🐛 [LocationManager] 背景定位已成功關閉。")
     }
 }

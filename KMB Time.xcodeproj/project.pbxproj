@@ -53,9 +53,22 @@
 		F6BA22E065B936234152A74E /* BusETAAttributes.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BusETAAttributes.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		ADCD31B72FCF47990022A521 /* Exceptions for "KMB Time" folder in "KMB Time" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"KMB-Time-Info.plist",
+			);
+			target = AD71501F2FCC7A9200DD9837 /* KMB Time */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		AD7150222FCC7A9200DD9837 /* KMB Time */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				ADCD31B72FCF47990022A521 /* Exceptions for "KMB Time" folder in "KMB Time" target */,
+			);
 			path = "KMB Time";
 			sourceTree = "<group>";
 		};
@@ -443,6 +456,8 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "KMB-Time-Info.plist";
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "我們需要背景定位來在巴士到站時為您自動更新並關閉提醒卡片。";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "We use your location to find nearby bus stops.";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
@@ -489,6 +504,8 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "KMB-Time-Info.plist";
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "我們需要背景定位來在巴士到站時為您自動更新並關閉提醒卡片。";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "We use your location to find nearby bus stops.";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;

@@ -49,7 +49,6 @@ struct ETADisplayInfo: Identifiable, Hashable {
 }
 
 struct StopDisplayModel: Identifiable {
-    // Deterministic ID ensures background refreshes don't break the active scroll position
     var id: String { "\(seq)-\(stopId)" }
     let seq: Int
     let stopId: String
@@ -106,19 +105,17 @@ struct RouteSuggestion: Hashable {
 // MARK: - User Interface
 struct ContentView: View {
     @State private var searchText = ""
-    @State private var selectedDirection = "outbound" // Tracks the selected direction
+    @State private var selectedDirection = "outbound"
     
     @State private var stopDictionary: [String: String] = [:]
     @State private var stopInfoDictionary: [String: StopInfo] = [:]
     @State private var displayData: [StopDisplayModel] = []
     
-    // Auto-complete variables
     @State private var allRoutes: [RouteSuggestion] = []
     
     @State private var isLoading = false
     @State private var systemMessage = "搜尋九巴路線 (例如 1A, 281A)"
     
-    // Nearby Location States
     @StateObject private var locationManager = LocationManager()
     @State private var allStops: [StopInfo] = []
     @State private var nearbyStops: [NearbyStopModel] = []
@@ -127,31 +124,25 @@ struct ContentView: View {
     
     @State private var timerStationName = ""
     
-    // Auto-refresh timer to keep ETA countdowns fresh (ticks every 30 seconds)
     private let refreshTimer = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
-    
-    // Local clock timer to update countdowns smoothly (ticks every 1 second)
     private let clockTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     @State private var currentTime = Date()
     
-    // Active Timer and Alert States
     @State private var activeTimer: ActiveTimerModel? = nil
     @State private var showingAddTimerAlert = false
-    @State private var showingTimerCompletedAlert = false
     @State private var timerTargetDate: Date? = nil
     @State private var timerRouteName = ""
     @State private var timerDestination = ""
-    @State private var timerStopId = ""       // 追蹤設定提醒時的車站 ID
-    @State private var timerDirection = ""    // 追蹤設定提醒時的方向
+    @State private var timerStopId = ""
+    @State private var timerDirection = ""
     
-    // Track the targeted/closest station for highlighting & auto-scrolling
     @State private var highlightedStopId: String? = nil
     @State private var scrollTriggerId: UUID = UUID()
     
-    // Custom Keyboard State
     @State private var showCustomKeyboard = false
     
-    // Computed property to filter routes for auto-complete suggestions
+    @Environment(\.scenePhase) var scenePhase
+    
     var searchSuggestions: [RouteSuggestion] {
         guard !searchText.isEmpty else { return [] }
         let query = searchText.uppercased()
@@ -208,7 +199,7 @@ struct ContentView: View {
                     .onTapGesture {
                         withAnimation(.spring()) { showCustomKeyboard = true }
                     }
-
+                    
                     // 2. Active Timer Card
                     if let timer = activeTimer {
                         activeTimerCard(timer: timer)
@@ -219,18 +210,15 @@ struct ContentView: View {
                     
                     // 3. Main Content Sections
                     if showCustomKeyboard && !searchText.isEmpty {
-                        // SHOW SUGGESTIONS LIST WHILE TYPING
                         suggestionsSection
                             .listRowBackground(Color.clear)
                             .listRowInsets(EdgeInsets())
                             .listRowSeparator(.hidden)
                         
                     } else if searchText.isEmpty {
-                        // SHOW NEARBY DASHBOARD
                         nearbyDashboardSection
                         
                     } else {
-                        // SHOW TIMETABLE RESULTS
                         Picker("Direction", selection: $selectedDirection) {
                             Text("去程 (Outbound)").tag("outbound")
                             Text("回程 (Inbound)").tag("inbound")
@@ -309,7 +297,6 @@ struct ContentView: View {
                 }
                 .onReceive(refreshTimer) { _ in
                     Task {
-                        // 背景每 30 秒自動同步計時器與九巴伺服器實時班次
                         if activeTimer != nil {
                             await syncActiveTimer()
                         }
@@ -326,14 +313,12 @@ struct ContentView: View {
                 .onReceive(clockTimer) { _ in
                     currentTime = Date()
                     if let timer = activeTimer {
-                        let secondsLeft = timer.targetAlertDate.timeIntervalSince(currentTime)
-                        if secondsLeft <= 0 {
-                            let generator = UINotificationFeedbackGenerator()
-                            generator.notificationOccurred(.success)
-                            showingTimerCompletedAlert = true
+                        let secondsLeft = timer.etaDate.timeIntervalSince(currentTime)
+                        
+                        // 跌到 -10 秒，正式清除
+                        if secondsLeft <= -10 {
                             activeTimer = nil
                             endLiveActivity()
-                            UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["KMBTimeAlarm"])
                         }
                     }
                 }
@@ -379,14 +364,13 @@ struct ContentView: View {
                 } message: {
                     Text("您是否要為 \(timerRouteName) 路線設定提醒？系統將在巴士預計抵達前 2 分鐘（即 \(formattedTime(timerTargetDate?.addingTimeInterval(-120) ?? Date()))）提醒您。")
                 }
-                .alert("巴士即將抵達！", isPresented: $showingTimerCompletedAlert) {
-                    Button("好", role: .cancel) {}
-                } message: {
-                    Text("您設定的巴士即將在 2 分鐘內抵達，請準備上車。")
-                }
                 .task {
                     await loadAllStops()
                     await loadAllRoutes()
+                    
+                    // Recover active timer state from iOS if the app was restarted
+                    reconnectActiveLiveActivity()
+                    
                     if locationManager.authorizationStatus == .authorizedWhenInUse || locationManager.authorizationStatus == .authorizedAlways {
                         locationManager.requestLocation()
                     }
@@ -397,6 +381,12 @@ struct ContentView: View {
                         Task {
                             await updateNearbyStops(userLocation: location)
                         }
+                    }
+                }
+                .onChange(of: scenePhase) { newPhase in
+                    if newPhase == .active {
+                        print("🐛 [DEBUG] App 返到前景！即刻檢查有冇死屍卡片...")
+                        reconnectActiveLiveActivity()
                     }
                 }
             }
@@ -1092,9 +1082,8 @@ struct ContentView: View {
     
     // MARK: - 實時背景同步與追蹤更新函數
     func syncActiveTimer() async {
-        guard let timer = activeTimer else { return }
+        guard let timer = activeTimer, !timer.stopId.isEmpty else { return }
         
-        // 直接調用特定車站的到站預報資料庫
         guard let url = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/stop-eta/\(timer.stopId)") else { return }
         
         do {
@@ -1110,7 +1099,6 @@ struct ContentView: View {
                let etaString = firstEtaItem.eta,
                let newEtaDate = dateFormatter.date(from: etaString) {
                 
-                // 比對新舊 ETA 時間是否產生變動（相差超過 10 秒）
                 let difference = abs(newEtaDate.timeIntervalSince(timer.etaDate))
                 if difference > 10 {
                     print("🐛 [DEBUG] 偵測到最新巴士真實班次已更動！正在進行動態重設...")
@@ -1122,7 +1110,6 @@ struct ContentView: View {
                         }
                     }
                     
-                    // 自動重設 iOS 本機提醒通知時間（前 2 分鐘）
                     let alertDate = newEtaDate.addingTimeInterval(-120)
                     if alertDate.timeIntervalSince(Date()) > 0 {
                         scheduleLocalNotification(
@@ -1132,7 +1119,6 @@ struct ContentView: View {
                         )
                     }
                     
-                    // 即時更新動態島與鎖屏 Live Activity
                     updateLiveActivity(etaDate: newEtaDate)
                 }
             }
@@ -1146,7 +1132,12 @@ struct ContentView: View {
             for activity in Activity<BusETAAttributes>.activities {
                 let remaining = Int(etaDate.timeIntervalSince(Date()))
                 let state = BusETAAttributes.ContentState(etaDate: etaDate, remainingSeconds: remaining)
-                await activity.update(ActivityContent(state: state, staleDate: nil))
+                
+                // 🌟 同樣設定過期時間：預計到達時間 (etaDate) 再加 10 分鐘 (600 秒)
+                let expireDate = etaDate.addingTimeInterval(1 * 60)
+                
+                // 🌟 將 staleDate: nil 改為 staleDate: expireDate
+                await activity.update(ActivityContent(state: state, staleDate: expireDate))
             }
         }
     }
@@ -1224,7 +1215,6 @@ struct ContentView: View {
                         .font(.system(size: 24, weight: .bold, design: .rounded))
                         .foregroundColor(.green)
                 } else {
-                    // UX 提升：將「剩餘分鐘」放大作為主角，絕對時間用細字置底，形成混合版面
                     let minutesLeft = Int(secondsLeft / 60)
                     VStack(alignment: .trailing, spacing: 2) {
                         Text("\(minutesLeft) 分鐘")
@@ -1333,7 +1323,12 @@ struct ContentView: View {
                 let attributes = BusETAAttributes(routeName: routeName, destination: destination, stationName: stationName, startTime: startTime)
                 let remaining = Int(etaDate.timeIntervalSince(Date()))
                 let state = BusETAAttributes.ContentState(etaDate: etaDate, remainingSeconds: remaining)
-                let content = ActivityContent(state: state, staleDate: nil)
+                
+                // 🌟 設定過期時間：預計到達時間 (etaDate) 再加 10 分鐘 (600 秒)
+                let expireDate = etaDate.addingTimeInterval(1 * 60)
+                
+                // 🌟 將 staleDate: nil 改為 staleDate: expireDate
+                let content = ActivityContent(state: state, staleDate: expireDate)
                 let _ = try Activity.request(attributes: attributes, content: content, pushType: nil)
             } catch {
                 print("Error starting Live Activity: \(error.localizedDescription)")
@@ -1346,6 +1341,38 @@ struct ContentView: View {
             for activity in Activity<BusETAAttributes>.activities {
                 let state = BusETAAttributes.ContentState(etaDate: activity.content.state.etaDate, remainingSeconds: 0)
                 await activity.end(ActivityContent(state: state, staleDate: nil), dismissalPolicy: .immediate)
+            }
+        }
+    }
+    
+    func reconnectActiveLiveActivity() {
+        // 🌟 改為掃描所有存在嘅 Live Activities，確保清得乾淨！
+        for activity in Activity<BusETAAttributes>.activities {
+            let attribs = activity.attributes
+            let state = activity.content.state
+            
+            // 如果仲未夠鐘 (倒數未完)
+            if state.etaDate.timeIntervalSince(Date()) > 0 {
+                // 確保畫面上顯示緊 activeTimer，如果冇就幫佢開返
+                if self.activeTimer == nil {
+                    self.activeTimer = ActiveTimerModel(
+                        routeName: attribs.routeName,
+                        destination: attribs.destination,
+                        etaDate: state.etaDate,
+                        targetAlertDate: state.etaDate.addingTimeInterval(-120),
+                        startTime: attribs.startTime,
+                        stopId: "", // 如果你有存到就放落去
+                        direction: "",
+                        stationName: attribs.stationName
+                    )
+                    print("成功重新連接背景計時器: \(attribs.routeName)")
+                }
+            } else {
+                // 🌟 已經過咗鐘！光速擊殺呢張卡片！
+                print("🐛 [DEBUG] 發現過期卡片 \(attribs.routeName)，立即刪除！")
+                Task {
+                    await activity.end(nil, dismissalPolicy: .immediate)
+                }
             }
         }
     }

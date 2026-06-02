@@ -132,7 +132,7 @@ struct BusETAWidget: Widget {
                 
                 DynamicIslandExpandedRegion(.leading) {
                     Text(context.attributes.routeName)
-                        .font(.system(size: 22, weight: .black, design: .rounded))
+                        .font(.system(size: 36, weight: .black, design: .rounded))
                         .foregroundColor(.red)
                         // 🌟 左邊路線牌：加 leading padding，推離左邊黑邊
                         .padding(.leading, 12)
@@ -146,7 +146,7 @@ struct BusETAWidget: Widget {
                 
                 DynamicIslandExpandedRegion(.bottom) {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("往 \(context.attributes.destination) ∙ \(context.attributes.stationName)")
+                        Text("\(context.attributes.stationName) 往 \(context.attributes.destination)")
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundColor(.primary)
                             .lineLimit(1)

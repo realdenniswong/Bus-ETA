@@ -2,8 +2,9 @@
 //  ContentView.swift
 //  KMB Time
 //
-//  Created by Dennis Wong on 5/31/26.
+//  Created by Dennis Wong on 6/4/26.
 //
+
 
 import SwiftUI
 import CoreLocation
@@ -11,135 +12,45 @@ import Combine
 import UserNotifications
 import ActivityKit
 
-// MARK: - Data Models
-struct StopResponse: Codable { let data: [StopInfo] }
-struct StopInfo: Codable {
-    let stop: String
-    let name_tc: String
-    let lat: String?
-    let long: String?
-}
-
-extension StopInfo {
-    var clLocation: CLLocation? {
-        guard let latStr = lat, let longStr = long,
-              let latitude = Double(latStr), let longitude = Double(longStr) else { return nil }
-        return CLLocation(latitude: latitude, longitude: longitude)
-    }
-}
-
-struct RouteStopResponse: Codable { let data: [RouteStop] }
-struct RouteStop: Codable {
-    let seq: String
-    let stop: String
-}
-
-struct ETAResponse: Codable { let data: [ETAItem] }
-struct ETAItem: Codable {
-    let seq: Int
-    let dir: String
-    let eta: String?
-    let rmk_tc: String?
-}
-
-struct ETADisplayInfo: Identifiable, Hashable {
-    let id = UUID()
-    let etaDate: Date?
-    let remark: String?
-}
-
-struct StopDisplayModel: Identifiable {
-    var id: String { "\(seq)-\(stopId)" }
-    let seq: Int
-    let stopId: String
-    let stopNameTc: String
-    let etas: [ETADisplayInfo]
-}
-
-struct NearbyStopModel: Identifiable {
-    let id = UUID()
-    let stopInfo: StopInfo
-    let distance: CLLocationDistance
-    var routes: [NearbyRouteModel] = []
-}
-
-struct NearbyRouteModel: Identifiable {
-    let id = UUID()
-    let route: String
-    let directionCode: String // "O" or "I"
-    let destNameTc: String
-    let etas: [ETADisplayInfo]
-}
-
-struct StopETAResponse: Codable {
-    let data: [StopETAItem]
-}
-
-struct StopETAItem: Codable {
-    let co: String
-    let route: String
-    let dir: String
-    let service_type: Int
-    let dest_tc: String
-    let eta_seq: Int
-    let eta: String?
-    let rmk_tc: String?
-}
-
-// MARK: - Route Suggestion Models
-struct AllRoutesResponse: Codable { let data: [RouteItem] }
-struct RouteItem: Codable {
-    let route: String
-    let bound: String    // "O" (Outbound) or "I" (Inbound)
-    let orig_tc: String  // Origin Station
-    let dest_tc: String  // Destination Station
-}
-
-struct RouteSuggestion: Hashable {
-    let route: String
-    let bound: String
-    let origin: String
-    let destination: String
-}
-
-// MARK: - User Interface
+// MARK: - User Interface View
 struct ContentView: View {
-    @State private var searchText = ""
-    @State private var selectedDirection = "outbound"
+    // Note: 'private' removed to allow ContentView+Logic.swift to access state variables
+    @State var searchText = ""
+    @State var selectedDirection = "outbound"
     
-    @State private var stopDictionary: [String: String] = [:]
-    @State private var stopInfoDictionary: [String: StopInfo] = [:]
-    @State private var displayData: [StopDisplayModel] = []
+    @State var stopDictionary: [String: String] = [:]
+    @State var stopInfoDictionary: [String: StopInfo] = [:]
+    @State var displayData: [StopDisplayModel] = []
     
-    @State private var allRoutes: [RouteSuggestion] = []
+    @State var allRoutes: [RouteSuggestion] = []
     
-    @State private var isLoading = false
-    @State private var systemMessage = "搜尋九巴路線 (例如 1A, 281A)"
+    @State var isLoading = false
+    @State var systemMessage = "搜尋九巴路線 (例如 1A, 281A)"
     
-    @StateObject private var locationManager = LocationManager()
-    @State private var allStops: [StopInfo] = []
-    @State private var nearbyStops: [NearbyStopModel] = []
-    @State private var expandedStopIds: Set<String> = []
-    @State private var isSearchingNearby = false
+    @StateObject var locationManager = LocationManager()
+    @State var allStops: [StopInfo] = []
+    @State var nearbyStops: [NearbyStopModel] = []
+    @State var expandedStopIds: Set<String> = []
+    @State var isSearchingNearby = false
     
-    @State private var timerStationName = ""
+    @State var timerStationName = ""
     
-    private let refreshTimer = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
-    private let clockTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
-    @State private var currentTime = Date()
+    let refreshTimer = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
+    let clockTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    @State var currentTime = Date()
     
-    @State private var activeTimer: ActiveTimerModel? = nil
-    @State private var showingAddTimerAlert = false
-    @State private var timerTargetDate: Date? = nil
-    @State private var timerRouteName = ""
-    @State private var timerDestination = ""
-    @State private var timerStopId = ""
-    @State private var timerDirection = ""
+    @State var activeTimer: ActiveTimerModel? = nil
+    @State var showingAddTimerAlert = false
+    @State var timerTargetDate: Date? = nil
+    @State var timerRouteName = ""
+    @State var timerDestination = ""
+    @State var timerStopId = ""
+    @State var timerDirection = ""
     
-    @State private var highlightedStopId: String? = nil
-    @State private var scrollTriggerId: UUID = UUID()
+    @State var highlightedStopId: String? = nil
+    @State var scrollTriggerId: UUID = UUID()
     
-    @State private var showCustomKeyboard = false
+    @State var showCustomKeyboard = false
     
     @Environment(\.scenePhase) var scenePhase
     
@@ -227,7 +138,6 @@ struct ContentView: View {
                         .onChange(of: selectedDirection) { newValue in
                             if !searchText.isEmpty {
                                 Task {
-                                    // 🚀 顯式傳入 direction: newValue (唔好用舊嘅 selectedDirection)
                                     await searchRoute(route: searchText.uppercased(), direction: newValue, findNearest: true, shouldScroll: true)
                                 }
                             }
@@ -256,7 +166,6 @@ struct ContentView: View {
                             onSearch: {
                                 showCustomKeyboard = false
                                 Task {
-                                    // 🚀 傳入當前 selectedDirection
                                     await searchRoute(route: searchText.uppercased(), direction: selectedDirection, findNearest: true, shouldScroll: true)
                                 }
                             },
@@ -290,7 +199,6 @@ struct ContentView: View {
                                 highlightedStopId = nil
                                 withAnimation { showCustomKeyboard = false }
                                 
-                                // 🛡️ 補完計劃：退回 Dashboard 時，即刻強制刷新一次附近車站！
                                 if let loc = self.locationManager.location {
                                     Task {
                                         await updateNearbyStops(userLocation: loc)
@@ -318,7 +226,6 @@ struct ContentView: View {
                                 await updateNearbyStops(userLocation: location)
                             }
                         } else if !displayData.isEmpty && !showCustomKeyboard {
-                            // 🚀 傳入當前方向，加埋 isRefresh: true
                             await searchRoute(route: searchText.uppercased(), direction: selectedDirection, findNearest: false, shouldScroll: false, isRefresh: true)
                         }
                     }
@@ -328,19 +235,11 @@ struct ContentView: View {
                     if let timer = activeTimer {
                         let secondsLeft = timer.etaDate.timeIntervalSince(currentTime)
                         
-                        // 當時間到站並超過 10 秒（你原本寫 <= -10）
                         if secondsLeft <= -10 {
                             print("🐛 [背景擊殺] 巴士已過站，啟動自動收屍程序...")
                             
-                            // 1. 清空主 App 頂部卡片
                             activeTimer = nil
-                            
-                            // 2. 徹底擊殺鎖屏、通知中心與靈動島的 Live Activity Banner
                             endLiveActivity()
-                            
-                            // 3. 🌟【核心省電】任務完美完成，立刻叫 locationManager 關閉定位！
-                            // 這行 Code 是精髓：一旦關閉定位，iOS 會在 1-2 秒內將你的 App 重新徹底冰封（Suspend）。
-                            // 這樣平時就絕對不會洩漏任何電量，保持 0 耗電！
                             self.locationManager.stopBackgroundTracking()
                             
                             print("🐛 [背景擊殺] 成功殺死卡片並關閉定位更新，App 已回歸 0 耗電深層睡眠狀態。")
@@ -393,7 +292,6 @@ struct ContentView: View {
                     await loadAllStops()
                     await loadAllRoutes()
                     
-                    // Recover active timer state from iOS if the app was restarted
                     reconnectActiveLiveActivity()
                     
                     if locationManager.authorizationStatus == .authorizedWhenInUse || locationManager.authorizationStatus == .authorizedAlways {
@@ -432,14 +330,14 @@ struct ContentView: View {
     }
     
     // MARK: - Core Theme Background
-    private var themeBackground: some View {
+    var themeBackground: some View {
         Color(.systemGroupedBackground)
             .ignoresSafeArea()
     }
     
     // MARK: - Auto-complete Suggestions Section (IN-PAGE)
     @ViewBuilder
-    private var suggestionsSection: some View {
+    var suggestionsSection: some View {
         VStack(spacing: 0) {
             if searchSuggestions.isEmpty {
                 HStack {
@@ -451,8 +349,6 @@ struct ContentView: View {
                 }
             } else {
                 ForEach(searchSuggestions, id: \.self) { suggestion in
-                    
-                    // 👇 1. 拆走咗 Button，直接用 HStack 包住介面
                     HStack(spacing: 16) {
                         Text(suggestion.route)
                             .font(.system(size: 16, weight: .bold, design: .rounded))
@@ -489,11 +385,7 @@ struct ContentView: View {
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
-                    
-                    // 👇 2. 呢行好重要！令到透明/空白嘅位置都可以撳到
                     .contentShape(Rectangle())
-                    
-                    // 👇 3. 直接將原本 Button 嘅 Action 放喺度
                     .onTapGesture {
                         searchText = suggestion.route
                         
@@ -522,7 +414,7 @@ struct ContentView: View {
     }
     
     // MARK: - Timetable Route Content Section
-    private var timetableSection: some View {
+    var timetableSection: some View {
         Group {
             if !displayData.isEmpty {
                 Section {
@@ -577,7 +469,6 @@ struct ContentView: View {
                                                     .font(.system(size: 15, weight: .semibold, design: .rounded))
                                                     .foregroundColor(.primary)
                                             }
-
                                             
                                         } else {
                                             Text("-")
@@ -605,7 +496,7 @@ struct ContentView: View {
     
     // MARK: - Nearby Dashboard View
     @ViewBuilder
-    private var nearbyDashboardSection: some View {
+    var nearbyDashboardSection: some View {
         HStack {
             Text("附近巴士站")
                 .font(.title2)
@@ -794,7 +685,6 @@ struct ContentView: View {
                                         searchText = route.route
                                         
                                         Task {
-                                            // 🚀 顯式傳入 direction: newDir
                                             await searchRoute(route: route.route, direction: newDir, findNearest: false, targetStopCode: stopModel.stopInfo.stop, shouldScroll: true)
                                         }
                                     }) {
@@ -882,6 +772,7 @@ struct ContentView: View {
         }
     }
     
+    // MARK: - Local UI Helpers
     func toggleStopExpanded(_ stopId: String) {
         if expandedStopIds.contains(stopId) {
             expandedStopIds.remove(stopId)
@@ -898,348 +789,19 @@ struct ContentView: View {
         }
     }
     
-    // MARK: - Network Functions
-    func loadAllRoutes() async {
-        guard let url = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/route/") else { return }
-        do {
-            let (data, _) = try await URLSession.shared.data(from: url)
-            let response = try JSONDecoder().decode(AllRoutesResponse.self, from: data)
-            
-            var uniqueSuggestions: [String: RouteSuggestion] = [:]
-            
-            for item in response.data {
-                let key = "\(item.route)-\(item.bound)"
-                if uniqueSuggestions[key] == nil {
-                    uniqueSuggestions[key] = RouteSuggestion(
-                        route: item.route,
-                        bound: item.bound,
-                        origin: item.orig_tc,
-                        destination: item.dest_tc
-                    )
-                }
-            }
-            
-            let sortedRoutes = uniqueSuggestions.values.sorted {
-                if $0.route == $1.route { return $0.bound > $1.bound }
-                return $0.route.localizedStandardCompare($1.route) == .orderedAscending
-            }
-            
-            await MainActor.run {
-                self.allRoutes = sortedRoutes
-            }
-        } catch {
-            print("Failed to load all routes: \(error)")
-        }
-    }
-    
-    func loadAllStops() async {
-        guard let url = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/stop/") else { return }
-        do {
-            let (data, _) = try await URLSession.shared.data(from: url)
-            let response = try JSONDecoder().decode(StopResponse.self, from: data)
-            
-            var newDict: [String: String] = [:]
-            var newInfoDict: [String: StopInfo] = [:]
-            for stop in response.data {
-                newDict[stop.stop] = stop.name_tc
-                newInfoDict[stop.stop] = stop
-            }
-            
-            await MainActor.run {
-                self.allStops = response.data
-                self.stopDictionary = newDict
-                self.stopInfoDictionary = newInfoDict
-            }
-            
-            if let userLoc = locationManager.location {
-                await updateNearbyStops(userLocation: userLoc)
-            }
-        } catch {
-            print("Failed to load stops dictionary: \(error)")
-        }
-    }
-    
-    func updateNearbyStops(userLocation: CLLocation) async {
-        guard !allStops.isEmpty else { return }
-        
-        await MainActor.run {
-            isSearchingNearby = true
-        }
-        
-        let sorted = await Task.detached(priority: .userInitiated) { () -> [NearbyStopModel] in
-            var temp: [NearbyStopModel] = []
-            for stop in allStops {
-                guard let stopLoc = stop.clLocation else { continue }
-                let dist = userLocation.distance(from: stopLoc)
-                temp.append(NearbyStopModel(stopInfo: stop, distance: dist))
-            }
-            temp.sort { $0.distance < $1.distance }
-            return Array(temp.prefix(3))
-        }.value
-        
-        var populated: [NearbyStopModel] = []
-        for var stopModel in sorted {
-            let routes = await fetchRoutesForStop(stopId: stopModel.stopInfo.stop)
-            stopModel.routes = routes
-            populated.append(stopModel)
-        }
-        
-        await MainActor.run {
-            self.nearbyStops = populated
-            self.isSearchingNearby = false
-        }
-    }
-    
-    func fetchRoutesForStop(stopId: String) async -> [NearbyRouteModel] {
-        guard let url = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/stop-eta/\(stopId)") else { return [] }
-        do {
-            let (data, _) = try await URLSession.shared.data(from: url)
-            
-            if let jsonString = String(data: data, encoding: .utf8) {
-                print("======================================================")
-                print("🐛 [DEBUG] Dashboard 車站 ID: \(stopId) 嘅 ETA 原始數據:")
-                // 如果覺得太多字阻住，可以將下面個 print(jsonString) comment 咗佢
-                print(jsonString)
-                print("======================================================")
-            }
-            // 👆 👆 👆 👆 👆 👆 👆 👆 👆 👆 👆 👆
-            
-            let response = try JSONDecoder().decode(StopETAResponse.self, from: data)
-            
-            var grouped: [String: [StopETAItem]] = [:]
-                        
-            for item in response.data {
-                // 🛡️ 終極防禦：只處理「常規班次」(Service Type 1)！
-                // 隔走晒所有會干擾時間表嘅特別車、短途車
-                guard item.service_type == 1 else { continue }
-                
-                // 用 路線 + 方向 + 目的地 嚟分組
-                let key = "\(item.route)-\(item.dir)-\(item.dest_tc)"
-                grouped[key, default: []].append(item)
-            }
-            
-            var routes: [NearbyRouteModel] = []
-            let dateFormatter = ISO8601DateFormatter()
-            
-            for (_, items) in grouped {
-                guard let first = items.first else { continue }
-                let sortedItems = items.sorted { $0.eta_seq < $1.eta_seq }
-                
-                var etaInfos: [ETADisplayInfo] = []
-                for etaItem in sortedItems {
-                    if let etaString = etaItem.eta, let etaDate = dateFormatter.date(from: etaString) {
-                        etaInfos.append(ETADisplayInfo(etaDate: etaDate, remark: etaItem.rmk_tc))
-                    }
-                }
-                
-                routes.append(NearbyRouteModel(
-                    route: first.route,
-                    directionCode: first.dir,
-                    destNameTc: first.dest_tc,
-                    etas: etaInfos
-                ))
-            }
-            
-            return routes.sorted { $0.route.localizedStandardCompare($1.route) == .orderedAscending }
-        } catch {
-            print("Failed to fetch routes for stop \(stopId): \(error)")
-            return []
-        }
-    }
-    
-    func searchRoute(route: String, direction: String? = nil, findNearest: Bool = false, targetStopCode: String? = nil, shouldScroll: Bool = false, isRefresh: Bool = false) async {
-        guard !route.isEmpty else { return }
-        
-        print("🐛 [DEBUG] 開始搜尋路線: \(route) | findNearest: \(findNearest) | shouldScroll: \(shouldScroll)")
-        
-        // 1. 決定最終方向
-        let currentDir = direction ?? self.selectedDirection
-        
-        await MainActor.run {
-            if let newDir = direction {
-                self.selectedDirection = newDir
-            }
-            // 2. 如果唔係背景更新，先清空畫面
-            if !isRefresh {
-                isLoading = true
-                displayData = []
-                highlightedStopId = nil
-            }
-        }
-        
-        let routeStopUrl = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/route-stop/\(route)/\(currentDir)/1")!
-        let etaUrl = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/route-eta/\(route)/1")!
-        
-        do {
-            async let (routeStopData, _) = URLSession.shared.data(from: routeStopUrl)
-            async let (etaData, _) = URLSession.shared.data(from: etaUrl)
-            
-            if let jsonString = await String(data: etaData, encoding: .utf8) {
-                print("======================================================")
-                print("🐛 [DEBUG] Bus Route ID: \(route) 嘅 ETA 原始數據:")
-                // 如果覺得太多字阻住，可以將下面個 print(jsonString) comment 咗佢
-                print(jsonString)
-                print("======================================================")
-            }
-            
-            let decoder = JSONDecoder()
-            let routeStops = try await decoder.decode(RouteStopResponse.self, from: routeStopData).data
-            let allEtas = try await decoder.decode(ETAResponse.self, from: etaData).data
-            
-            let targetDirectionCode = currentDir == "outbound" ? "O" : "I"
-            let filteredEtas = allEtas.filter { $0.dir == targetDirectionCode }
-            
-            let dateFormatter = ISO8601DateFormatter()
-            var results: [StopDisplayModel] = []
-            
-            // 保留你原本完美嘅配對邏輯
-            for routeStop in routeStops {
-                let stopNameTc: String
-                if let stopInfo = stopInfoDictionary[routeStop.stop] {
-                    stopNameTc = stopInfo.name_tc
-                } else {
-                    stopNameTc = stopDictionary[routeStop.stop] ?? "未知車站"
-                }
-                
-                let seqInt = Int(routeStop.seq) ?? 0
-                let stopEtas = filteredEtas.filter { $0.seq == seqInt }
-                
-                var parsedEtas: [ETADisplayInfo] = []
-                for etaItem in stopEtas {
-                    if let etaString = etaItem.eta, let etaDate = dateFormatter.date(from: etaString) {
-                        parsedEtas.append(ETADisplayInfo(etaDate: etaDate, remark: etaItem.rmk_tc))
-                    }
-                }
-                
-                results.append(StopDisplayModel(seq: seqInt, stopId: routeStop.stop, stopNameTc: stopNameTc, etas: parsedEtas))
-            }
-            
-            var targetId: String? = nil
-            if findNearest {
-                if let userLoc = locationManager.location, !results.isEmpty {
-                    var minDistance: CLLocationDistance = .infinity
-                    for rs in results {
-                        let loc: CLLocation? = stopInfoDictionary[rs.stopId]?.clLocation ?? allStops.first(where: { $0.stop == rs.stopId })?.clLocation
-                        if let stopLoc = loc {
-                            let dist = userLoc.distance(from: stopLoc)
-                            if dist < minDistance {
-                                minDistance = dist
-                                targetId = rs.id
-                            }
-                        }
-                    }
-                }
-            } else if let code = targetStopCode {
-                targetId = results.first(where: { $0.stopId == code })?.id
-            } else {
-                targetId = highlightedStopId
-            }
-            
-            await MainActor.run {
-                self.highlightedStopId = targetId
-                
-                if results.isEmpty {
-                    systemMessage = "沒有找到路線 \(route) 的 \(currentDir == "outbound" ? "去程" : "回程") 班次數據。"
-                    if !isRefresh { displayData = [] }
-                } else {
-                    displayData = results
-                }
-                
-                if shouldScroll {
-                    self.scrollTriggerId = UUID()
-                }
-                
-                if !isRefresh { isLoading = false }
-            }
-        } catch {
-            await MainActor.run {
-                systemMessage = "無法加載數據或找不到此路線。"
-                if !isRefresh {
-                    displayData = []
-                    isLoading = false
-                }
-            }
-        }
-    }
-    
-    // MARK: - 實時背景同步與追蹤更新函數
-    func syncActiveTimer() async {
-        guard let timer = activeTimer, !timer.stopId.isEmpty else { return }
-        
-        guard let url = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/stop-eta/\(timer.stopId)") else { return }
-        
-        do {
-            let (data, _) = try await URLSession.shared.data(from: url)
-            let response = try JSONDecoder().decode(StopETAResponse.self, from: data)
-            
-            let targetDirCode = timer.direction == "outbound" ? "O" : "I"
-            let matchedItems = response.data.filter { $0.route == timer.routeName && $0.dir == targetDirCode }
-            let sortedItems = matchedItems.sorted { $0.eta_seq < $1.eta_seq }
-            
-            let dateFormatter = ISO8601DateFormatter()
-            if let firstEtaItem = sortedItems.first,
-               let etaString = firstEtaItem.eta,
-               let newEtaDate = dateFormatter.date(from: etaString) {
-                
-                let difference = abs(newEtaDate.timeIntervalSince(timer.etaDate))
-                if difference > 10 {
-                    print("🐛 [DEBUG] 偵測到最新巴士真實班次已更動！正在進行動態重設...")
-                    
-                    await MainActor.run {
-                        withAnimation {
-                            self.activeTimer?.etaDate = newEtaDate
-                            self.activeTimer?.targetAlertDate = newEtaDate.addingTimeInterval(-120)
-                        }
-                    }
-                    
-                    let alertDate = newEtaDate.addingTimeInterval(-120)
-                    if alertDate.timeIntervalSince(Date()) > 0 {
-                        scheduleLocalNotification(
-                            routeName: timer.routeName,
-                            destination: timer.destination,
-                            alertDate: alertDate
-                        )
-                    }
-                    
-                    updateLiveActivity(etaDate: newEtaDate)
-                }
-            }
-        } catch {
-            print("🐛 [DEBUG] 背景計時器即時同步失敗: \(error)")
-        }
-    }
-    
-    func updateLiveActivity(etaDate: Date) {
-        Task {
-            for activity in Activity<BusETAAttributes>.activities {
-                let remaining = Int(etaDate.timeIntervalSince(Date()))
-                let state = BusETAAttributes.ContentState(etaDate: etaDate, remainingSeconds: remaining)
-                
-                // 🌟 同樣設定過期時間：預計到達時間 (etaDate) 再加 10 分鐘 (600 秒)
-                let expireDate = etaDate.addingTimeInterval(1 * 60)
-                
-                // 🌟 將 staleDate: nil 改為 staleDate: expireDate
-                await activity.update(ActivityContent(state: state, staleDate: expireDate))
-            }
-        }
-    }
-    
-    // MARK: - 主介面頂部實時追蹤卡片 (🌟已優化：落實 Q2 老實顯示分鐘 ＆ 整合手動關閉定位)
     @ViewBuilder
-    private func activeTimerCard(timer: ActiveTimerModel) -> some View {
+    func activeTimerCard(timer: ActiveTimerModel) -> some View {
         let totalTime = timer.etaDate.timeIntervalSince(timer.startTime)
         let elapsedTime = currentTime.timeIntervalSince(timer.startTime)
         let progress = totalTime > 0 ? min(1.0, max(0.0, elapsedTime / totalTime)) : 1.0
         let secondsLeft = max(0, Int(timer.etaDate.timeIntervalSince(currentTime)))
         
         VStack(spacing: 0) {
-            // --- 卡片頂部：狀態欄與關閉按鈕 ---
             HStack {
                 HStack(spacing: 6) {
                     Circle()
                         .fill(Color.green)
                         .frame(width: 8, height: 8)
-                        // 綠色小圓點會隨時間閃爍，代表正在實時連線
                         .opacity(secondsLeft > 0 && (Int(currentTime.timeIntervalSince1970) % 2 == 0) ? 0.3 : 1.0)
                         .animation(.easeInOut(duration: 0.5), value: currentTime)
                     Text("實時追蹤")
@@ -1254,17 +816,12 @@ struct ContentView: View {
                 
                 Spacer()
                 
-                // 🌟 點擊右上角「X」手動關閉卡片
                 Button(action: {
                     withAnimation(.easeInOut(duration: 0.3)) {
                         activeTimer = nil
                     }
-                    endLiveActivity() // 1. 殺死鎖屏與靈動島卡片
-                    
-                    // 2. 🌟【核心修正】立刻叫自訂的 LocationManager 關閉背景定位，交還特權，回復 0 耗電！
+                    endLiveActivity()
                     self.locationManager.stopBackgroundTracking()
-                    
-                    // 3. 清除未發出的 Local Notification 鬧鐘
                     UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["KMBTimeAlarm"])
                 }) {
                     Image(systemName: "xmark.circle.fill")
@@ -1274,10 +831,8 @@ struct ContentView: View {
             }
             .padding([.top, .horizontal], 16)
             
-            // --- 卡片中部：路線、車站與精準分鐘倒數 ---
             HStack(alignment: .center) {
                 HStack(spacing: 12) {
-                    // 精緻的九巴紅色路線 Badge
                     Text(timer.routeName)
                         .font(.system(size: 24, weight: .black))
                         .padding(.horizontal, 10)
@@ -1302,12 +857,11 @@ struct ContentView: View {
                 
                 Spacer()
                 
-                // 🌟【落實 Question 2】不論時間多少，老老實實計算並精確顯示剩餘「X 分鐘」，不再顯示「即將抵達」
                 let minutesLeft = max(0, Int(ceil(Double(secondsLeft) / 60.0)))
                 VStack(alignment: .trailing, spacing: 2) {
                     Text("\(minutesLeft) 分鐘")
                         .font(.system(size: 28, weight: .bold, design: .rounded))
-                        .foregroundColor(minutesLeft == 0 ? .green : .blue) // 0 分鐘變綠色，其餘時間藍色
+                        .foregroundColor(minutesLeft == 0 ? .green : .blue)
                     Text("\(formattedTime(timer.etaDate)) 到達")
                         .font(.caption)
                         .foregroundColor(.secondary)
@@ -1316,7 +870,6 @@ struct ContentView: View {
             .padding(.horizontal, 16)
             .padding(.top, 10)
             
-            // --- 卡片中下部：動態小巴士進度條 ---
             GeometryReader { geometry in
                 let barWidth = geometry.size.width
                 let busPosition = barWidth * CGFloat(progress)
@@ -1331,7 +884,6 @@ struct ContentView: View {
                         .frame(width: max(0, busPosition), height: 10)
                         .animation(.linear(duration: 1.0), value: progress)
                     
-                    // 動態前進的小巴士 Icon 🚌
                     Image(systemName: "bus.fill")
                         .font(.system(size: 18))
                         .foregroundColor(.white)
@@ -1346,7 +898,6 @@ struct ContentView: View {
             .padding(.top, 20)
             .padding(.bottom, 24)
             
-            // --- 卡片底部：灰色資訊底欄 ---
             HStack {
                 VStack(alignment: .leading) {
                     Text("預計到站時間")
@@ -1377,253 +928,6 @@ struct ContentView: View {
         )
         .padding(.top, 8)
         .padding(.bottom, 8)
-        // 優雅的淡入彈出動畫
         .transition(.asymmetric(insertion: .opacity.combined(with: .move(edge: .top)), removal: .opacity.combined(with: .scale)))
-    }
-    
-    func formattedTime(_ date: Date?) -> String {
-        guard let date = date else { return "" }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm"
-        return formatter.string(from: date)
-    }
-    
-    func scheduleLocalNotification(routeName: String, destination: String, alertDate: Date) {
-        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["KMBTimeAlarm"])
-        
-        let content = UNMutableNotificationContent()
-        content.title = "巴士即將抵達！"
-        content.body = "您設定的 \(routeName) (往 \(destination)) 巴士即將在 2 分鐘內抵達，請準備上車。"
-        content.sound = .default
-        
-        let timeInterval = alertDate.timeIntervalSince(Date())
-        guard timeInterval > 0 else { return }
-        
-        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: timeInterval, repeats: false)
-        let request = UNNotificationRequest(identifier: "KMBTimeAlarm", content: content, trigger: trigger)
-        
-        UNUserNotificationCenter.current().add(request) { error in
-            if let error = error {
-                print("Failed to schedule local notification: \(error)")
-            }
-        }
-    }
-    
-    func startLiveActivity(routeName: String, destination: String, stationName: String, etaDate: Date, startTime: Date) {
-        if ActivityAuthorizationInfo().areActivitiesEnabled {
-            do {
-                let attributes = BusETAAttributes(routeName: routeName, destination: destination, stationName: stationName, startTime: startTime)
-                let remaining = Int(etaDate.timeIntervalSince(Date()))
-                let state = BusETAAttributes.ContentState(etaDate: etaDate, remainingSeconds: remaining)
-                
-                // 🌟 設定過期時間：預計到達時間 (etaDate) 再加 10 分鐘 (600 秒)
-                let expireDate = etaDate.addingTimeInterval(1 * 60)
-                
-                // 🌟 將 staleDate: nil 改為 staleDate: expireDate
-                let content = ActivityContent(state: state, staleDate: expireDate)
-                let _ = try Activity.request(attributes: attributes, content: content, pushType: nil)
-            } catch {
-                print("Error starting Live Activity: \(error.localizedDescription)")
-            }
-        }
-    }
-    
-    func endLiveActivity() {
-        Task {
-            for activity in Activity<BusETAAttributes>.activities {
-                let state = BusETAAttributes.ContentState(etaDate: activity.content.state.etaDate, remainingSeconds: 0)
-                await activity.end(ActivityContent(state: state, staleDate: nil), dismissalPolicy: .immediate)
-            }
-        }
-    }
-    
-    func reconnectActiveLiveActivity() {
-        // 🌟 改為掃描所有存在嘅 Live Activities，確保清得乾淨！
-        for activity in Activity<BusETAAttributes>.activities {
-            let attribs = activity.attributes
-            let state = activity.content.state
-            
-            // 如果仲未夠鐘 (倒數未完)
-            if state.etaDate.timeIntervalSince(Date()) > 0 {
-                // 確保畫面上顯示緊 activeTimer，如果冇就幫佢開返
-                if self.activeTimer == nil {
-                    self.activeTimer = ActiveTimerModel(
-                        routeName: attribs.routeName,
-                        destination: attribs.destination,
-                        etaDate: state.etaDate,
-                        targetAlertDate: state.etaDate.addingTimeInterval(-120),
-                        startTime: attribs.startTime,
-                        stopId: "", // 如果你有存到就放落去
-                        direction: "",
-                        stationName: attribs.stationName
-                    )
-                    print("成功重新連接背景計時器: \(attribs.routeName)")
-                }
-            } else {
-                // 🌟 已經過咗鐘！光速擊殺呢張卡片！
-                print("🐛 [DEBUG] 發現過期卡片 \(attribs.routeName)，立即刪除！")
-                Task {
-                    await activity.end(nil, dismissalPolicy: .immediate)
-                }
-            }
-        }
-    }
-}
-
-// MARK: - 升級版 ActiveTimerModel 數據結構
-struct ActiveTimerModel: Identifiable, Equatable {
-    let id = UUID()
-    let routeName: String
-    let destination: String
-    var etaDate: Date            // 允許背景同步時動態修改時間
-    var targetAlertDate: Date    // 允許動態變更提醒鬧鐘點
-    let startTime: Date
-    let stopId: String           // 新增車站代碼綁定
-    let direction: String        // 新增方向碼紀錄
-    let stationName: String      // 新增特定車站名稱
-}
-
-// MARK: - Custom Keyboard View
-struct CustomKeyboardView: View {
-    @Binding var text: String
-    var validKeys: Set<String>?
-    var onSearch: () -> Void
-    var onDismiss: () -> Void
-    
-    var body: some View {
-        VStack(spacing: 8) {
-            HStack {
-                Spacer()
-                Button(action: onDismiss) {
-                    Text("完成")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundColor(.blue)
-                        .padding(.trailing, 16)
-                }
-            }
-            .padding(.top, 10)
-            
-            GeometryReader { geo in
-                let spacing: CGFloat = 8
-                let colWidth = (geo.size.width - (spacing * 6)) / 7
-                let keyHeight: CGFloat = 46
-                
-                VStack(spacing: spacing) {
-                    HStack(spacing: spacing) {
-                        VStack(spacing: spacing) {
-                            let numpad = [
-                                ["1", "2", "3"],
-                                ["4", "5", "6"],
-                                ["7", "8", "9"]
-                            ]
-                            
-                            ForEach(numpad, id: \.self) { row in
-                                HStack(spacing: spacing) {
-                                    ForEach(row, id: \.self) { key in
-                                        keyboardButton(key, width: colWidth, height: keyHeight) { text.append(key) }
-                                    }
-                                }
-                            }
-                            
-                            HStack(spacing: spacing) {
-                                Color.clear.frame(width: colWidth, height: keyHeight)
-                                keyboardButton("0", width: colWidth, height: keyHeight) { text.append("0") }
-                                Color.clear.frame(width: colWidth, height: keyHeight)
-                            }
-                        }
-                        
-                        VStack(spacing: spacing) {
-                            let alphaRows = [
-                                ["A", "B", "C", "D"],
-                                ["E", "F", "H", "K"],
-                                ["M", "N", "P", "R"],
-                                ["S", "T", "W", "X"]
-                            ]
-                            
-                            ForEach(alphaRows, id: \.self) { row in
-                                HStack(spacing: spacing) {
-                                    ForEach(row, id: \.self) { key in
-                                        keyboardButton(key, width: colWidth, height: keyHeight) { text.append(key) }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    
-                    HStack(spacing: spacing) {
-                        let clearWidth = (colWidth * 2) + spacing
-                        actionButton("清空", width: clearWidth, height: keyHeight, color: Color(UIColor.systemGray4)) {
-                            text = ""
-                        }
-                        
-                        let searchWidth = (colWidth * 3) + (spacing * 2)
-                        Button(action: onSearch) {
-                            Text("搜尋")
-                                .font(.system(size: 16, weight: .bold))
-                                .frame(width: searchWidth, height: keyHeight)
-                                .background(Color.blue)
-                                .cornerRadius(6)
-                                .shadow(color: Color.black.opacity(0.3), radius: 0, x: 0, y: 1)
-                                .foregroundColor(.white)
-                        }
-                        
-                        let backspaceWidth = (colWidth * 2) + spacing
-                        actionButton(Image(systemName: "delete.left"), width: backspaceWidth, height: keyHeight, color: Color(UIColor.systemGray4)) {
-                            if !text.isEmpty { text.removeLast() }
-                        }
-                    }
-                }
-            }
-            .padding(.horizontal, 8)
-            .frame(height: 270)
-        }
-        .padding(.bottom, 20)
-        .background(
-            Color(UIColor.systemGray5)
-                .shadow(color: .black.opacity(0.1), radius: 10, y: -5)
-                .ignoresSafeArea()
-        )
-    }
-    
-    @ViewBuilder
-    private func keyboardButton(_ text: String, width: CGFloat, height: CGFloat, action: @escaping () -> Void) -> some View {
-        let isValid = validKeys?.contains(text) ?? true
-        
-        Button(action: action) {
-            Text(text)
-                .font(.system(size: 22, weight: .regular))
-                .frame(width: width, height: height)
-                .background(Color(UIColor.systemBackground))
-                .cornerRadius(6)
-                .shadow(color: Color.black.opacity(isValid ? 0.3 : 0.0), radius: 0, x: 0, y: isValid ? 1 : 0)
-                .foregroundColor(isValid ? .primary : Color(UIColor.tertiaryLabel))
-        }
-        .disabled(!isValid)
-    }
-    
-    @ViewBuilder
-    private func actionButton(_ title: String, width: CGFloat, height: CGFloat, color: Color, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 16, weight: .bold))
-                .frame(width: width, height: height)
-                .background(color)
-                .cornerRadius(6)
-                .shadow(color: Color.black.opacity(0.3), radius: 0, x: 0, y: 1)
-                .foregroundColor(.primary)
-        }
-    }
-    
-    @ViewBuilder
-    private func actionButton(_ icon: Image, width: CGFloat, height: CGFloat, color: Color, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            icon
-                .font(.system(size: 20))
-                .frame(width: width, height: height)
-                .background(color)
-                .cornerRadius(6)
-                .shadow(color: Color.black.opacity(0.3), radius: 0, x: 0, y: 1)
-                .foregroundColor(.primary)
-        }
     }
 }

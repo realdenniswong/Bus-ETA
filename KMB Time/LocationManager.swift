@@ -25,10 +25,9 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         manager.desiredAccuracy = kCLLocationAccuracyBest
         self.authorizationStatus = manager.authorizationStatus
         
-        // 🌟 在你的 LocationManager 初始化地方加上：
-        manager.allowsBackgroundLocationUpdates = true  // 允許在背景持續拿定位（這是不被急凍的關鍵）
-        manager.showsBackgroundLocationIndicator = false // 設為 false，用家頂部唔會出現藍色定位長條，最神祕、最唔打擾
-        manager.pausesLocationUpdatesAutomatically = false // 防止 iOS 覺得你停喺度等車就自動幫你熄咗定位
+        manager.allowsBackgroundLocationUpdates = true
+        manager.showsBackgroundLocationIndicator = false
+        manager.pausesLocationUpdatesAutomatically = false
     }
     
     func requestLocation() {
@@ -38,7 +37,6 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         } else if manager.authorizationStatus == .authorizedWhenInUse || manager.authorizationStatus == .authorizedAlways {
             manager.startUpdatingLocation()
         } else {
-            // Already denied or restricted
             isLocating = false
         }
     }
@@ -60,7 +58,6 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             self.location = first
             self.isLocating = false
             
-            // 👇 替換成呢幾行：每次定位更新就發送心跳，而且背景追蹤時唔好自動熄定位！
             self.backgroundHeartbeat = Date()
             if !self.isBackgroundTracking {
                 manager.stopUpdatingLocation()
@@ -75,22 +72,18 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         }
     }
     
-    // 🌟 請加在你的 LocationManager 類別入面：
     func startBackgroundTracking() {
-        self.isBackgroundTracking = true // 👇 加呢行
-        // 確保開啟背景特權配置
+        self.isBackgroundTracking = true
         self.manager.allowsBackgroundLocationUpdates = true
         self.manager.showsBackgroundLocationIndicator = false
         self.manager.pausesLocationUpdatesAutomatically = false
         
-        // 正式開火
         self.manager.startUpdatingLocation()
         print("🐛 [LocationManager] 背景定位已成功開火！")
     }
 
     func stopBackgroundTracking() {
-        self.isBackgroundTracking = false // 👇 加呢行
-        // 關燈收工，交還特權
+        self.isBackgroundTracking = false
         self.manager.stopUpdatingLocation()
         print("🐛 [LocationManager] 背景定位已成功關閉。")
     }

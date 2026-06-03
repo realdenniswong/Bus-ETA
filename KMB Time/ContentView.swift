@@ -224,10 +224,11 @@ struct ContentView: View {
                             Text("回程 (Inbound)").tag("inbound")
                         }
                         .pickerStyle(.segmented)
-                        .onChange(of: selectedDirection) { _ in
+                        .onChange(of: selectedDirection) { newValue in
                             if !searchText.isEmpty {
                                 Task {
-                                    await searchRoute(route: searchText.uppercased(), findNearest: true, shouldScroll: true)
+                                    // 🚀 顯式傳入 direction: newValue (唔好用舊嘅 selectedDirection)
+                                    await searchRoute(route: searchText.uppercased(), direction: newValue, findNearest: true, shouldScroll: true)
                                 }
                             }
                         }
@@ -254,7 +255,10 @@ struct ContentView: View {
                             validKeys: validNextKeys,
                             onSearch: {
                                 showCustomKeyboard = false
-                                Task { await searchRoute(route: searchText.uppercased(), findNearest: true, shouldScroll: true) }
+                                Task {
+                                    // 🚀 傳入當前 selectedDirection
+                                    await searchRoute(route: searchText.uppercased(), direction: selectedDirection, findNearest: true, shouldScroll: true)
+                                }
                             },
                             onDismiss: {
                                 withAnimation(.spring()) { showCustomKeyboard = false }
@@ -285,6 +289,14 @@ struct ContentView: View {
                                 displayData = []
                                 highlightedStopId = nil
                                 withAnimation { showCustomKeyboard = false }
+                                
+                                // 🛡️ 補完計劃：退回 Dashboard 時，即刻強制刷新一次附近車站！
+                                if let loc = self.locationManager.location {
+                                    Task {
+                                        await updateNearbyStops(userLocation: loc)
+                                    }
+                                }
+                                
                             }) {
                                 HStack(spacing: 4) {
                                     Image(systemName: "chevron.left")
@@ -306,7 +318,8 @@ struct ContentView: View {
                                 await updateNearbyStops(userLocation: location)
                             }
                         } else if !displayData.isEmpty && !showCustomKeyboard {
-                            await searchRoute(route: searchText.uppercased(), findNearest: false, shouldScroll: false)
+                            // 🚀 傳入當前方向，加埋 isRefresh: true
+                            await searchRoute(route: searchText.uppercased(), direction: selectedDirection, findNearest: false, shouldScroll: false, isRefresh: true)
                         }
                     }
                 }
@@ -388,10 +401,23 @@ struct ContentView: View {
                     }
                     UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
                 }
-                .onChange(of: locationManager.location) { _ in
-                    if let location = locationManager.location {
+                .onChange(of: locationManager.location) { oldValue, newValue in
+                    if let location = newValue, !locationManager.isBackgroundTracking {
                         Task {
                             await updateNearbyStops(userLocation: location)
+                        }
+                    }
+                }
+                .onChange(of: locationManager.backgroundHeartbeat) { oldValue, newValue in
+                    if let timer = activeTimer {
+                        let secondsLeft = timer.etaDate.timeIntervalSince(Date())
+                        if secondsLeft <= -10 {
+                            print("🐛 [深層睡眠心跳扣殺] 褲袋擊殺觸發！執行收屍任務...")
+                            withAnimation {
+                                activeTimer = nil
+                            }
+                            endLiveActivity()
+                            self.locationManager.stopBackgroundTracking()
                         }
                     }
                 }
@@ -425,55 +451,62 @@ struct ContentView: View {
                 }
             } else {
                 ForEach(searchSuggestions, id: \.self) { suggestion in
-                    Button(action: {
+                    
+                    // 👇 1. 拆走咗 Button，直接用 HStack 包住介面
+                    HStack(spacing: 16) {
+                        Text(suggestion.route)
+                            .font(.system(size: 16, weight: .bold, design: .rounded))
+                            .foregroundColor(.white)
+                            .frame(width: 52, height: 32)
+                            .background(Color(red: 0.65, green: 0.08, blue: 0.12))
+                            .cornerRadius(8)
+                        
+                        HStack(spacing: 6) {
+                            Text(suggestion.origin)
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundColor(.primary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                            
+                            Image(systemName: "arrow.right")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundColor(.secondary)
+                                .layoutPriority(1)
+                            
+                            Text(suggestion.destination)
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundColor(.primary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        }
+                        
+                        Spacer(minLength: 4)
+                        
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 14))
+                            .foregroundColor(Color(UIColor.tertiaryLabel))
+                            .layoutPriority(1)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    
+                    // 👇 2. 呢行好重要！令到透明/空白嘅位置都可以撳到
+                    .contentShape(Rectangle())
+                    
+                    // 👇 3. 直接將原本 Button 嘅 Action 放喺度
+                    .onTapGesture {
                         searchText = suggestion.route
-                        selectedDirection = suggestion.bound == "O" ? "outbound" : "inbound"
+                        
+                        let isOutbound = suggestion.bound.uppercased().hasPrefix("O")
+                        let newDir = isOutbound ? "outbound" : "inbound"
                         
                         withAnimation(.spring()) {
                             showCustomKeyboard = false
                         }
                         
                         Task {
-                            await searchRoute(route: suggestion.route.uppercased(), findNearest: true, shouldScroll: true)
+                            await searchRoute(route: suggestion.route.uppercased(), direction: newDir, findNearest: true, shouldScroll: true)
                         }
-                    }) {
-                        HStack(spacing: 16) {
-                            Text(suggestion.route)
-                                .font(.system(size: 16, weight: .bold, design: .rounded))
-                                .foregroundColor(.white)
-                                .frame(width: 52, height: 32)
-                                .background(Color(red: 0.65, green: 0.08, blue: 0.12))
-                                .cornerRadius(8)
-                            
-                            HStack(spacing: 6) {
-                                Text(suggestion.origin)
-                                    .font(.system(size: 15, weight: .bold))
-                                    .foregroundColor(.primary)
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
-                                
-                                Image(systemName: "arrow.right")
-                                    .font(.system(size: 12, weight: .bold))
-                                    .foregroundColor(.secondary)
-                                    .layoutPriority(1)
-                                
-                                Text(suggestion.destination)
-                                    .font(.system(size: 15, weight: .bold))
-                                    .foregroundColor(.primary)
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
-                            }
-                            
-                            Spacer(minLength: 4)
-                            
-                            Image(systemName: "magnifyingglass")
-                                .font(.system(size: 14))
-                                .foregroundColor(Color(UIColor.tertiaryLabel))
-                                .layoutPriority(1)
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
-                        .contentShape(Rectangle())
                     }
                     
                     if suggestion != searchSuggestions.last {
@@ -527,17 +560,25 @@ struct ContentView: View {
                                             let secondsLeft = etaDate.timeIntervalSince(currentTime)
                                             let remark = etaInfo.remark ?? ""
                                             let formattedRemark = remark.isEmpty ? "" : " (\(remark))"
-                                            
-                                            if secondsLeft < 120 {
-                                                Text("即將抵達\(formattedRemark)")
-                                                    .font(.system(size: 15, weight: .bold, design: .rounded))
-                                                    .foregroundColor(.green)
-                                            } else {
-                                                let minutesLeft = Int(secondsLeft / 60)
+
+                                            let minutesLeft = Int(secondsLeft / 60)
+                                            if(minutesLeft < 0){
+                                                Text("遲到 \(minutesLeft * -1) 分鐘\(formattedRemark)")
+                                                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                                    .foregroundColor(Color.red)
+                                            }
+                                            else if(minutesLeft == 0){
+                                                Text("已到站")
+                                                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                                    .foregroundColor(Color.green)
+                                            }
+                                            else{
                                                 Text("\(minutesLeft) 分鐘\(formattedRemark)")
                                                     .font(.system(size: 15, weight: .semibold, design: .rounded))
                                                     .foregroundColor(.primary)
                                             }
+
+                                            
                                         } else {
                                             Text("-")
                                                 .font(.system(size: 15, weight: .semibold, design: .rounded))
@@ -753,7 +794,8 @@ struct ContentView: View {
                                         searchText = route.route
                                         
                                         Task {
-                                            await searchRoute(route: route.route, findNearest: false, targetStopCode: stopModel.stopInfo.stop, shouldScroll: true)
+                                            // 🚀 顯式傳入 direction: newDir
+                                            await searchRoute(route: route.route, direction: newDir, findNearest: false, targetStopCode: stopModel.stopInfo.stop, shouldScroll: true)
                                         }
                                     }) {
                                         HStack(alignment: .center, spacing: 12) {
@@ -784,15 +826,20 @@ struct ContentView: View {
                                             HStack(spacing: 6) {
                                                 if let firstEta = route.etas.first, let etaDate = firstEta.etaDate {
                                                     let secondsLeft = etaDate.timeIntervalSince(currentTime)
-                                                    
-                                                    if secondsLeft < 120 {
-                                                        Text("即將抵達")
-                                                            .font(.system(size: 14, weight: .bold, design: .rounded))
-                                                            .foregroundColor(.green)
-                                                    } else {
-                                                        let minutesLeft = Int(secondsLeft / 60)
+                                                    let minutesLeft = Int(secondsLeft / 60)
+                                                    if(minutesLeft < 0){
+                                                        Text("遲到 \(minutesLeft * -1) 分鐘")
+                                                            .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                                            .foregroundColor(Color.red)
+                                                    }
+                                                    else if(minutesLeft == 0){
+                                                        Text("已到站")
+                                                            .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                                            .foregroundColor(Color.green)
+                                                    }
+                                                    else{
                                                         Text("\(minutesLeft) 分鐘")
-                                                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                                            .font(.system(size: 15, weight: .semibold, design: .rounded))
                                                             .foregroundColor(.primary)
                                                     }
                                                 } else {
@@ -947,10 +994,26 @@ struct ContentView: View {
         guard let url = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/stop-eta/\(stopId)") else { return [] }
         do {
             let (data, _) = try await URLSession.shared.data(from: url)
+            
+            if let jsonString = String(data: data, encoding: .utf8) {
+                print("======================================================")
+                print("🐛 [DEBUG] Dashboard 車站 ID: \(stopId) 嘅 ETA 原始數據:")
+                // 如果覺得太多字阻住，可以將下面個 print(jsonString) comment 咗佢
+                print(jsonString)
+                print("======================================================")
+            }
+            // 👆 👆 👆 👆 👆 👆 👆 👆 👆 👆 👆 👆
+            
             let response = try JSONDecoder().decode(StopETAResponse.self, from: data)
             
             var grouped: [String: [StopETAItem]] = [:]
+                        
             for item in response.data {
+                // 🛡️ 終極防禦：只處理「常規班次」(Service Type 1)！
+                // 隔走晒所有會干擾時間表嘅特別車、短途車
+                guard item.service_type == 1 else { continue }
+                
+                // 用 路線 + 方向 + 目的地 嚟分組
                 let key = "\(item.route)-\(item.dir)-\(item.dest_tc)"
                 grouped[key, default: []].append(item)
             }
@@ -984,34 +1047,52 @@ struct ContentView: View {
         }
     }
     
-    func searchRoute(route: String, findNearest: Bool = false, targetStopCode: String? = nil, shouldScroll: Bool = false) async {
+    func searchRoute(route: String, direction: String? = nil, findNearest: Bool = false, targetStopCode: String? = nil, shouldScroll: Bool = false, isRefresh: Bool = false) async {
         guard !route.isEmpty else { return }
         
         print("🐛 [DEBUG] 開始搜尋路線: \(route) | findNearest: \(findNearest) | shouldScroll: \(shouldScroll)")
         
+        // 1. 決定最終方向
+        let currentDir = direction ?? self.selectedDirection
+        
         await MainActor.run {
-            isLoading = true
-            displayData = []
-            highlightedStopId = nil
+            if let newDir = direction {
+                self.selectedDirection = newDir
+            }
+            // 2. 如果唔係背景更新，先清空畫面
+            if !isRefresh {
+                isLoading = true
+                displayData = []
+                highlightedStopId = nil
+            }
         }
         
-        let routeStopUrl = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/route-stop/\(route)/\(selectedDirection)/1")!
+        let routeStopUrl = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/route-stop/\(route)/\(currentDir)/1")!
         let etaUrl = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/route-eta/\(route)/1")!
         
         do {
             async let (routeStopData, _) = URLSession.shared.data(from: routeStopUrl)
             async let (etaData, _) = URLSession.shared.data(from: etaUrl)
             
+            if let jsonString = await String(data: etaData, encoding: .utf8) {
+                print("======================================================")
+                print("🐛 [DEBUG] Bus Route ID: \(route) 嘅 ETA 原始數據:")
+                // 如果覺得太多字阻住，可以將下面個 print(jsonString) comment 咗佢
+                print(jsonString)
+                print("======================================================")
+            }
+            
             let decoder = JSONDecoder()
             let routeStops = try await decoder.decode(RouteStopResponse.self, from: routeStopData).data
             let allEtas = try await decoder.decode(ETAResponse.self, from: etaData).data
             
-            let targetDirectionCode = selectedDirection == "outbound" ? "O" : "I"
+            let targetDirectionCode = currentDir == "outbound" ? "O" : "I"
             let filteredEtas = allEtas.filter { $0.dir == targetDirectionCode }
             
             let dateFormatter = ISO8601DateFormatter()
             var results: [StopDisplayModel] = []
             
+            // 保留你原本完美嘅配對邏輯
             for routeStop in routeStops {
                 let stopNameTc: String
                 if let stopInfo = stopInfoDictionary[routeStop.stop] {
@@ -1030,19 +1111,12 @@ struct ContentView: View {
                     }
                 }
                 
-                results.append(StopDisplayModel(
-                    seq: seqInt,
-                    stopId: routeStop.stop,
-                    stopNameTc: stopNameTc,
-                    etas: parsedEtas
-                ))
+                results.append(StopDisplayModel(seq: seqInt, stopId: routeStop.stop, stopNameTc: stopNameTc, etas: parsedEtas))
             }
             
             var targetId: String? = nil
-            
             if findNearest {
                 if let userLoc = locationManager.location, !results.isEmpty {
-                    print("🐛 [DEBUG] 正在根據 GPS 尋找最近車站...")
                     var minDistance: CLLocationDistance = .infinity
                     for rs in results {
                         let loc: CLLocation? = stopInfoDictionary[rs.stopId]?.clLocation ?? allStops.first(where: { $0.stop == rs.stopId })?.clLocation
@@ -1054,13 +1128,9 @@ struct ContentView: View {
                             }
                         }
                     }
-                    print("🐛 [DEBUG] 根據 GPS 搵到最近車站 ID: \(targetId ?? "nil")")
-                } else {
-                    print("🐛 [DEBUG] 警告：findNearest 係 true，但無 GPS 定位！")
                 }
             } else if let code = targetStopCode {
                 targetId = results.first(where: { $0.stopId == code })?.id
-                print("🐛 [DEBUG] 根據點擊嘅 targetStopCode 搵到車站 ID: \(targetId ?? "nil")")
             } else {
                 targetId = highlightedStopId
             }
@@ -1069,26 +1139,26 @@ struct ContentView: View {
                 self.highlightedStopId = targetId
                 
                 if results.isEmpty {
-                    systemMessage = "沒有找到路線 \(route) 的 \(selectedDirection == "outbound" ? "去程" : "回程") 班次數據。"
-                    displayData = []
+                    systemMessage = "沒有找到路線 \(route) 的 \(currentDir == "outbound" ? "去程" : "回程") 班次數據。"
+                    if !isRefresh { displayData = [] }
                 } else {
                     displayData = results
                 }
                 
                 if shouldScroll {
-                    print("🐛 [DEBUG] 更新 scrollTriggerId，準備觸發捲動")
                     self.scrollTriggerId = UUID()
                 }
                 
-                isLoading = false
+                if !isRefresh { isLoading = false }
             }
         } catch {
             await MainActor.run {
                 systemMessage = "無法加載數據或找不到此路線。"
-                displayData = []
-                isLoading = false
+                if !isRefresh {
+                    displayData = []
+                    isLoading = false
+                }
             }
-            print("🐛 [DEBUG] Error: \(error)")
         }
     }
     

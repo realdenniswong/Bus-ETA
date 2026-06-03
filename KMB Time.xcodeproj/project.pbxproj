@@ -7,12 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		05665B0D9E146B424FBA9A31 /* ActivityKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D67C7102DD32977808D61566 /* ActivityKit.framework */; };
 		325EC24499DE7E08B53FE342 /* BusETAWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = D12D3BEC3C504EAAAAC7BB01 /* BusETAWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		3906688E11A120FBDE153607 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BD4033AED1EC9C3A10FF09AF /* Foundation.framework */; };
-		823725432BD6229828ECE5B7 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 48E2096D6D267034D00DC1D2 /* WidgetKit.framework */; };
 		8814592D793FCCCC55FB3892 /* BusETAWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13EF61C1DE8E6C0AF47A9E8 /* BusETAWidget.swift */; };
-		9B1A40019B3922AC9EBB2508 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B6FCE1155B119538C5F5B618 /* SwiftUI.framework */; };
 		B136454415B3383C51334F6A /* BusETAAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6BA22E065B936234152A74E /* BusETAAttributes.swift */; };
 		F39A9C42BACD12980E5167B0 /* BusETAAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6BA22E065B936234152A74E /* BusETAAttributes.swift */; };
 /* End PBXBuildFile section */
@@ -43,32 +39,15 @@
 
 /* Begin PBXFileReference section */
 		48BCD3E16C484F351D18B42C /* BusETAWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BusETAWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		48E2096D6D267034D00DC1D2 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = DEVELOPER_DIR; };
 		A13EF61C1DE8E6C0AF47A9E8 /* BusETAWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BusETAWidget.swift; sourceTree = "<group>"; };
 		AD7150202FCC7A9200DD9837 /* KMB Time.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "KMB Time.app"; sourceTree = BUILT_PRODUCTS_DIR; };
-		B6FCE1155B119538C5F5B618 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = DEVELOPER_DIR; };
-		BD4033AED1EC9C3A10FF09AF /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 		D12D3BEC3C504EAAAAC7BB01 /* BusETAWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BusETAWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		D67C7102DD32977808D61566 /* ActivityKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ActivityKit.framework; path = System/Library/Frameworks/ActivityKit.framework; sourceTree = DEVELOPER_DIR; };
 		F6BA22E065B936234152A74E /* BusETAAttributes.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BusETAAttributes.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
-
-/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		ADCD31B72FCF47990022A521 /* Exceptions for "KMB Time" folder in "KMB Time" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				"KMB-Time-Info.plist",
-			);
-			target = AD71501F2FCC7A9200DD9837 /* KMB Time */;
-		};
-/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		AD7150222FCC7A9200DD9837 /* KMB Time */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				ADCD31B72FCF47990022A521 /* Exceptions for "KMB Time" folder in "KMB Time" target */,
-			);
 			path = "KMB Time";
 			sourceTree = "<group>";
 		};
@@ -79,10 +58,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				3906688E11A120FBDE153607 /* Foundation.framework in Frameworks */,
-				9B1A40019B3922AC9EBB2508 /* SwiftUI.framework in Frameworks */,
-				823725432BD6229828ECE5B7 /* WidgetKit.framework in Frameworks */,
-				05665B0D9E146B424FBA9A31 /* ActivityKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -104,31 +79,11 @@
 			path = BusETAWidget;
 			sourceTree = "<group>";
 		};
-		AC590914519D720EF22F7040 /* Frameworks */ = {
-			isa = PBXGroup;
-			children = (
-				AC9A2EDC165F09A7572A1F89 /* iOS */,
-				B6FCE1155B119538C5F5B618 /* SwiftUI.framework */,
-				48E2096D6D267034D00DC1D2 /* WidgetKit.framework */,
-				D67C7102DD32977808D61566 /* ActivityKit.framework */,
-			);
-			name = Frameworks;
-			sourceTree = "<group>";
-		};
-		AC9A2EDC165F09A7572A1F89 /* iOS */ = {
-			isa = PBXGroup;
-			children = (
-				BD4033AED1EC9C3A10FF09AF /* Foundation.framework */,
-			);
-			name = iOS;
-			sourceTree = "<group>";
-		};
 		AD7150172FCC7A9200DD9837 = {
 			isa = PBXGroup;
 			children = (
 				AD7150222FCC7A9200DD9837 /* KMB Time */,
 				AD7150212FCC7A9200DD9837 /* Products */,
-				AC590914519D720EF22F7040 /* Frameworks */,
 				97423D554CAE635EE12F76BB /* BusETAWidget */,
 				E710EF9C9C581BF7DC465DEC /* SharedModels */,
 			);

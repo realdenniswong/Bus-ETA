@@ -16,6 +16,9 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published var authorizationStatus: CLAuthorizationStatus = .notDetermined
     @Published var isLocating = false
     
+    @Published var isBackgroundTracking = false
+    @Published var backgroundHeartbeat = Date()
+    
     override init() {
         super.init()
         manager.delegate = self
@@ -56,7 +59,12 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         DispatchQueue.main.async {
             self.location = first
             self.isLocating = false
-            manager.stopUpdatingLocation()
+            
+            // 👇 替換成呢幾行：每次定位更新就發送心跳，而且背景追蹤時唔好自動熄定位！
+            self.backgroundHeartbeat = Date()
+            if !self.isBackgroundTracking {
+                manager.stopUpdatingLocation()
+            }
         }
     }
     
@@ -69,6 +77,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     
     // 🌟 請加在你的 LocationManager 類別入面：
     func startBackgroundTracking() {
+        self.isBackgroundTracking = true // 👇 加呢行
         // 確保開啟背景特權配置
         self.manager.allowsBackgroundLocationUpdates = true
         self.manager.showsBackgroundLocationIndicator = false
@@ -80,6 +89,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     }
 
     func stopBackgroundTracking() {
+        self.isBackgroundTracking = false // 👇 加呢行
         // 關燈收工，交還特權
         self.manager.stopUpdatingLocation()
         print("🐛 [LocationManager] 背景定位已成功關閉。")

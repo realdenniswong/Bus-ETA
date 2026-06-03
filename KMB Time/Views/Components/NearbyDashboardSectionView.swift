@@ -5,16 +5,14 @@
 //  Created by Dennis Wong on 6/4/26.
 //
 
-
 import SwiftUI
 import CoreLocation
 
 struct NearbyDashboardSectionView: View {
     @ObservedObject var locationManager: LocationManager
     @Binding var expandedStopIds: Set<String>
-    @Binding var viewMode: DashboardViewMode // <--- New Binding
+    @Binding var viewMode: DashboardViewMode
     
-    let isSearchingNearby: Bool
     let allStops: [StopInfo]
     let nearbyStops: [NearbyStopModel]
     let currentTime: Date
@@ -25,17 +23,14 @@ struct NearbyDashboardSectionView: View {
     
     // Helper to generate a flat list of all routes sorted by Route Name
     var flatRoutes: [(route: NearbyRouteModel, stop: StopInfo, distance: CLLocationDistance)] {
-        // 1. 明確宣告每個元素的名稱 (route, stop, distance)
         var all: [(route: NearbyRouteModel, stop: StopInfo, distance: CLLocationDistance)] = []
         
         for stopModel in nearbyStops {
             for route in stopModel.routes {
-                // 2. 寫入時也對應名稱
                 all.append((route: route, stop: stopModel.stopInfo, distance: stopModel.distance))
             }
         }
         
-        // 3. 清楚指定排序邏輯，避免編譯器混淆
         return all.sorted(by: { a, b in
             a.route.route.localizedStandardCompare(b.route.route) == .orderedAscending
         })
@@ -47,37 +42,7 @@ struct NearbyDashboardSectionView: View {
             Text("附近巴士站")
                 .font(.title2)
                 .fontWeight(.bold)
-            
             Spacer()
-            
-            if isSearchingNearby {
-                ProgressView()
-                    .padding(.trailing, 8)
-            } else if locationManager.location != nil {
-                Button(action: onRequestLocation) {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.subheadline)
-                        .foregroundColor(.blue)
-                }
-                .padding(.trailing, 8)
-            }
-            
-            // 🌟 THE NEW GROUPING MENU 🌟
-            if !nearbyStops.isEmpty {
-                Menu {
-                    Picker("顯示方式", selection: $viewMode) {
-                        Label("按車站分組", systemImage: "mappin.and.ellipse").tag(DashboardViewMode.byStation)
-                        Label("所有附近路線", systemImage: "list.bullet").tag(DashboardViewMode.allBuses)
-                    }
-                } label: {
-                    Image(systemName: viewMode == .byStation ? "rectangle.grid.1x2" : "list.bullet")
-                        .font(.subheadline)
-                        .foregroundColor(.blue)
-                        .padding(6)
-                        .background(Color.blue.opacity(0.1))
-                        .clipShape(Circle())
-                }
-            }
         }
         .padding(.top, 12)
         .padding(.bottom, -10)
@@ -216,7 +181,6 @@ struct NearbyDashboardSectionView: View {
             } else {
                 ForEach(flatRoutes, id: \.route.id) { item in
                     VStack(alignment: .leading, spacing: 4) {
-                        // Small station indicator above the route
                         HStack {
                             Image(systemName: "mappin.circle.fill")
                                 .font(.caption2)
@@ -235,7 +199,6 @@ struct NearbyDashboardSectionView: View {
         }
     }
     
-    // Reusable Row Component for both views
     @ViewBuilder
     private func routeRow(route: NearbyRouteModel, stopInfo: StopInfo) -> some View {
         Button(action: {
@@ -330,7 +293,6 @@ struct NearbyDashboardSectionView: View {
     
     @ViewBuilder
     private func permissionCard(icon: String, color: Color, title: String, description: String, buttonText: String, action: @escaping () -> Void) -> some View {
-        // ... (Keep your existing permissionCard code exactly the same)
         VStack(alignment: .center, spacing: 12) {
             Image(systemName: icon)
                 .resizable()

@@ -31,8 +31,8 @@ struct ContentView: View {
     @State var expandedStopIds: Set<String> = []
     @State var isSearchingNearby = false
     
-    // 🌟 NEW: Track the user's preferred layout for the dashboard
-    @State var dashboardViewMode: DashboardViewMode = .byStation
+    // 🌟 將預設顯示模式改為「無分組 (allBuses)」
+    @State var dashboardViewMode: DashboardViewMode = .allBuses
     
     @State var timerStationName = ""
     
@@ -152,8 +152,7 @@ struct ContentView: View {
                         NearbyDashboardSectionView(
                             locationManager: locationManager,
                             expandedStopIds: $expandedStopIds,
-                            viewMode: $dashboardViewMode, // 🌟 NEW: Passing the binding to the sub-view
-                            isSearchingNearby: isSearchingNearby,
+                            viewMode: $dashboardViewMode,
                             allStops: allStops,
                             nearbyStops: nearbyStops,
                             currentTime: currentTime,
@@ -238,6 +237,7 @@ struct ContentView: View {
                     }
                 }
                 .toolbar {
+                    // 🌟 搜尋畫面時顯示返回按鈕
                     if !searchText.isEmpty {
                         ToolbarItem(placement: .navigationBarLeading) {
                             Button(action: {
@@ -254,6 +254,30 @@ struct ContentView: View {
                                     Image(systemName: "chevron.left")
                                         .fontWeight(.bold)
                                     Text("返回")
+                                }
+                            }
+                        }
+                    } else {
+                        // 🌟 主頁畫面：改用 ToolbarItemGroup，系統會自動俾返最靚嘅原生間距
+                        ToolbarItemGroup(placement: .navigationBarTrailing) {
+                            if isSearchingNearby {
+                                ProgressView()
+                            } else if locationManager.location != nil {
+                                Button(action: {
+                                    locationManager.requestLocation()
+                                }) {
+                                    Image(systemName: "arrow.clockwise").font(.system(size: 14, weight: .medium))
+                                }
+                            }
+                            
+                            if !nearbyStops.isEmpty {
+                                Menu {
+                                    Picker("顯示方式", selection: $dashboardViewMode) {
+                                        Label("按車站分組", systemImage: "mappin.and.ellipse").tag(DashboardViewMode.byStation)
+                                        Label("所有附近路線", systemImage: "list.bullet").tag(DashboardViewMode.allBuses)
+                                    }
+                                } label: {
+                                    Image(systemName: dashboardViewMode == .byStation ? "rectangle.grid.1x2" : "list.bullet")
                                 }
                             }
                         }

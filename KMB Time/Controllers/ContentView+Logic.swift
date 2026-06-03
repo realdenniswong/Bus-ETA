@@ -83,7 +83,7 @@ extension ContentView {
                 temp.append(NearbyStopModel(stopInfo: stop, distance: dist))
             }
             temp.sort { $0.distance < $1.distance }
-            return Array(temp.prefix(3))
+            return Array(temp.prefix(10)) // 🌟 將最近車站顯示數量由 3 加到 10
         }.value
         
         var populated: [NearbyStopModel] = []

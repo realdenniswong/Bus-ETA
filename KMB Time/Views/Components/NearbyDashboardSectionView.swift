@@ -21,7 +21,7 @@ struct NearbyDashboardSectionView: View {
     let onRouteSelected: (NearbyRouteModel, StopInfo) -> Void
     let onSetTimer: (NearbyRouteModel, StopInfo) -> Void
     
-    // Helper to generate a flat list of all routes sorted by Route Name
+    // Helper to generate a flat list of all routes sorted by distance, then by ETA
     var flatRoutes: [(route: NearbyRouteModel, stop: StopInfo, distance: CLLocationDistance)] {
         var all: [(route: NearbyRouteModel, stop: StopInfo, distance: CLLocationDistance)] = []
         
@@ -32,7 +32,14 @@ struct NearbyDashboardSectionView: View {
         }
         
         return all.sorted(by: { a, b in
-            a.route.route.localizedStandardCompare(b.route.route) == .orderedAscending
+            // 1. 先按距離排序 (由近到遠)
+            if a.distance != b.distance {
+                return a.distance < b.distance
+            }
+            // 2. 如果距離一樣 (同一個站)，按最快到站時間 (ETA) 排序
+            let aEta = a.route.etas.first?.etaDate ?? Date.distantFuture
+            let bEta = b.route.etas.first?.etaDate ?? Date.distantFuture
+            return aEta < bEta
         })
     }
     

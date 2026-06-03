@@ -5,7 +5,6 @@
 //  Created by Dennis Wong on 6/4/26.
 //
 
-
 import SwiftUI
 
 struct CustomKeyboardView: View {
@@ -16,17 +15,7 @@ struct CustomKeyboardView: View {
     
     var body: some View {
         VStack(spacing: 8) {
-            HStack {
-                Spacer()
-                Button(action: onDismiss) {
-                    Text("完成")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundColor(.blue)
-                        .padding(.trailing, 16)
-                }
-            }
-            .padding(.top, 10)
-            
+            // 🌟 移走咗原本的「完成」按鈕 HStack，令版面更精簡
             GeometryReader { geo in
                 let spacing: CGFloat = 8
                 let colWidth = (geo.size.width - (spacing * 6)) / 7
@@ -99,7 +88,8 @@ struct CustomKeyboardView: View {
                 }
             }
             .padding(.horizontal, 8)
-            .frame(height: 270)
+            .padding(.top, 16) // 補返少少頂部空間
+            .frame(height: 230) // 縮減高度因為走咗行掣
         }
         .padding(.bottom, 20)
         .background(

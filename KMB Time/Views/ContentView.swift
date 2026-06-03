@@ -87,11 +87,9 @@ struct ContentView: View {
         UISegmentedControl.appearance().backgroundColor = .clear
     }
     
-    // 🌟 抽離安全收起鍵盤功能 (包含空白退回主頁邏輯)
     private func dismissKeyboardSafe() {
         withAnimation(.spring()) { showCustomKeyboard = false }
         
-        // 如果無任何顯示數據 (即未㩒搜尋/未揀路線)，自動清空搜尋欄彈返主頁
         if displayData.isEmpty {
             searchText = ""
             highlightedStopId = nil
@@ -105,7 +103,7 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             ScrollViewReader { proxy in
-                ZStack { // 🌟 加入 ZStack 方便放透明觸控層
+                ZStack {
                     List {
                         // 1. Native-Looking Custom Search Bar
                         HStack(spacing: 6) {
@@ -211,7 +209,22 @@ struct ContentView: View {
                             TimetableSectionView(
                                 displayData: displayData,
                                 highlightedStopId: highlightedStopId,
-                                currentTime: currentTime
+                                currentTime: currentTime,
+                                // 🌟 從路線版面接收設定 Timer 嘅請求
+                                onSetTimer: { stop, etaDate in
+                                    timerTargetDate = etaDate
+                                    timerRouteName = searchText.uppercased()
+                                    timerStationName = stop.stopNameTc
+                                    timerStopId = stop.stopId
+                                    timerDirection = selectedDirection == "outbound" ? "outbound" : "inbound"
+                                    
+                                    // 尋找目的地名稱
+                                    let boundPrefix = selectedDirection == "outbound" ? "O" : "I"
+                                    let matchedRoute = allRoutes.first(where: { $0.route == timerRouteName && $0.bound == boundPrefix })
+                                    timerDestination = matchedRoute?.destination ?? "終點站"
+                                    
+                                    showingAddTimerAlert = true
+                                }
                             )
                             .listRowBackground(Color.clear)
                             .listRowInsets(EdgeInsets())
@@ -223,7 +236,6 @@ struct ContentView: View {
                     .background(themeBackground)
                     .listSectionSpacing(.custom(16))
                     
-                    // 🌟 點擊空白處收起鍵盤嘅隱形偵測層
                     if showCustomKeyboard {
                         Color.clear
                             .contentShape(Rectangle())
@@ -233,7 +245,6 @@ struct ContentView: View {
                             }
                     }
                 }
-                // 4. Custom Keyboard Overlay
                 .overlay(alignment: .bottom) {
                     if showCustomKeyboard {
                         CustomKeyboardView(
@@ -292,7 +303,7 @@ struct ContentView: View {
                                 Button(action: {
                                     locationManager.requestLocation()
                                 }) {
-                                    Image(systemName: "arrow.clockwise").font(.system(size: 14, weight: .medium))
+                                    Image(systemName: "arrow.clockwise").font(.system(size: 16, weight: .medium))
                                 }
                             }
                             
@@ -342,9 +353,16 @@ struct ContentView: View {
                         }
                     }
                 }
-                .alert("設定巴士抵站提醒", isPresented: $showingAddTimerAlert) {
-                    Button("設定提醒", role: .none) {
+                // 🌟 智能判斷：如果有舊 Timer 就警告會覆蓋，無就正常設定
+                .alert(activeTimer == nil ? "設定巴士抵站提醒" : "替換巴士抵站提醒", isPresented: $showingAddTimerAlert) {
+                    Button(activeTimer == nil ? "設定提醒" : "確認替換", role: .none) {
                         if let etaDate = timerTargetDate {
+                            
+                            // 如果已經有一個執行緊嘅 Timer，先清理咗佢 (清走 Live Activity 卡片)
+                            if activeTimer != nil {
+                                endLiveActivity()
+                            }
+                            
                             UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
                                 if granted {
                                     scheduleLocalNotification(
@@ -373,7 +391,11 @@ struct ContentView: View {
                     }
                     Button("取消", role: .cancel) {}
                 } message: {
-                    Text("您是否要為 \(timerRouteName) 路線設定提醒？系統將在巴士預計抵達前 2 分鐘（即 \(formattedTime(timerTargetDate?.addingTimeInterval(-120) ?? Date()))）提醒您。")
+                    if let existing = activeTimer {
+                        Text("您目前已為 \(existing.routeName) 設定了提醒。確定要取消舊提醒，並為 \(timerRouteName) 重新設定嗎？\n\n系統將在巴士預計抵達前 2 分鐘（即 \(formattedTime(timerTargetDate?.addingTimeInterval(-120) ?? Date()))）提醒您。")
+                    } else {
+                        Text("您是否要為 \(timerRouteName) 路線設定提醒？\n\n系統將在巴士預計抵達前 2 分鐘（即 \(formattedTime(timerTargetDate?.addingTimeInterval(-120) ?? Date()))）提醒您。")
+                    }
                 }
                 .task {
                     await loadAllStops()

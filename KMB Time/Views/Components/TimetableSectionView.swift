@@ -5,13 +5,15 @@
 //  Created by Dennis Wong on 6/4/26.
 //
 
-
 import SwiftUI
 
 struct TimetableSectionView: View {
     let displayData: [StopDisplayModel]
     let highlightedStopId: String?
     let currentTime: Date
+    
+    // 🌟 新增 Callback: 當用家 Swipe 並設定 Timer 時觸發
+    let onSetTimer: (StopDisplayModel, Date) -> Void
     
     var body: some View {
         Group {
@@ -51,7 +53,6 @@ struct TimetableSectionView: View {
                                             let secondsLeft = etaDate.timeIntervalSince(currentTime)
                                             let remark = etaInfo.remark ?? ""
                                             let formattedRemark = remark.isEmpty ? "" : " (\(remark))"
-
                                             let minutesLeft = Int(secondsLeft / 60)
                                             if(minutesLeft < 0){
                                                 Text("遲到 \(minutesLeft * -1) 分鐘\(formattedRemark)")
@@ -87,6 +88,18 @@ struct TimetableSectionView: View {
                         .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
                         .listRowSeparator(.hidden)
                         .listRowBackground(Color(.secondarySystemGroupedBackground))
+                        // 🌟 加入向左滑動新增 Timer 嘅選項
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            // 尋找第一個有效且大於 2 分鐘嘅 ETA
+                            if let validEtaDate = stop.etas.first(where: { $0.etaDate?.timeIntervalSince(currentTime) ?? 0 > 120 })?.etaDate {
+                                Button {
+                                    onSetTimer(stop, validEtaDate)
+                                } label: {
+                                    Label("提醒", systemImage: "bell.fill")
+                                }
+                                .tint(.blue)
+                            }
+                        }
                     }
                 }
             }

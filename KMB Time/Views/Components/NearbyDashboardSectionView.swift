@@ -12,6 +12,7 @@ import CoreLocation
 struct NearbyDashboardSectionView: View {
     @ObservedObject var locationManager: LocationManager
     @Binding var expandedStopIds: Set<String>
+    @Binding var viewMode: DashboardViewMode // <--- New Binding
     
     let isSearchingNearby: Bool
     let allStops: [StopInfo]
@@ -22,7 +23,26 @@ struct NearbyDashboardSectionView: View {
     let onRouteSelected: (NearbyRouteModel, StopInfo) -> Void
     let onSetTimer: (NearbyRouteModel, StopInfo) -> Void
     
+    // Helper to generate a flat list of all routes sorted by Route Name
+    var flatRoutes: [(route: NearbyRouteModel, stop: StopInfo, distance: CLLocationDistance)] {
+        // 1. 明確宣告每個元素的名稱 (route, stop, distance)
+        var all: [(route: NearbyRouteModel, stop: StopInfo, distance: CLLocationDistance)] = []
+        
+        for stopModel in nearbyStops {
+            for route in stopModel.routes {
+                // 2. 寫入時也對應名稱
+                all.append((route: route, stop: stopModel.stopInfo, distance: stopModel.distance))
+            }
+        }
+        
+        // 3. 清楚指定排序邏輯，避免編譯器混淆
+        return all.sorted(by: { a, b in
+            a.route.route.localizedStandardCompare(b.route.route) == .orderedAscending
+        })
+    }
+    
     var body: some View {
+        // --- HEADER ---
         HStack {
             Text("附近巴士站")
                 .font(.title2)
@@ -32,11 +52,30 @@ struct NearbyDashboardSectionView: View {
             
             if isSearchingNearby {
                 ProgressView()
+                    .padding(.trailing, 8)
             } else if locationManager.location != nil {
                 Button(action: onRequestLocation) {
                     Image(systemName: "arrow.clockwise")
                         .font(.subheadline)
                         .foregroundColor(.blue)
+                }
+                .padding(.trailing, 8)
+            }
+            
+            // 🌟 THE NEW GROUPING MENU 🌟
+            if !nearbyStops.isEmpty {
+                Menu {
+                    Picker("顯示方式", selection: $viewMode) {
+                        Label("按車站分組", systemImage: "mappin.and.ellipse").tag(DashboardViewMode.byStation)
+                        Label("所有附近路線", systemImage: "list.bullet").tag(DashboardViewMode.allBuses)
+                    }
+                } label: {
+                    Image(systemName: viewMode == .byStation ? "rectangle.grid.1x2" : "list.bullet")
+                        .font(.subheadline)
+                        .foregroundColor(.blue)
+                        .padding(6)
+                        .background(Color.blue.opacity(0.1))
+                        .clipShape(Circle())
                 }
             }
         }
@@ -45,6 +84,7 @@ struct NearbyDashboardSectionView: View {
         .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
         
+        // --- CONTENT ---
         let status = locationManager.authorizationStatus
         
         if status == .notDetermined {
@@ -92,133 +132,181 @@ struct NearbyDashboardSectionView: View {
                 .padding(.vertical, 40)
                 .listRowBackground(Color.clear)
             } else {
-                ForEach(nearbyStops) { stopModel in
-                    let isExpanded = expandedStopIds.contains(stopModel.stopInfo.stop)
-                    
-                    Section {
-                        Button(action: {
-                            withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
-                                toggleStopExpanded(stopModel.stopInfo.stop)
-                            }
-                        }) {
-                            HStack(alignment: .center) {
-                                Image(systemName: "mappin.and.ellipse")
-                                    .foregroundColor(.red)
-                                    .font(.headline)
-                                
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(stopModel.stopInfo.name_tc)
-                                        .font(.headline)
-                                        .fontWeight(.semibold)
-                                        .foregroundColor(.primary)
-                                        .multilineTextAlignment(.leading)
-                                }
-                                
-                                Spacer()
-                                
-                                HStack(spacing: 12) {
-                                    Text(formatDistance(stopModel.distance))
-                                        .font(.caption2)
-                                        .fontWeight(.bold)
-                                        .padding(.horizontal, 8)
-                                        .padding(.vertical, 4)
-                                        .background(Color.blue.opacity(0.12))
-                                        .foregroundColor(.blue)
-                                        .cornerRadius(6)
-                                    
-                                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                                        .font(.system(size: 14, weight: .bold))
-                                        .foregroundColor(.secondary)
-                                }
-                            }
-                            .padding(.vertical, 4)
+                
+                // 🌟 RENDER BASED ON USER PREFERENCE 🌟
+                if viewMode == .byStation {
+                    renderByStation()
+                } else {
+                    renderFlatList()
+                }
+            }
+        }
+    }
+    
+    // MARK: - View Builders
+    
+    @ViewBuilder
+    private func renderByStation() -> some View {
+        ForEach(nearbyStops) { stopModel in
+            let isExpanded = expandedStopIds.contains(stopModel.stopInfo.stop)
+            
+            Section {
+                Button(action: {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
+                        toggleStopExpanded(stopModel.stopInfo.stop)
+                    }
+                }) {
+                    HStack(alignment: .center) {
+                        Image(systemName: "mappin.and.ellipse")
+                            .foregroundColor(.red)
+                            .font(.headline)
+                        
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(stopModel.stopInfo.name_tc)
+                                .font(.headline)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.primary)
+                                .multilineTextAlignment(.leading)
                         }
                         
-                        if isExpanded {
-                            if stopModel.routes.isEmpty {
-                                Text("目前無即時抵達班次或路線")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                    .padding(.vertical, 4)
-                            } else {
-                                ForEach(stopModel.routes) { route in
-                                    Button(action: {
-                                        onRouteSelected(route, stopModel.stopInfo)
-                                    }) {
-                                        HStack(alignment: .center, spacing: 12) {
-                                            Text(route.route)
-                                                .font(.system(.body, design: .rounded))
-                                                .fontWeight(.bold)
-                                                .foregroundColor(.white)
-                                                .frame(width: 64, height: 36)
-                                                .background(
-                                                    RoundedRectangle(cornerRadius: 8)
-                                                        .fill(Color(red: 0.65, green: 0.08, blue: 0.12))
-                                                )
-                                            
-                                            VStack(alignment: .leading, spacing: 3) {
-                                                HStack(alignment: .firstTextBaseline, spacing: 4) {
-                                                    Text("往")
-                                                        .font(.caption)
-                                                        .foregroundColor(.secondary)
-                                                    Text(route.destNameTc)
-                                                        .font(.system(size: 15, weight: .bold))
-                                                        .foregroundColor(.primary)
-                                                        .lineLimit(1)
-                                                }
-                                            }
-                                            
-                                            Spacer()
-                                            
-                                            HStack(spacing: 6) {
-                                                if let firstEta = route.etas.first, let etaDate = firstEta.etaDate {
-                                                    let secondsLeft = etaDate.timeIntervalSince(currentTime)
-                                                    let minutesLeft = Int(secondsLeft / 60)
-                                                    if(minutesLeft < 0){
-                                                        Text("遲到 \(minutesLeft * -1) 分鐘")
-                                                            .font(.system(size: 15, weight: .semibold, design: .rounded))
-                                                            .foregroundColor(Color.red)
-                                                    }
-                                                    else if(minutesLeft == 0){
-                                                        Text("已到站")
-                                                            .font(.system(size: 15, weight: .semibold, design: .rounded))
-                                                            .foregroundColor(Color.green)
-                                                    }
-                                                    else{
-                                                        Text("\(minutesLeft) 分鐘")
-                                                            .font(.system(size: 15, weight: .semibold, design: .rounded))
-                                                            .foregroundColor(.primary)
-                                                    }
-                                                } else {
-                                                    Text("無即時班次")
-                                                        .font(.caption2)
-                                                        .foregroundColor(.secondary)
-                                                }
-                                                
-                                                Image(systemName: "chevron.right")
-                                                    .font(.caption)
-                                                    .foregroundColor(.secondary)
-                                            }
-                                        }
-                                        .padding(.vertical, 4)
-                                        .contentShape(Rectangle())
-                                    }
-                                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                        if let firstEtaDate = route.etas.first?.etaDate,
-                                           firstEtaDate.timeIntervalSince(currentTime) > 120 {
-                                            Button {
-                                                onSetTimer(route, stopModel.stopInfo)
-                                            } label: {
-                                                Label("提醒", systemImage: "bell.fill")
-                                            }
-                                            .tint(.blue)
-                                        }
-                                    }
-                                }
-                            }
+                        Spacer()
+                        
+                        HStack(spacing: 12) {
+                            Text(formatDistance(stopModel.distance))
+                                .font(.caption2)
+                                .fontWeight(.bold)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Color.blue.opacity(0.12))
+                                .foregroundColor(.blue)
+                                .cornerRadius(6)
+                            
+                            Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+                
+                if isExpanded {
+                    if stopModel.routes.isEmpty {
+                        Text("目前無即時抵達班次或路線")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .padding(.vertical, 4)
+                    } else {
+                        ForEach(stopModel.routes) { route in
+                            routeRow(route: route, stopInfo: stopModel.stopInfo)
                         }
                     }
                 }
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private func renderFlatList() -> some View {
+        Section {
+            if flatRoutes.isEmpty {
+                Text("目前無即時抵達班次或路線")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.vertical, 4)
+            } else {
+                ForEach(flatRoutes, id: \.route.id) { item in
+                    VStack(alignment: .leading, spacing: 4) {
+                        // Small station indicator above the route
+                        HStack {
+                            Image(systemName: "mappin.circle.fill")
+                                .font(.caption2)
+                                .foregroundColor(.red)
+                            Text("\(item.stop.name_tc) (\(formatDistance(item.distance)))")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.bottom, 2)
+                        
+                        routeRow(route: item.route, stopInfo: item.stop)
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+        }
+    }
+    
+    // Reusable Row Component for both views
+    @ViewBuilder
+    private func routeRow(route: NearbyRouteModel, stopInfo: StopInfo) -> some View {
+        Button(action: {
+            onRouteSelected(route, stopInfo)
+        }) {
+            HStack(alignment: .center, spacing: 12) {
+                Text(route.route)
+                    .font(.system(.body, design: .rounded))
+                    .fontWeight(.bold)
+                    .foregroundColor(.white)
+                    .frame(width: 64, height: 36)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color(red: 0.65, green: 0.08, blue: 0.12))
+                    )
+                
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        Text("往")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text(route.destNameTc)
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                    }
+                }
+                
+                Spacer()
+                
+                HStack(spacing: 6) {
+                    if let firstEta = route.etas.first, let etaDate = firstEta.etaDate {
+                        let secondsLeft = etaDate.timeIntervalSince(currentTime)
+                        let minutesLeft = Int(secondsLeft / 60)
+                        if(minutesLeft < 0){
+                            Text("遲到 \(minutesLeft * -1) 分鐘")
+                                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                .foregroundColor(Color.red)
+                        }
+                        else if(minutesLeft == 0){
+                            Text("已到站")
+                                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                .foregroundColor(Color.green)
+                        }
+                        else{
+                            Text("\(minutesLeft) 分鐘")
+                                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                .foregroundColor(.primary)
+                        }
+                    } else {
+                        Text("無即時班次")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    Image(systemName: "chevron.right")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            if let firstEtaDate = route.etas.first?.etaDate,
+               firstEtaDate.timeIntervalSince(currentTime) > 120 {
+                Button {
+                    onSetTimer(route, stopInfo)
+                } label: {
+                    Label("提醒", systemImage: "bell.fill")
+                }
+                .tint(.blue)
             }
         }
     }
@@ -242,6 +330,7 @@ struct NearbyDashboardSectionView: View {
     
     @ViewBuilder
     private func permissionCard(icon: String, color: Color, title: String, description: String, buttonText: String, action: @escaping () -> Void) -> some View {
+        // ... (Keep your existing permissionCard code exactly the same)
         VStack(alignment: .center, spacing: 12) {
             Image(systemName: icon)
                 .resizable()

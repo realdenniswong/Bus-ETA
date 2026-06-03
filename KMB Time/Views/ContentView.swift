@@ -31,6 +31,9 @@ struct ContentView: View {
     @State var expandedStopIds: Set<String> = []
     @State var isSearchingNearby = false
     
+    // 🌟 NEW: Track the user's preferred layout for the dashboard
+    @State var dashboardViewMode: DashboardViewMode = .byStation
+    
     @State var timerStationName = ""
     
     let refreshTimer = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
@@ -149,6 +152,7 @@ struct ContentView: View {
                         NearbyDashboardSectionView(
                             locationManager: locationManager,
                             expandedStopIds: $expandedStopIds,
+                            viewMode: $dashboardViewMode, // 🌟 NEW: Passing the binding to the sub-view
                             isSearchingNearby: isSearchingNearby,
                             allStops: allStops,
                             nearbyStops: nearbyStops,

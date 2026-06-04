@@ -197,6 +197,7 @@ struct ContentView: View {
                                 Text("回程 (Inbound)").tag("inbound")
                             }
                             .pickerStyle(.segmented)
+                            .padding(.top, 12)
                             .onChange(of: selectedDirection) { newValue in
                                 if !searchText.isEmpty {
                                     Task { await searchRoute(route: searchText.uppercased(), direction: newValue, findNearest: true, shouldScroll: true) }

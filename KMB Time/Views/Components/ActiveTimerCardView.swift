@@ -73,7 +73,7 @@ struct ActiveTimerCardView: View {
                 
                 Spacer()
                 
-                let minutesLeft = max(0, Int(ceil(Double(secondsLeft) / 60.0)))
+                let minutesLeft = Int(secondsLeft / 60)
                 VStack(alignment: .trailing, spacing: 2) {
                     Text("\(minutesLeft) 分鐘")
                         .font(.system(size: 28, weight: .bold, design: .rounded))

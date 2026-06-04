@@ -60,7 +60,7 @@ struct TimetableSectionView: View {
                                                     .foregroundColor(Color.red)
                                             }
                                             else if(minutesLeft == 0){
-                                                Text("已到站")
+                                                Text("即將到站")
                                                     .font(.system(size: 15, weight: .semibold, design: .rounded))
                                                     .foregroundColor(Color.green)
                                             }

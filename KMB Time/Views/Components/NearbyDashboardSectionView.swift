@@ -21,6 +21,41 @@ struct NearbyDashboardSectionView: View {
     let onRouteSelected: (NearbyRouteModel, StopInfo) -> Void
     let onSetTimer: (NearbyRouteModel, StopInfo) -> Void
     
+    // MARK: - Sorting Helpers
+    
+    // Helper to determine if a route is currently showing "暫無服務..." (no etaDate)
+    private func hasNoService(route: NearbyRouteModel) -> Bool {
+        return route.etas.first?.etaDate == nil
+    }
+    
+    // Helper to determine the sorting rank for By Station mode
+    // 0: 有班次去程, 1: 有班次回程, 2: 冇班次去程, 3: 冇班次回程
+    private func sortRank(for route: NearbyRouteModel) -> Int {
+        let noService = hasNoService(route: route)
+        let isOutbound = (route.directionCode == "O")
+        
+        if !noService && isOutbound { return 0 }
+        if !noService && !isOutbound { return 1 }
+        if noService && isOutbound { return 2 }
+        return 3
+    }
+    
+    // Helper to sort a simple array of routes (used in By Station mode)
+    private func sortedRoutes(for routes: [NearbyRouteModel]) -> [NearbyRouteModel] {
+        return routes.sorted { a, b in
+            let rankA = sortRank(for: a)
+            let rankB = sortRank(for: b)
+            
+            // 1. Sort by Rank (有班次去程 -> 有班次回程 -> 冇班次去程 -> 冇班次回程)
+            if rankA != rankB {
+                return rankA < rankB
+            }
+            
+            // 2. Sort by Route Name
+            return a.route.localizedStandardCompare(b.route) == .orderedAscending
+        }
+    }
+    
     // Helper to generate a flat list of all routes sorted by distance, then by ETA
     var flatRoutes: [(route: NearbyRouteModel, stop: StopInfo, distance: CLLocationDistance)] {
         var all: [(route: NearbyRouteModel, stop: StopInfo, distance: CLLocationDistance)] = []
@@ -32,11 +67,18 @@ struct NearbyDashboardSectionView: View {
         }
         
         return all.sorted(by: { a, b in
-            // 1. 先按距離排序 (由近到遠)
+            // 1. Move "沒有班次" to bottom
+            let aNoService = hasNoService(route: a.route)
+            let bNoService = hasNoService(route: b.route)
+            if aNoService != bNoService {
+                return !aNoService
+            }
+            
+            // 2. Distance
             if a.distance != b.distance {
                 return a.distance < b.distance
             }
-            // 2. 如果距離一樣 (同一個站)，按最快到站時間 (ETA) 排序
+            // 3. ETA
             let aEta = a.route.etas.first?.etaDate ?? Date.distantFuture
             let bEta = b.route.etas.first?.etaDate ?? Date.distantFuture
             return aEta < bEta
@@ -50,7 +92,7 @@ struct NearbyDashboardSectionView: View {
         var outbound: [(route: NearbyRouteModel, stopInfo: StopInfo)]
         var inbound: [(route: NearbyRouteModel, stopInfo: StopInfo)]
     }
-
+    
     var groupedByStationName: [StationNameGroup] {
         var dict: [String: StationNameGroup] = [:]
         
@@ -88,9 +130,13 @@ struct NearbyDashboardSectionView: View {
         var result = Array(dict.values)
         result.sort { $0.minDistance < $1.minDistance }
         
-        // NEW SORTING LOGIC: Sort by Station ID first, then by Route Name
+        // Sort by Station ID, then by Route Name internally
         for i in 0..<result.count {
             result[i].outbound.sort {
+                let aNoService = hasNoService(route: $0.route)
+                let bNoService = hasNoService(route: $1.route)
+                if aNoService != bNoService { return !aNoService }
+                
                 let id1 = extractPoleId(from: $0.stopInfo.name_tc)
                 let id2 = extractPoleId(from: $1.stopInfo.name_tc)
                 if id1 == id2 {
@@ -100,6 +146,10 @@ struct NearbyDashboardSectionView: View {
             }
             
             result[i].inbound.sort {
+                let aNoService = hasNoService(route: $0.route)
+                let bNoService = hasNoService(route: $1.route)
+                if aNoService != bNoService { return !aNoService }
+                
                 let id1 = extractPoleId(from: $0.stopInfo.name_tc)
                 let id2 = extractPoleId(from: $1.stopInfo.name_tc)
                 if id1 == id2 {
@@ -115,7 +165,7 @@ struct NearbyDashboardSectionView: View {
     var body: some View {
         // --- HEADER ---
         HStack {
-            Text("附近巴士站")
+            Text("附近車站")
                 .font(.title2)
                 .fontWeight(.bold)
             Spacer()
@@ -131,17 +181,17 @@ struct NearbyDashboardSectionView: View {
         if status == .notDetermined {
             permissionCard(
                 icon: "location.circle.fill", color: .blue,
-                title: "尋找附近巴士站及抵達時間",
-                description: "啟用定位權限，系統會自動探索您目前位置附近的巴士站與即時路線資訊。",
-                buttonText: "分享目前位置",
+                title: "需要位置權限",
+                description: "請允許取用你的位置以顯示附近車站",
+                buttonText: "授權",
                 action: onRequestLocation
             )
         } else if status == .denied || status == .restricted {
             permissionCard(
                 icon: "location.slash.circle.fill", color: .red,
-                title: "定位權限已關閉",
-                description: "如欲使用此定位功能，請至系統設定開啟此應用的定位服務。",
-                buttonText: "開啟系統設定",
+                title: "未開啟位置權限",
+                description: "請前往「設定」為應用程式開啟定位權限",
+                buttonText: "前往設定",
                 action: {
                     if let url = URL(string: UIApplication.openSettingsURLString) {
                         UIApplication.shared.open(url)
@@ -153,7 +203,7 @@ struct NearbyDashboardSectionView: View {
                 VStack(spacing: 12) {
                     ProgressView()
                         .scaleEffect(1.2)
-                    Text(allStops.isEmpty ? "正在載入巴士站數據庫..." : "正在尋找您的位置...")
+                    Text(allStops.isEmpty ? "正在載入巴士站..." : "正在尋找附近車站...")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                 }
@@ -165,7 +215,7 @@ struct NearbyDashboardSectionView: View {
                     Image(systemName: "mappin.slash")
                         .font(.largeTitle)
                         .foregroundColor(.secondary)
-                    Text("附近未發現巴士站。")
+                    Text("附近沒有九巴車站")
                         .font(.headline)
                         .foregroundColor(.secondary)
                 }
@@ -176,7 +226,7 @@ struct NearbyDashboardSectionView: View {
                 if viewMode == .byStation {
                     renderByStation()
                 } else if viewMode == .byStationName {
-                    renderByStationName() // <--- NEW
+                    renderByStationName()
                 } else {
                     renderFlatList()
                 }
@@ -232,12 +282,13 @@ struct NearbyDashboardSectionView: View {
                 
                 if isExpanded {
                     if stopModel.routes.isEmpty {
-                        Text("目前無即時抵達班次或路線")
+                        Text("暫無服務...")
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .padding(.vertical, 4)
                     } else {
-                        ForEach(stopModel.routes) { route in
+                        // 利用更新後嘅 sortedRoutes 進行 4-tier 排序
+                        ForEach(sortedRoutes(for: stopModel.routes)) { route in
                             routeRow(route: route, stopInfo: stopModel.stopInfo)
                         }
                     }
@@ -250,7 +301,7 @@ struct NearbyDashboardSectionView: View {
     private func renderFlatList() -> some View {
         Section {
             if flatRoutes.isEmpty {
-                Text("目前無即時抵達班次或路線")
+                Text("暫無服務...")
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .padding(.vertical, 4)
@@ -321,18 +372,34 @@ struct NearbyDashboardSectionView: View {
                 
                 if isExpanded {
                     if group.outbound.isEmpty && group.inbound.isEmpty {
-                        Text("沒有班次")
+                        Text("暫無服務...")
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .padding(.vertical, 4)
                     } else {
-                        // 1. OUTBOUND FIRST (No Text Label)
-                        ForEach(group.outbound, id: \.route.id) { item in
+                        // 分解資料：分開有班次同冇班次
+                        let activeOutbound = group.outbound.filter { !hasNoService(route: $0.route) }
+                        let activeInbound = group.inbound.filter { !hasNoService(route: $0.route) }
+                        let inactiveOutbound = group.outbound.filter { hasNoService(route: $0.route) }
+                        let inactiveInbound = group.inbound.filter { hasNoService(route: $0.route) }
+                        
+                        // 1. 去程 (有班次)
+                        ForEach(activeOutbound, id: \.route.id) { item in
                             routeRowWithStationNumber(route: item.route, stopInfo: item.stopInfo)
                         }
                         
-                        // 2. INBOUND SECOND (No Text Label)
-                        ForEach(group.inbound, id: \.route.id) { item in
+                        // 2. 回程 (有班次)
+                        ForEach(activeInbound, id: \.route.id) { item in
+                            routeRowWithStationNumber(route: item.route, stopInfo: item.stopInfo)
+                        }
+                        
+                        // 3. 去程 (冇班次)
+                        ForEach(inactiveOutbound, id: \.route.id) { item in
+                            routeRowWithStationNumber(route: item.route, stopInfo: item.stopInfo)
+                        }
+                        
+                        // 4. 回程 (冇班次)
+                        ForEach(inactiveInbound, id: \.route.id) { item in
                             routeRowWithStationNumber(route: item.route, stopInfo: item.stopInfo)
                         }
                     }
@@ -340,7 +407,7 @@ struct NearbyDashboardSectionView: View {
             }
         }
     }
-
+    
     @ViewBuilder
     private func routeRowWithStationNumber(route: NearbyRouteModel, stopInfo: StopInfo) -> some View {
         Button(action: {
@@ -368,7 +435,6 @@ struct NearbyDashboardSectionView: View {
                             .lineLimit(1)
                     }
                     
-                    // <--- FIXED: Now safely extracting "TY980" or "T46" from the raw name
                     Text(extractPoleId(from: stopInfo.name_tc))
                         .font(.caption2)
                         .foregroundColor(.secondary)
@@ -381,23 +447,22 @@ struct NearbyDashboardSectionView: View {
                     if let firstEta = route.etas.first, let etaDate = firstEta.etaDate {
                         let secondsLeft = etaDate.timeIntervalSince(currentTime)
                         let minutesLeft = Int(secondsLeft / 60)
-                        if(minutesLeft < 0){
-                            Text("遲到 \(minutesLeft * -1) 分鐘") // Localized for consistency
+                        
+                        if minutesLeft < 0 {
+                            Text("遲到 \(-minutesLeft) 分鐘")
                                 .font(.system(size: 15, weight: .semibold, design: .rounded))
-                                .foregroundColor(Color.red)
-                        }
-                        else if(minutesLeft == 0){
+                                .foregroundColor(.red)
+                        } else if minutesLeft == 0 {
                             Text("即將抵達")
                                 .font(.system(size: 15, weight: .semibold, design: .rounded))
                                 .foregroundColor(Color.green)
-                        }
-                        else{
+                        } else {
                             Text("\(minutesLeft) 分鐘")
                                 .font(.system(size: 15, weight: .semibold, design: .rounded))
                                 .foregroundColor(.primary)
                         }
                     } else {
-                        Text("沒有班次")
+                        Text("暫無服務...")
                             .font(.caption2)
                             .foregroundColor(.secondary)
                     }
@@ -415,7 +480,7 @@ struct NearbyDashboardSectionView: View {
                 Button {
                     onSetTimer(route, stopInfo)
                 } label: {
-                    Label("提示", systemImage: "bell.fill")
+                    Label("響鬧", systemImage: "bell.fill")
                 }
                 .tint(.blue)
             }
@@ -456,23 +521,22 @@ struct NearbyDashboardSectionView: View {
                     if let firstEta = route.etas.first, let etaDate = firstEta.etaDate {
                         let secondsLeft = etaDate.timeIntervalSince(currentTime)
                         let minutesLeft = Int(secondsLeft / 60)
-                        if(minutesLeft < 0){
-                            Text("遲到 \(minutesLeft * -1) 分鐘")
+                        
+                        if minutesLeft < 0 {
+                            Text("遲到 \(-minutesLeft) 分鐘")
                                 .font(.system(size: 15, weight: .semibold, design: .rounded))
-                                .foregroundColor(Color.red)
-                        }
-                        else if(minutesLeft == 0){
-                            Text("即將到站")
+                                .foregroundColor(.red)
+                        } else if minutesLeft == 0 {
+                            Text("即將抵達")
                                 .font(.system(size: 15, weight: .semibold, design: .rounded))
                                 .foregroundColor(Color.green)
-                        }
-                        else{
+                        } else {
                             Text("\(minutesLeft) 分鐘")
                                 .font(.system(size: 15, weight: .semibold, design: .rounded))
                                 .foregroundColor(.primary)
                         }
                     } else {
-                        Text("無即時班次")
+                        Text("暫無服務...")
                             .font(.caption2)
                             .foregroundColor(.secondary)
                     }
@@ -490,7 +554,7 @@ struct NearbyDashboardSectionView: View {
                 Button {
                     onSetTimer(route, stopInfo)
                 } label: {
-                    Label("提醒", systemImage: "bell.fill")
+                    Label("響鬧", systemImage: "bell.fill")
                 }
                 .tint(.blue)
             }
@@ -498,6 +562,7 @@ struct NearbyDashboardSectionView: View {
     }
     
     // MARK: - Local Helpers
+    
     private func toggleStopExpanded(_ stopId: String) {
         if expandedStopIds.contains(stopId) {
             expandedStopIds.remove(stopId)
@@ -555,7 +620,7 @@ struct NearbyDashboardSectionView: View {
     }
     
     private func extractPoleId(from rawName: String) -> String {
-        // Finds the last "(" and ")" in strings like "屯門公路轉車站 (T46)"
+        // Finds the last "(" and ")" in strings like "名稱 (T46)"
         if let lastOpen = rawName.lastIndex(of: "("),
            let lastClose = rawName.lastIndex(of: ")"),
            lastOpen < lastClose {
@@ -568,4 +633,3 @@ struct NearbyDashboardSectionView: View {
         return "N/A"
     }
 }
-

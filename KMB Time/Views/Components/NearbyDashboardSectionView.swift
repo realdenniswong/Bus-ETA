@@ -43,6 +43,75 @@ struct NearbyDashboardSectionView: View {
         })
     }
     
+    struct StationNameGroup: Identifiable {
+        var id: String { stationName }
+        let stationName: String
+        var minDistance: CLLocationDistance
+        var outbound: [(route: NearbyRouteModel, stopInfo: StopInfo)]
+        var inbound: [(route: NearbyRouteModel, stopInfo: StopInfo)]
+    }
+
+    var groupedByStationName: [StationNameGroup] {
+        var dict: [String: StationNameGroup] = [:]
+        
+        for stopModel in nearbyStops {
+            let rawName = stopModel.stopInfo.name_tc
+            
+            // This Regex matches a space (optional), followed by an opening parenthesis,
+            // any characters that are NOT a closing parenthesis, and a final closing parenthesis
+            // at the very end of the string.
+            let cleanName = rawName.replacingOccurrences(
+                of: "\\s*\\([^)]+\\)\\s*$",
+                with: "",
+                options: .regularExpression
+            )
+            
+            let dist = stopModel.distance
+            
+            // Use `cleanName` for grouping instead of `rawName`
+            if dict[cleanName] == nil {
+                dict[cleanName] = StationNameGroup(stationName: cleanName, minDistance: dist, outbound: [], inbound: [])
+            }
+            
+            dict[cleanName]!.minDistance = min(dict[cleanName]!.minDistance, dist)
+            
+            for route in stopModel.routes {
+                if route.directionCode == "O" {
+                    dict[cleanName]!.outbound.append((route: route, stopInfo: stopModel.stopInfo))
+                } else {
+                    dict[cleanName]!.inbound.append((route: route, stopInfo: stopModel.stopInfo))
+                }
+            }
+        }
+        
+        // Convert to Array and Sort by distance
+        var result = Array(dict.values)
+        result.sort { $0.minDistance < $1.minDistance }
+        
+        // NEW SORTING LOGIC: Sort by Station ID first, then by Route Name
+        for i in 0..<result.count {
+            result[i].outbound.sort {
+                let id1 = extractPoleId(from: $0.stopInfo.name_tc)
+                let id2 = extractPoleId(from: $1.stopInfo.name_tc)
+                if id1 == id2 {
+                    return $0.route.route.localizedStandardCompare($1.route.route) == .orderedAscending
+                }
+                return id1.localizedStandardCompare(id2) == .orderedAscending
+            }
+            
+            result[i].inbound.sort {
+                let id1 = extractPoleId(from: $0.stopInfo.name_tc)
+                let id2 = extractPoleId(from: $1.stopInfo.name_tc)
+                if id1 == id2 {
+                    return $0.route.route.localizedStandardCompare($1.route.route) == .orderedAscending
+                }
+                return id1.localizedStandardCompare(id2) == .orderedAscending
+            }
+        }
+        
+        return result
+    }
+    
     var body: some View {
         // --- HEADER ---
         HStack {
@@ -104,10 +173,10 @@ struct NearbyDashboardSectionView: View {
                 .padding(.vertical, 40)
                 .listRowBackground(Color.clear)
             } else {
-                
-                // 🌟 RENDER BASED ON USER PREFERENCE 🌟
                 if viewMode == .byStation {
                     renderByStation()
+                } else if viewMode == .byStationName {
+                    renderByStationName() // <--- NEW
                 } else {
                     renderFlatList()
                 }
@@ -202,6 +271,153 @@ struct NearbyDashboardSectionView: View {
                     }
                     .padding(.vertical, 4)
                 }
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private func renderByStationName() -> some View {
+        ForEach(groupedByStationName) { group in
+            let isExpanded = expandedStopIds.contains(group.stationName)
+            
+            Section {
+                Button(action: {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
+                        toggleStopExpanded(group.stationName)
+                    }
+                }) {
+                    HStack(alignment: .center) {
+                        Image(systemName: "building.2.crop.circle")
+                            .foregroundColor(.red)
+                            .font(.headline)
+                        
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(group.stationName)
+                                .font(.headline)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.primary)
+                                .multilineTextAlignment(.leading)
+                        }
+                        
+                        Spacer()
+                        
+                        HStack(spacing: 12) {
+                            Text(formatDistance(group.minDistance))
+                                .font(.caption2)
+                                .fontWeight(.bold)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Color.blue.opacity(0.12))
+                                .foregroundColor(.blue)
+                                .cornerRadius(6)
+                            
+                            Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+                
+                if isExpanded {
+                    if group.outbound.isEmpty && group.inbound.isEmpty {
+                        Text("沒有班次")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .padding(.vertical, 4)
+                    } else {
+                        // 1. OUTBOUND FIRST (No Text Label)
+                        ForEach(group.outbound, id: \.route.id) { item in
+                            routeRowWithStationNumber(route: item.route, stopInfo: item.stopInfo)
+                        }
+                        
+                        // 2. INBOUND SECOND (No Text Label)
+                        ForEach(group.inbound, id: \.route.id) { item in
+                            routeRowWithStationNumber(route: item.route, stopInfo: item.stopInfo)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func routeRowWithStationNumber(route: NearbyRouteModel, stopInfo: StopInfo) -> some View {
+        Button(action: {
+            onRouteSelected(route, stopInfo)
+        }) {
+            HStack(alignment: .center, spacing: 12) {
+                Text(route.route)
+                    .font(.system(.body, design: .rounded))
+                    .fontWeight(.bold)
+                    .foregroundColor(.white)
+                    .frame(width: 64, height: 36)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color(red: 0.65, green: 0.08, blue: 0.12))
+                    )
+                
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        Text("往")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text(route.destNameTc)
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                    }
+                    
+                    // <--- FIXED: Now safely extracting "TY980" or "T46" from the raw name
+                    Text(extractPoleId(from: stopInfo.name_tc))
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+                
+                Spacer()
+                
+                // ETA Logic
+                HStack(spacing: 6) {
+                    if let firstEta = route.etas.first, let etaDate = firstEta.etaDate {
+                        let secondsLeft = etaDate.timeIntervalSince(currentTime)
+                        let minutesLeft = Int(secondsLeft / 60)
+                        if(minutesLeft < 0){
+                            Text("遲到 \(minutesLeft * -1) 分鐘") // Localized for consistency
+                                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                .foregroundColor(Color.red)
+                        }
+                        else if(minutesLeft == 0){
+                            Text("即將抵達")
+                                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                .foregroundColor(Color.green)
+                        }
+                        else{
+                            Text("\(minutesLeft) 分鐘")
+                                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                .foregroundColor(.primary)
+                        }
+                    } else {
+                        Text("沒有班次")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    Image(systemName: "chevron.right")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            if let firstEtaDate = route.etas.first?.etaDate,
+               firstEtaDate.timeIntervalSince(currentTime) > 120 {
+                Button {
+                    onSetTimer(route, stopInfo)
+                } label: {
+                    Label("提示", systemImage: "bell.fill")
+                }
+                .tint(.blue)
             }
         }
     }
@@ -337,4 +553,19 @@ struct NearbyDashboardSectionView: View {
         .listRowBackground(Color.clear)
         .listRowInsets(EdgeInsets())
     }
+    
+    private func extractPoleId(from rawName: String) -> String {
+        // Finds the last "(" and ")" in strings like "屯門公路轉車站 (T46)"
+        if let lastOpen = rawName.lastIndex(of: "("),
+           let lastClose = rawName.lastIndex(of: ")"),
+           lastOpen < lastClose {
+            
+            let idString = rawName[rawName.index(after: lastOpen)..<lastClose]
+            return String(idString)
+        }
+        
+        // Fallback if no parentheses are found
+        return "N/A"
+    }
 }
+

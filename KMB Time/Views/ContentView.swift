@@ -14,6 +14,7 @@ import ActivityKit
 // MARK: - View Modes
 enum DashboardViewMode {
     case byStation
+    case byStationName
     case allBuses
 }
 
@@ -266,12 +267,13 @@ struct ContentView: View {
                             
                             if !nearbyStops.isEmpty {
                                 Menu {
-                                    Picker("顯示方式", selection: $dashboardViewMode) {
-                                        Label("按車站分組", systemImage: "mappin.and.ellipse").tag(DashboardViewMode.byStation)
-                                        Label("所有附近路線", systemImage: "list.bullet").tag(DashboardViewMode.allBuses)
+                                    Picker("顯示模式", selection: $dashboardViewMode) {
+                                        Label("按巴士站", systemImage: "mappin.and.ellipse").tag(DashboardViewMode.byStation)
+                                        Label("按車站名稱", systemImage: "building.2.crop.circle").tag(DashboardViewMode.byStationName)
+                                        Label("全部路線", systemImage: "list.bullet").tag(DashboardViewMode.allBuses)
                                     }
                                 } label: {
-                                    Image(systemName: dashboardViewMode == .byStation ? "rectangle.grid.1x2" : "list.bullet")
+                                    Image(systemName: dashboardViewMode == .byStation ? "rectangle.grid.1x2" : (dashboardViewMode == .byStationName ? "building.2.crop.circle" : "list.bullet"))
                                         .font(.system(size: 16, weight: .medium))
                                 }
                             }

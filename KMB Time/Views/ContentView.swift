@@ -118,6 +118,18 @@ struct ContentView: View {
                                 .foregroundColor(searchText.isEmpty ? Color(UIColor.placeholderText) : .primary)
                                 .font(.system(size: 17))
                                 .frame(maxWidth: .infinity, alignment: .leading)
+                            
+                            // 🌟 新增：擺喺 Search Bar 右邊嘅「清空」交叉掣
+                            if !searchText.isEmpty {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(Color(UIColor.systemGray3))
+                                    .font(.system(size: 17))
+                                    .padding(.trailing, 2)
+                                    .padding(.vertical, 8)
+                                    .onTapGesture {
+                                        searchText = ""
+                                    }
+                            }
                         }
                         .padding(.horizontal, 8)
                         .frame(height: 48)
@@ -226,7 +238,9 @@ struct ContentView: View {
                             },
                             onDismiss: { dismissKeyboardSafe() }
                         )
-                        .transition(.move(edge: .bottom))
+                        // 🌟 完美隱藏：將原本的 .move(edge: .bottom) 換成 offset
+                        // 向下推 500 像素，保證連陰影都完全跌出螢幕之外！
+                        .transition(.offset(y: 300))
                     }
                 }
                 .navigationTitle(showCustomKeyboard ? "搜尋路線" : "九巴到站預報")

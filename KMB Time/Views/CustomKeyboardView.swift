@@ -14,22 +14,7 @@ struct CustomKeyboardView: View {
     var onDismiss: () -> Void
     
     var body: some View {
-        VStack(spacing: 0) { // 改為 0，等我哋自己控制間距
-            
-            // 🌟 新增：右上角嘅「收起鍵盤」按鈕
-            HStack {
-                Spacer()
-                Button(action: onDismiss) {
-                    Image(systemName: "keyboard.chevron.compact.down")
-                        .font(.system(size: 24, weight: .medium))
-                        .foregroundColor(Color(UIColor.secondaryLabel))
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        // 擴大點擊範圍，容易啲撳
-                        .contentShape(Rectangle())
-                }
-            }
-            
+        VStack(spacing: 0) {
             GeometryReader { geo in
                 let spacing: CGFloat = 8
                 let colWidth = (geo.size.width - (spacing * 6)) / 7
@@ -78,11 +63,13 @@ struct CustomKeyboardView: View {
                     }
                     
                     HStack(spacing: spacing) {
-                        let clearWidth = (colWidth * 2) + spacing
-                        actionButton("清空", width: clearWidth, height: keyHeight, color: Color(UIColor.systemGray4)) {
-                            text = ""
+                        // 🌟 1. 左下角：取代原本清空，變做「收起鍵盤」掣
+                        let dismissWidth = (colWidth * 2) + spacing
+                        actionButton(Image(systemName: "keyboard.chevron.compact.down"), width: dismissWidth, height: keyHeight, color: Color(UIColor.systemGray4)) {
+                            onDismiss()
                         }
                         
+                        // 🌟 2. 中間：「搜尋」掣保持不變
                         let searchWidth = (colWidth * 3) + (spacing * 2)
                         Button(action: onSearch) {
                             Text("搜尋")
@@ -94,6 +81,7 @@ struct CustomKeyboardView: View {
                                 .foregroundColor(.white)
                         }
                         
+                        // 🌟 3. 右下角：「刪除 (Backspace)」掣保持不變
                         let backspaceWidth = (colWidth * 2) + spacing
                         actionButton(Image(systemName: "delete.left"), width: backspaceWidth, height: keyHeight, color: Color(UIColor.systemGray4)) {
                             if !text.isEmpty { text.removeLast() }
@@ -102,10 +90,10 @@ struct CustomKeyboardView: View {
                 }
             }
             .padding(.horizontal, 8)
-            .padding(.top, 4)
-            .frame(height: 220) // 微調返個高度
+            .padding(.top, 12)
+            .frame(height: 216) // 減去頂部 Toolbar，將整體高度收縮
         }
-        .padding(.bottom, 24)
+        .padding(.bottom, 36) // 🌟 增加底部 padding，將成個鍵盤推高，完全避開 iPhone 圓角
         .background(
             Color(UIColor.systemGray5)
                 .shadow(color: .black.opacity(0.1), radius: 10, y: -5)

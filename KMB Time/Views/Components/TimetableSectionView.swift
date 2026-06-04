@@ -67,13 +67,15 @@ struct TimetableSectionView: View {
                                             else{
                                                 Text("\(minutesLeft) 分鐘\(formattedRemark)")
                                                     .font(.system(size: 15, weight: .semibold, design: .rounded))
-                                                    .foregroundColor(.primary)
+                                                    // 🌟 呢度更新咗：如果是 Highlighted 車站，字體變藍色
+                                                    .foregroundColor(isHighlighted ? .blue : .primary)
                                             }
                                             
                                         } else {
                                             Text("-")
                                                 .font(.system(size: 15, weight: .semibold, design: .rounded))
-                                                .foregroundColor(.primary)
+                                                // 🌟 呢度都更新埋：連住個 "-" 都一齊變藍色保持統一
+                                                .foregroundColor(isHighlighted ? .blue : .primary)
                                         }
                                     }
                                 }

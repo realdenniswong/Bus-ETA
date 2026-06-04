@@ -14,8 +14,22 @@ struct CustomKeyboardView: View {
     var onDismiss: () -> Void
     
     var body: some View {
-        VStack(spacing: 8) {
-            // 🌟 移走咗原本的「完成」按鈕 HStack，令版面更精簡
+        VStack(spacing: 0) { // 改為 0，等我哋自己控制間距
+            
+            // 🌟 新增：右上角嘅「收起鍵盤」按鈕
+            HStack {
+                Spacer()
+                Button(action: onDismiss) {
+                    Image(systemName: "keyboard.chevron.compact.down")
+                        .font(.system(size: 24, weight: .medium))
+                        .foregroundColor(Color(UIColor.secondaryLabel))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        // 擴大點擊範圍，容易啲撳
+                        .contentShape(Rectangle())
+                }
+            }
+            
             GeometryReader { geo in
                 let spacing: CGFloat = 8
                 let colWidth = (geo.size.width - (spacing * 6)) / 7
@@ -88,10 +102,10 @@ struct CustomKeyboardView: View {
                 }
             }
             .padding(.horizontal, 8)
-            .padding(.top, 16) // 補返少少頂部空間
-            .frame(height: 230) // 縮減高度因為走咗行掣
+            .padding(.top, 4)
+            .frame(height: 220) // 微調返個高度
         }
-        .padding(.bottom, 20)
+        .padding(.bottom, 24)
         .background(
             Color(UIColor.systemGray5)
                 .shadow(color: .black.opacity(0.1), radius: 10, y: -5)

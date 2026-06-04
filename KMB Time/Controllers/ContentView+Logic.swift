@@ -83,7 +83,7 @@ extension ContentView {
                 temp.append(NearbyStopModel(stopInfo: stop, distance: dist))
             }
             temp.sort { $0.distance < $1.distance }
-            return Array(temp.prefix(10)) // 🌟 將最近車站顯示數量由 3 加到 10
+            return Array(temp.prefix(10))
         }.value
         
         var populated: [NearbyStopModel] = []
@@ -99,18 +99,32 @@ extension ContentView {
         }
     }
     
+    // 🌟 新增：純粹刷新畫面上已有車站嘅 ETA，唔重新計 GPS (更快)
+    func refreshNearbyETAs() async {
+        guard !nearbyStops.isEmpty else { return }
+        
+        await MainActor.run { isSearchingNearby = true }
+        
+        var updatedStops = nearbyStops
+        for i in 0..<updatedStops.count {
+            let routes = await fetchRoutesForStop(stopId: updatedStops[i].stopInfo.stop)
+            updatedStops[i].routes = routes
+        }
+        
+        await MainActor.run {
+            self.nearbyStops = updatedStops
+            self.isSearchingNearby = false
+        }
+    }
+    
     func fetchRoutesForStop(stopId: String) async -> [NearbyRouteModel] {
         guard let url = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/stop-eta/\(stopId)") else { return [] }
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
+            // 🌟 強制忽略系統 Cache，保證每次攞最新時間
+            var request = URLRequest(url: url)
+            request.cachePolicy = .reloadIgnoringLocalCacheData
             
-            if let jsonString = String(data: data, encoding: .utf8) {
-                print("======================================================")
-                print("🐛 [DEBUG] Dashboard 車站 ID: \(stopId) 嘅 ETA 原始數據:")
-                print(jsonString)
-                print("======================================================")
-            }
-            
+            let (data, _) = try await URLSession.shared.data(for: request)
             let response = try JSONDecoder().decode(StopETAResponse.self, from: data)
             
             var grouped: [String: [StopETAItem]] = [:]
@@ -173,15 +187,19 @@ extension ContentView {
         let etaUrl = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/route-eta/\(route)/1")!
         
         do {
-            async let (routeStopData, _) = URLSession.shared.data(from: routeStopUrl)
-            async let (etaData, _) = URLSession.shared.data(from: etaUrl)
+            // 🌟 強制忽略系統 Cache
+            var routeStopReq = URLRequest(url: routeStopUrl)
+            routeStopReq.cachePolicy = .reloadIgnoringLocalCacheData
             
-            if let jsonString = await String(data: etaData, encoding: .utf8) {
-                print("======================================================")
-                print("🐛 [DEBUG] Bus Route ID: \(route) 嘅 ETA 原始數據:")
-                print(jsonString)
-                print("======================================================")
-            }
+            var etaReq = URLRequest(url: etaUrl)
+            etaReq.cachePolicy = .reloadIgnoringLocalCacheData
+            
+            // 並行發送 Request
+            async let fetchRouteStop = URLSession.shared.data(for: routeStopReq)
+            async let fetchEta = URLSession.shared.data(for: etaReq)
+            
+            let (routeStopData, _) = try await fetchRouteStop
+            let (etaData, _) = try await fetchEta
             
             let decoder = JSONDecoder()
             let routeStops = try await decoder.decode(RouteStopResponse.self, from: routeStopData).data
@@ -269,7 +287,11 @@ extension ContentView {
         guard let url = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/stop-eta/\(timer.stopId)") else { return }
         
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
+            // 🌟 背景同步同樣強制忽略 Cache
+            var request = URLRequest(url: url)
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+            
+            let (data, _) = try await URLSession.shared.data(for: request)
             let response = try JSONDecoder().decode(StopETAResponse.self, from: data)
             
             let targetDirCode = timer.direction == "outbound" ? "O" : "I"

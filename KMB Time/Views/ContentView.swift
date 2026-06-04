@@ -58,6 +58,9 @@ struct ContentView: View {
     
     @State var showCustomKeyboard = false
     
+    @State var isNavigatingToRoute = false
+    @State var dashboardScrollTarget: String? = nil
+    
     @Environment(\.scenePhase) var scenePhase
     
     var searchSuggestions: [RouteSuggestion] {
@@ -90,8 +93,9 @@ struct ContentView: View {
     private func dismissKeyboardSafe() {
         withAnimation(.spring()) { showCustomKeyboard = false }
         
-        if displayData.isEmpty {
+        if !isNavigatingToRoute {
             searchText = ""
+            displayData = []
             highlightedStopId = nil
             
             if let loc = self.locationManager.location {
@@ -102,10 +106,9 @@ struct ContentView: View {
     
     var body: some View {
         NavigationStack {
-            ScrollViewReader { proxy in
+            ScrollViewReader { dashboardProxy in
                 ZStack {
                     List {
-                        // 1. Native-Looking Custom Search Bar
                         HStack(spacing: 6) {
                             Image(systemName: "magnifyingglass")
                                 .foregroundColor(Color(UIColor.systemGray))
@@ -128,43 +131,48 @@ struct ContentView: View {
                             withAnimation(.spring()) { showCustomKeyboard = true }
                         }
                         
-                        // 2. Active Timer Card View
                         if let timer = activeTimer {
                             ActiveTimerCardView(
                                 timer: timer,
                                 currentTime: currentTime,
                                 onCancel: {
-                                    withAnimation(.easeInOut(duration: 0.3)) {
-                                        activeTimer = nil
-                                    }
+                                    withAnimation(.easeInOut(duration: 0.3)) { activeTimer = nil }
                                     endLiveActivity()
                                     self.locationManager.stopBackgroundTracking()
                                     UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["KMBTimeAlarm"])
                                 }
                             )
+                            .id("ActiveTimerCard")
                             .listRowBackground(Color.clear)
                             .listRowInsets(EdgeInsets())
                             .listRowSeparator(.hidden)
                         }
                         
-                        // 3. Main Content Sections
                         if showCustomKeyboard && !searchText.isEmpty {
                             SuggestionsSectionView(
                                 searchSuggestions: searchSuggestions,
                                 onSuggestionTapped: { suggestion in
-                                    searchText = suggestion.route
-                                    let isOutbound = suggestion.bound.uppercased().hasPrefix("O")
-                                    let newDir = isOutbound ? "outbound" : "inbound"
+                                    // 1. 第一時間只係收埋鍵盤同清單（千祈唔好改 searchText 住！）
+                                    showCustomKeyboard = false
                                     
-                                    withAnimation(.spring()) { showCustomKeyboard = false }
-                                    Task { await searchRoute(route: suggestion.route.uppercased(), direction: newDir, findNearest: true, shouldScroll: true) }
+                                    // 2. 俾 0.15 秒 SwiftUI 喘息，等個清單消失咗先
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                                        // 3. 畫面穩定咗，先至改數值同轉頁
+                                        searchText = suggestion.route
+                                        let isOutbound = suggestion.bound.uppercased().hasPrefix("O")
+                                        let newDir = isOutbound ? "outbound" : "inbound"
+                                        
+                                        selectedDirection = newDir
+                                        isNavigatingToRoute = true
+                                        Task { await searchRoute(route: suggestion.route.uppercased(), direction: newDir, findNearest: true, shouldScroll: true) }
+                                    }
                                 }
                             )
                             .listRowBackground(Color.clear)
                             .listRowInsets(EdgeInsets())
                             .listRowSeparator(.hidden)
                             
-                        } else if searchText.isEmpty {
+                        } else {
                             NearbyDashboardSectionView(
                                 locationManager: locationManager,
                                 expandedStopIds: $expandedStopIds,
@@ -178,6 +186,7 @@ struct ContentView: View {
                                     selectedDirection = newDir
                                     searchText = route.route
                                     
+                                    isNavigatingToRoute = true
                                     Task { await searchRoute(route: route.route, direction: newDir, findNearest: false, targetStopCode: stopInfo.stop, shouldScroll: true) }
                                 },
                                 onSetTimer: { route, stopInfo in
@@ -190,46 +199,6 @@ struct ContentView: View {
                                     showingAddTimerAlert = true
                                 }
                             )
-                            
-                        } else {
-                            Picker("Direction", selection: $selectedDirection) {
-                                Text("去程 (Outbound)").tag("outbound")
-                                Text("回程 (Inbound)").tag("inbound")
-                            }
-                            .pickerStyle(.segmented)
-                            .padding(.top, 12)
-                            .onChange(of: selectedDirection) { newValue in
-                                if !searchText.isEmpty {
-                                    Task { await searchRoute(route: searchText.uppercased(), direction: newValue, findNearest: true, shouldScroll: true) }
-                                }
-                            }
-                            .listRowBackground(Color.clear)
-                            .listRowInsets(EdgeInsets())
-                            .listRowSeparator(.hidden)
-                            
-                            TimetableSectionView(
-                                displayData: displayData,
-                                highlightedStopId: highlightedStopId,
-                                currentTime: currentTime,
-                                // 🌟 從路線版面接收設定 Timer 嘅請求
-                                onSetTimer: { stop, etaDate in
-                                    timerTargetDate = etaDate
-                                    timerRouteName = searchText.uppercased()
-                                    timerStationName = stop.stopNameTc
-                                    timerStopId = stop.stopId
-                                    timerDirection = selectedDirection == "outbound" ? "outbound" : "inbound"
-                                    
-                                    // 尋找目的地名稱
-                                    let boundPrefix = selectedDirection == "outbound" ? "O" : "I"
-                                    let matchedRoute = allRoutes.first(where: { $0.route == timerRouteName && $0.bound == boundPrefix })
-                                    timerDestination = matchedRoute?.destination ?? "終點站"
-                                    
-                                    showingAddTimerAlert = true
-                                }
-                            )
-                            .listRowBackground(Color.clear)
-                            .listRowInsets(EdgeInsets())
-                            .listRowSeparator(.hidden)
                         }
                     }
                     .listStyle(.insetGrouped)
@@ -237,14 +206,13 @@ struct ContentView: View {
                     .background(themeBackground)
                     .listSectionSpacing(.custom(16))
                     
-                    if showCustomKeyboard {
-                        Color.clear
-                            .contentShape(Rectangle())
-                            .ignoresSafeArea()
-                            .onTapGesture {
+                    .simultaneousGesture(
+                        DragGesture().onChanged { _ in
+                            if showCustomKeyboard {
                                 dismissKeyboardSafe()
                             }
-                    }
+                        }
+                    )
                 }
                 .overlay(alignment: .bottom) {
                     if showCustomKeyboard {
@@ -253,56 +221,30 @@ struct ContentView: View {
                             validKeys: validNextKeys,
                             onSearch: {
                                 showCustomKeyboard = false
+                                isNavigatingToRoute = true
                                 Task { await searchRoute(route: searchText.uppercased(), direction: selectedDirection, findNearest: true, shouldScroll: true) }
                             },
-                            onDismiss: {
-                                dismissKeyboardSafe()
-                            }
+                            onDismiss: { dismissKeyboardSafe() }
                         )
                         .transition(.move(edge: .bottom))
                     }
                 }
-                .navigationTitle(searchText.isEmpty ? "九巴到站預報" : (showCustomKeyboard ? "搜尋路線" : "路線資料"))
+                .navigationTitle(showCustomKeyboard ? "搜尋路線" : "九巴到站預報")
                 .navigationBarTitleDisplayMode(.large)
-                .overlay {
-                    if !showCustomKeyboard {
-                        if isLoading {
-                            ProgressView("正在獲取數據...")
-                        } else if displayData.isEmpty && !searchText.isEmpty {
-                            Text(systemMessage)
-                                .foregroundColor(.secondary)
-                                .multilineTextAlignment(.center)
-                                .padding()
-                        }
-                    }
-                }
+                
                 .toolbar {
-                    if !searchText.isEmpty {
-                        ToolbarItem(placement: .navigationBarLeading) {
-                            Button(action: {
-                                searchText = ""
-                                displayData = []
-                                highlightedStopId = nil
-                                withAnimation { showCustomKeyboard = false }
-                                
-                                if let loc = self.locationManager.location {
-                                    Task { await updateNearbyStops(userLocation: loc) }
-                                }
-                            }) {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "chevron.left")
-                                        .fontWeight(.bold)
-                                    Text("返回")
-                                }
-                            }
-                        }
-                    } else {
+                    if !showCustomKeyboard {
                         ToolbarItemGroup(placement: .navigationBarTrailing) {
                             if isSearchingNearby {
                                 ProgressView()
-                            } else if locationManager.location != nil {
+                            } else {
                                 Button(action: {
                                     locationManager.requestLocation()
+                                    Task {
+                                        if let loc = locationManager.location {
+                                            await updateNearbyStops(userLocation: loc)
+                                        }
+                                    }
                                 }) {
                                     Image(systemName: "arrow.clockwise").font(.system(size: 16, weight: .medium))
                                 }
@@ -322,112 +264,215 @@ struct ContentView: View {
                         }
                     }
                 }
-                .onReceive(refreshTimer) { _ in
-                    Task {
-                        if activeTimer != nil { await syncActiveTimer() }
-                        if searchText.isEmpty {
-                            if let location = locationManager.location {
-                                await updateNearbyStops(userLocation: location)
+            }
+            .navigationDestination(isPresented: $isNavigatingToRoute) {
+                ScrollViewReader { routeProxy in
+                    ZStack {
+                        List {
+                            Picker("Direction", selection: $selectedDirection) {
+                                Text("去程 (Outbound)").tag("outbound")
+                                Text("回程 (Inbound)").tag("inbound")
                             }
-                        } else if !displayData.isEmpty && !showCustomKeyboard {
-                            await searchRoute(route: searchText.uppercased(), direction: selectedDirection, findNearest: false, shouldScroll: false, isRefresh: true)
-                        }
-                    }
-                }
-                .onReceive(clockTimer) { _ in
-                    currentTime = Date()
-                    if let timer = activeTimer {
-                        let secondsLeft = timer.etaDate.timeIntervalSince(currentTime)
-                        if secondsLeft <= -10 {
-                            activeTimer = nil
-                            endLiveActivity()
-                            self.locationManager.stopBackgroundTracking()
-                        }
-                    }
-                }
-                .onChange(of: scrollTriggerId) { _ in
-                    if let target = highlightedStopId {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                            withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) {
-                                proxy.scrollTo(target, anchor: .center)
-                            }
-                        }
-                    }
-                }
-                // 🌟 智能判斷：如果有舊 Timer 就警告會覆蓋，無就正常設定
-                .alert(activeTimer == nil ? "設定巴士抵站提醒" : "替換巴士抵站提醒", isPresented: $showingAddTimerAlert) {
-                    Button(activeTimer == nil ? "設定提醒" : "確認替換", role: .none) {
-                        if let etaDate = timerTargetDate {
-                            
-                            // 如果已經有一個執行緊嘅 Timer，先清理咗佢 (清走 Live Activity 卡片)
-                            if activeTimer != nil {
-                                endLiveActivity()
-                            }
-                            
-                            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
-                                if granted {
-                                    scheduleLocalNotification(
-                                        routeName: timerRouteName,
-                                        destination: timerDestination,
-                                        alertDate: etaDate.addingTimeInterval(-120)
-                                    )
+                            .pickerStyle(.segmented)
+                            .padding(.top, 12)
+                            .onChange(of: selectedDirection) { newValue in
+                                if !searchText.isEmpty {
+                                    Task { await searchRoute(route: searchText.uppercased(), direction: newValue, findNearest: true, shouldScroll: true) }
                                 }
                             }
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets())
+                            .listRowSeparator(.hidden)
                             
-                            startLiveActivity(routeName: timerRouteName, destination: timerDestination, stationName: timerStationName, etaDate: etaDate, startTime: Date())
-                            self.locationManager.startBackgroundTracking()
-                            withAnimation {
-                                activeTimer = ActiveTimerModel(
-                                    routeName: timerRouteName,
-                                    destination: timerDestination,
-                                    etaDate: etaDate,
-                                    targetAlertDate: etaDate.addingTimeInterval(-120),
-                                    startTime: Date(),
-                                    stopId: timerStopId,
-                                    direction: timerDirection,
-                                    stationName: timerStationName
-                                )
+                            TimetableSectionView(
+                                displayData: displayData,
+                                highlightedStopId: highlightedStopId,
+                                currentTime: currentTime,
+                                onSetTimer: { stop, etaDate in
+                                    timerTargetDate = etaDate
+                                    timerRouteName = searchText.uppercased()
+                                    timerStationName = stop.stopNameTc
+                                    timerStopId = stop.stopId
+                                    timerDirection = selectedDirection == "outbound" ? "outbound" : "inbound"
+                                    
+                                    let boundPrefix = selectedDirection == "outbound" ? "O" : "I"
+                                    let matchedRoute = allRoutes.first(where: { $0.route == timerRouteName && $0.bound == boundPrefix })
+                                    timerDestination = matchedRoute?.destination ?? "終點站"
+                                    
+                                    showingAddTimerAlert = true
+                                }
+                            )
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets())
+                            .listRowSeparator(.hidden)
+                        }
+                        .listStyle(.insetGrouped)
+                        .scrollContentBackground(.hidden)
+                        .background(themeBackground)
+                        
+                        if isLoading {
+                            ProgressView("正在獲取數據...")
+                        } else if displayData.isEmpty && !searchText.isEmpty {
+                            Text(systemMessage)
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                                .padding()
+                        }
+                    }
+                    .navigationTitle(searchText.isEmpty ? "路線資料" : searchText.uppercased())
+                    .navigationBarTitleDisplayMode(.inline)
+                    
+                    .toolbar {
+                        ToolbarItem(placement: .navigationBarTrailing) {
+                            if isLoading {
+                                ProgressView()
+                            } else {
+                                Button(action: {
+                                    Task {
+                                        await searchRoute(route: searchText.uppercased(), direction: selectedDirection, findNearest: false, shouldScroll: false, isRefresh: true)
+                                    }
+                                }) {
+                                    Image(systemName: "arrow.clockwise").font(.system(size: 16, weight: .medium))
+                                }
                             }
                         }
                     }
-                    Button("取消", role: .cancel) {}
-                } message: {
-                    if let existing = activeTimer {
-                        Text("您目前已為 \(existing.routeName) 設定了提醒。確定要取消舊提醒，並為 \(timerRouteName) 重新設定嗎？\n\n系統將在巴士預計抵達前 2 分鐘（即 \(formattedTime(timerTargetDate?.addingTimeInterval(-120) ?? Date()))）提醒您。")
-                    } else {
-                        Text("您是否要為 \(timerRouteName) 路線設定提醒？\n\n系統將在巴士預計抵達前 2 分鐘（即 \(formattedTime(timerTargetDate?.addingTimeInterval(-120) ?? Date()))）提醒您。")
-                    }
-                }
-                .task {
-                    await loadAllStops()
-                    await loadAllRoutes()
-                    reconnectActiveLiveActivity()
-                    
-                    if locationManager.authorizationStatus == .authorizedWhenInUse || locationManager.authorizationStatus == .authorizedAlways {
-                        locationManager.requestLocation()
-                    }
-                    UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
-                }
-                .onChange(of: locationManager.location) { oldValue, newValue in
-                    if let location = newValue, !locationManager.isBackgroundTracking {
-                        Task { await updateNearbyStops(userLocation: location) }
-                    }
-                }
-                .onChange(of: locationManager.backgroundHeartbeat) { oldValue, newValue in
-                    if let timer = activeTimer {
-                        let secondsLeft = timer.etaDate.timeIntervalSince(Date())
-                        if secondsLeft <= -10 {
-                            withAnimation { activeTimer = nil }
-                            endLiveActivity()
-                            self.locationManager.stopBackgroundTracking()
+                    .onChange(of: scrollTriggerId) { _ in
+                        if let target = highlightedStopId {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) {
+                                    routeProxy.scrollTo(target, anchor: .center)
+                                }
+                            }
                         }
                     }
                 }
-                .onChange(of: scenePhase) { newPhase in
-                    if newPhase == .active {
-                        reconnectActiveLiveActivity()
+            }
+            .onChange(of: isNavigatingToRoute) { isNavigating in
+                if !isNavigating {
+                    searchText = ""
+                    displayData = []
+                    highlightedStopId = nil
+                    showCustomKeyboard = false
+                    
+                    if let loc = self.locationManager.location {
+                        Task { await updateNearbyStops(userLocation: loc) }
                     }
                 }
+            }
+            .onChange(of: dashboardScrollTarget) { target in
+                if let targetId = target {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                        // Scroll hook execution
+                    }
+                    dashboardScrollTarget = nil
+                }
+            }
+            .onReceive(refreshTimer) { _ in
+                Task {
+                    if activeTimer != nil { await syncActiveTimer() }
+                    
+                    if !isNavigatingToRoute {
+                        if !nearbyStops.isEmpty {
+                            await refreshNearbyETAs()
+                        } else if let location = locationManager.location {
+                            await updateNearbyStops(userLocation: location)
+                        }
+                    } else if !displayData.isEmpty && !showCustomKeyboard {
+                        await searchRoute(route: searchText.uppercased(), direction: selectedDirection, findNearest: false, shouldScroll: false, isRefresh: true)
+                    }
+                }
+            }
+            .onReceive(clockTimer) { _ in
+                currentTime = Date()
+                if let timer = activeTimer {
+                    let secondsLeft = timer.etaDate.timeIntervalSince(currentTime)
+                    if secondsLeft <= -10 {
+                        activeTimer = nil
+                        endLiveActivity()
+                        self.locationManager.stopBackgroundTracking()
+                    }
+                }
+            }
+            .task {
+                await loadAllStops()
+                await loadAllRoutes()
+                reconnectActiveLiveActivity()
+                
+                if locationManager.authorizationStatus == .authorizedWhenInUse || locationManager.authorizationStatus == .authorizedAlways {
+                    locationManager.requestLocation()
+                }
+                UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+            }
+            .onChange(of: locationManager.location) { oldValue, newValue in
+                if let location = newValue, !locationManager.isBackgroundTracking {
+                    Task { await updateNearbyStops(userLocation: location) }
+                }
+            }
+            .onChange(of: locationManager.backgroundHeartbeat) { oldValue, newValue in
+                if let timer = activeTimer {
+                    let secondsLeft = timer.etaDate.timeIntervalSince(Date())
+                    if secondsLeft <= -10 {
+                        withAnimation { activeTimer = nil }
+                        endLiveActivity()
+                        self.locationManager.stopBackgroundTracking()
+                    }
+                }
+            }
+            .onChange(of: scenePhase) { newPhase in
+                if newPhase == .active {
+                    reconnectActiveLiveActivity()
+                    locationManager.requestLocation()
+                    if !isNavigatingToRoute {
+                        Task {
+                            if let loc = locationManager.location {
+                                await updateNearbyStops(userLocation: loc)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .alert(activeTimer == nil ? "設定巴士抵站提醒" : "替換巴士抵站提醒", isPresented: $showingAddTimerAlert) {
+            Button(activeTimer == nil ? "設定提醒" : "確認替換", role: .none) {
+                if let etaDate = timerTargetDate {
+                    if activeTimer != nil { endLiveActivity() }
+                    
+                    UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
+                        if granted {
+                            scheduleLocalNotification(
+                                routeName: timerRouteName,
+                                destination: timerDestination,
+                                alertDate: etaDate.addingTimeInterval(-120)
+                            )
+                        }
+                    }
+                    
+                    startLiveActivity(routeName: timerRouteName, destination: timerDestination, stationName: timerStationName, etaDate: etaDate, startTime: Date())
+                    self.locationManager.startBackgroundTracking()
+                    withAnimation {
+                        activeTimer = ActiveTimerModel(
+                            routeName: timerRouteName,
+                            destination: timerDestination,
+                            etaDate: etaDate,
+                            targetAlertDate: etaDate.addingTimeInterval(-120),
+                            startTime: Date(),
+                            stopId: timerStopId,
+                            direction: timerDirection,
+                            stationName: timerStationName
+                        )
+                    }
+                    
+                    isNavigatingToRoute = false
+                    dashboardScrollTarget = "ActiveTimerCard"
+                }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            if let existing = activeTimer {
+                Text("您目前已為 \(existing.routeName) 設定了提醒。確定要取消舊提醒，並為 \(timerRouteName) 重新設定嗎？\n\n系統將在巴士預計抵達前 2 分鐘（即 \(formattedTime(timerTargetDate?.addingTimeInterval(-120) ?? Date()))）提醒您。")
+            } else {
+                Text("您是否要為 \(timerRouteName) 路線設定提醒？\n\n系統將在巴士預計抵達前 2 分鐘（即 \(formattedTime(timerTargetDate?.addingTimeInterval(-120) ?? Date()))）提醒您。")
             }
         }
     }

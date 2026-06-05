@@ -7,10 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		325EC24499DE7E08B53FE342 /* BusETAWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = AD1474772FD09EBD008726C0 /* BusETAWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		8814592D793FCCCC55FB3892 /* BusETAWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13EF61C1DE8E6C0AF47A9E8 /* BusETAWidget.swift */; };
 		B136454415B3383C51334F6A /* BusETAAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6BA22E065B936234152A74E /* BusETAAttributes.swift */; };
 		F39A9C42BACD12980E5167B0 /* BusETAAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6BA22E065B936234152A74E /* BusETAAttributes.swift */; };
-		325EC24499DE7E08B53FE342 /* BusETAWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = AD1474772FD09EBD008726C0 /* BusETAWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */

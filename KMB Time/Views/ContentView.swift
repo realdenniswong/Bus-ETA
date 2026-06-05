@@ -20,6 +20,8 @@ enum DashboardViewMode {
 
 // MARK: - User Interface View (Coordinator)
 struct ContentView: View {
+    @State var selectedTab = 0 // 🌟 NEW: Track current tab for navigation
+    
     @State var searchText = ""
     @State var selectedDirection = "outbound"
     
@@ -33,6 +35,8 @@ struct ContentView: View {
     @State var systemMessage = "搜尋九巴路線 (例如 1A, 281A)"
     
     @StateObject var locationManager = LocationManager()
+    @StateObject var favoritesManager = FavoritesManager()
+    
     @State var allStops: [StopInfo] = []
     @State var nearbyStops: [NearbyStopModel] = []
     @State var expandedStopIds: Set<String> = []
@@ -61,6 +65,8 @@ struct ContentView: View {
     
     @State var isNavigatingToRoute = false
     @State var dashboardScrollTarget: String? = nil
+    
+    @State private var toastMessage: String? = nil // 🌟 NEW: Toast state
     
     @Environment(\.scenePhase) var scenePhase
     
@@ -105,264 +111,81 @@ struct ContentView: View {
         }
     }
     
-    var body: some View {
-        NavigationStack {
-            ScrollViewReader { dashboardProxy in
-                ZStack {
-                    List {
-                        HStack(spacing: 6) {
-                            Image(systemName: "magnifyingglass")
-                                .foregroundColor(Color(UIColor.systemGray))
-                                .font(.system(size: 17))
-                            
-                            Text(searchText.isEmpty ? "輸入路線 (例如 1A)" : searchText)
-                                .foregroundColor(searchText.isEmpty ? Color(UIColor.placeholderText) : .primary)
-                                .font(.system(size: 17))
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            
-                            // 🌟 新增：擺喺 Search Bar 右邊嘅「清空」交叉掣
-                            if !searchText.isEmpty {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundColor(Color(UIColor.systemGray3))
-                                    .font(.system(size: 17))
-                                    .padding(.trailing, 2)
-                                    .padding(.vertical, 8)
-                                    .onTapGesture {
-                                        searchText = ""
-                                    }
-                            }
-                        }
-                        .padding(.horizontal, 8)
-                        .frame(height: 48)
-                        .background(Color(UIColor.systemGray5))
-                        .cornerRadius(20)
-                        .padding(.top, 16)
-                        .listRowBackground(themeBackground)
-                        .listRowInsets(EdgeInsets())
-                        .listRowSeparator(.hidden)
-                        .onTapGesture {
-                            withAnimation(.spring()) { showCustomKeyboard = true }
-                        }
-                        
-                        if let timer = activeTimer {
-                            ActiveTimerCardView(
-                                timer: timer,
-                                currentTime: currentTime,
-                                onCancel: {
-                                    withAnimation(.easeInOut(duration: 0.3)) { activeTimer = nil }
-                                    endLiveActivity()
-                                    self.locationManager.stopBackgroundTracking()
-                                    UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["KMBTimeAlarm"])
-                                }
-                            )
-                            .id("ActiveTimerCard")
-                            .listRowBackground(Color.clear)
-                            .listRowInsets(EdgeInsets())
-                            .listRowSeparator(.hidden)
-                        }
-                        
-                        if showCustomKeyboard && !searchText.isEmpty {
-                            SuggestionsSectionView(
-                                searchSuggestions: searchSuggestions,
-                                onSuggestionTapped: { suggestion in
-                                    // 1. 第一時間只係收埋鍵盤同清單（千祈唔好改 searchText 住！）
-                                    showCustomKeyboard = false
-                                    
-                                    // 2. 俾 0.15 秒 SwiftUI 喘息，等個清單消失咗先
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                                        // 3. 畫面穩定咗，先至改數值同轉頁
-                                        searchText = suggestion.route
-                                        let isOutbound = suggestion.bound.uppercased().hasPrefix("O")
-                                        let newDir = isOutbound ? "outbound" : "inbound"
-                                        
-                                        selectedDirection = newDir
-                                        isNavigatingToRoute = true
-                                        Task { await searchRoute(route: suggestion.route.uppercased(), direction: newDir, findNearest: true, shouldScroll: true) }
-                                    }
-                                }
-                            )
-                            .listRowBackground(Color.clear)
-                            .listRowInsets(EdgeInsets())
-                            .listRowSeparator(.hidden)
-                            
-                        } else {
-                            NearbyDashboardSectionView(
-                                locationManager: locationManager,
-                                expandedStopIds: $expandedStopIds,
-                                viewMode: $dashboardViewMode,
-                                allStops: allStops,
-                                nearbyStops: nearbyStops,
-                                currentTime: currentTime,
-                                onRequestLocation: { locationManager.requestLocation() },
-                                onRouteSelected: { route, stopInfo in
-                                    let newDir = route.directionCode == "O" ? "outbound" : "inbound"
-                                    selectedDirection = newDir
-                                    searchText = route.route
-                                    
-                                    isNavigatingToRoute = true
-                                    Task { await searchRoute(route: route.route, direction: newDir, findNearest: false, targetStopCode: stopInfo.stop, shouldScroll: true) }
-                                },
-                                onSetTimer: { route, stopInfo in
-                                    timerTargetDate = route.etas.first?.etaDate
-                                    timerRouteName = route.route
-                                    timerDestination = route.destNameTc
-                                    timerStationName = stopInfo.name_tc
-                                    timerStopId = stopInfo.stop
-                                    timerDirection = route.directionCode == "O" ? "outbound" : "inbound"
-                                    showingAddTimerAlert = true
-                                }
-                            )
-                        }
-                    }
-                    .listStyle(.insetGrouped)
-                    .scrollContentBackground(.hidden)
-                    .background(themeBackground)
-                    .listSectionSpacing(.custom(16))
-                    
-                    .simultaneousGesture(
-                        DragGesture().onChanged { _ in
-                            if showCustomKeyboard {
-                                dismissKeyboardSafe()
-                            }
-                        }
-                    )
-                }
-                .overlay(alignment: .bottom) {
-                    if showCustomKeyboard {
-                        CustomKeyboardView(
-                            text: $searchText,
-                            validKeys: validNextKeys,
-                            onSearch: {
-                                showCustomKeyboard = false
-                                isNavigatingToRoute = true
-                                Task { await searchRoute(route: searchText.uppercased(), direction: selectedDirection, findNearest: true, shouldScroll: true) }
-                            },
-                            onDismiss: { dismissKeyboardSafe() }
-                        )
-                        // 🌟 完美隱藏：將原本的 .move(edge: .bottom) 換成 offset
-                        // 向下推 500 像素，保證連陰影都完全跌出螢幕之外！
-                        .transition(.offset(y: 300))
-                    }
-                }
-                .navigationTitle(showCustomKeyboard ? "搜尋路線" : "九巴到站預報")
-                .navigationBarTitleDisplayMode(.large)
-                
-                .toolbar {
-                    if !showCustomKeyboard {
-                        ToolbarItemGroup(placement: .navigationBarTrailing) {
-                            if isSearchingNearby {
-                                ProgressView()
-                            } else {
-                                Button(action: {
-                                    locationManager.requestLocation()
-                                    Task {
-                                        if let loc = locationManager.location {
-                                            await updateNearbyStops(userLocation: loc)
-                                        }
-                                    }
-                                }) {
-                                    Image(systemName: "arrow.clockwise").font(.system(size: 16, weight: .medium))
-                                }
-                            }
-                            
-                            if !nearbyStops.isEmpty {
-                                Menu {
-                                    Picker("顯示模式", selection: $dashboardViewMode) {
-                                        Label("按巴士站", systemImage: "mappin.and.ellipse").tag(DashboardViewMode.byStation)
-                                        Label("按車站名稱", systemImage: "building.2.crop.circle").tag(DashboardViewMode.byStationName)
-                                        Label("全部路線", systemImage: "list.bullet").tag(DashboardViewMode.allBuses)
-                                    }
-                                } label: {
-                                    Image(systemName: dashboardViewMode == .byStation ? "rectangle.grid.1x2" : (dashboardViewMode == .byStationName ? "building.2.crop.circle" : "list.bullet"))
-                                        .font(.system(size: 16, weight: .medium))
-                                }
-                            }
-                        }
-                    }
+    var themeBackground: some View {
+        Color(.systemGroupedBackground)
+            .ignoresSafeArea()
+    }
+    
+    // 🌟 NEW: Helper to show toasts with haptic feedback
+    private func showToast(_ message: String) {
+        let generator = UINotificationFeedbackGenerator()
+        generator.notificationOccurred(.success)
+        
+        withAnimation(.spring()) {
+            self.toastMessage = message
+        }
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            withAnimation(.spring()) {
+                if self.toastMessage == message {
+                    self.toastMessage = nil
                 }
             }
+        }
+    }
+    
+    // MARK: - Main Body
+    var body: some View {
+        TabView(selection: $selectedTab) { // 🌟 Bound to selectedTab
+            mainDashboardTab
+                .tag(0) // 🌟 Tagged
+            favoritesTab
+                .tag(1) // 🌟 Tagged
+        }
+        .alert(activeTimer == nil ? "設定巴士抵站提醒" : "替換巴士抵站提醒", isPresented: $showingAddTimerAlert) {
+            alertButtons
+        } message: {
+            alertMessage
+        }
+        .overlay(alignment: .top) { // 🌟 NEW: Toast Overlay
+            if let message = toastMessage {
+                Text(message)
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+                    .background(Color(white: 0.15, opacity: 0.95))
+                    .cornerRadius(25)
+                    .shadow(color: .black.opacity(0.2), radius: 8, y: 4)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .padding(.top, 16) // Pushes it slightly below the dynamic island/notch
+                    .zIndex(1)
+            }
+        }
+        .environmentObject(favoritesManager)
+    }
+}
+
+// MARK: - Tabs
+extension ContentView {
+    private var mainDashboardTab: some View {
+        NavigationStack {
+            ScrollViewReader { dashboardProxy in
+                dashboardContentView
+                    .onChange(of: dashboardScrollTarget) { target in
+                        if let targetId = target {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                                withAnimation(.spring()) {
+                                    dashboardProxy.scrollTo(targetId, anchor: .top)
+                                }
+                            }
+                            dashboardScrollTarget = nil
+                        }
+                    }
+            }
             .navigationDestination(isPresented: $isNavigatingToRoute) {
-                ScrollViewReader { routeProxy in
-                    ZStack {
-                        List {
-                            Picker("Direction", selection: $selectedDirection) {
-                                Text("去程 (Outbound)").tag("outbound")
-                                Text("回程 (Inbound)").tag("inbound")
-                            }
-                            .pickerStyle(.segmented)
-                            .padding(.top, 12)
-                            .onChange(of: selectedDirection) { newValue in
-                                if !searchText.isEmpty {
-                                    Task { await searchRoute(route: searchText.uppercased(), direction: newValue, findNearest: true, shouldScroll: true) }
-                                }
-                            }
-                            .listRowBackground(Color.clear)
-                            .listRowInsets(EdgeInsets())
-                            .listRowSeparator(.hidden)
-                            
-                            TimetableSectionView(
-                                displayData: displayData,
-                                highlightedStopId: highlightedStopId,
-                                currentTime: currentTime,
-                                onSetTimer: { stop, etaDate in
-                                    timerTargetDate = etaDate
-                                    timerRouteName = searchText.uppercased()
-                                    timerStationName = stop.stopNameTc
-                                    timerStopId = stop.stopId
-                                    timerDirection = selectedDirection == "outbound" ? "outbound" : "inbound"
-                                    
-                                    let boundPrefix = selectedDirection == "outbound" ? "O" : "I"
-                                    let matchedRoute = allRoutes.first(where: { $0.route == timerRouteName && $0.bound == boundPrefix })
-                                    timerDestination = matchedRoute?.destination ?? "終點站"
-                                    
-                                    showingAddTimerAlert = true
-                                }
-                            )
-                            .listRowBackground(Color.clear)
-                            .listRowInsets(EdgeInsets())
-                            .listRowSeparator(.hidden)
-                        }
-                        .listStyle(.insetGrouped)
-                        .scrollContentBackground(.hidden)
-                        .background(themeBackground)
-                        
-                        if isLoading {
-                            ProgressView("正在獲取數據...")
-                        } else if displayData.isEmpty && !searchText.isEmpty {
-                            Text(systemMessage)
-                                .foregroundColor(.secondary)
-                                .multilineTextAlignment(.center)
-                                .padding()
-                        }
-                    }
-                    .navigationTitle(searchText.isEmpty ? "路線資料" : searchText.uppercased())
-                    .navigationBarTitleDisplayMode(.inline)
-                    
-                    .toolbar {
-                        ToolbarItem(placement: .navigationBarTrailing) {
-                            if isLoading {
-                                ProgressView()
-                            } else {
-                                Button(action: {
-                                    Task {
-                                        await searchRoute(route: searchText.uppercased(), direction: selectedDirection, findNearest: false, shouldScroll: false, isRefresh: true)
-                                    }
-                                }) {
-                                    Image(systemName: "arrow.clockwise").font(.system(size: 16, weight: .medium))
-                                }
-                            }
-                        }
-                    }
-                    .onChange(of: scrollTriggerId) { _ in
-                        if let target = highlightedStopId {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) {
-                                    routeProxy.scrollTo(target, anchor: .center)
-                                }
-                            }
-                        }
-                    }
-                }
+                routeDetailView
             }
             .onChange(of: isNavigatingToRoute) { isNavigating in
                 if !isNavigating {
@@ -374,14 +197,6 @@ struct ContentView: View {
                     if let loc = self.locationManager.location {
                         Task { await updateNearbyStops(userLocation: loc) }
                     }
-                }
-            }
-            .onChange(of: dashboardScrollTarget) { target in
-                if let targetId = target {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                        // Scroll hook execution
-                    }
-                    dashboardScrollTarget = nil
                 }
             }
             .onReceive(refreshTimer) { _ in
@@ -449,52 +264,419 @@ struct ContentView: View {
                 }
             }
         }
-        .alert(activeTimer == nil ? "設定巴士抵站提醒" : "替換巴士抵站提醒", isPresented: $showingAddTimerAlert) {
-            Button(activeTimer == nil ? "設定提醒" : "確認替換", role: .none) {
-                if let etaDate = timerTargetDate {
-                    if activeTimer != nil { endLiveActivity() }
-                    
-                    UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
-                        if granted {
-                            scheduleLocalNotification(
-                                routeName: timerRouteName,
-                                destination: timerDestination,
-                                alertDate: etaDate.addingTimeInterval(-120)
-                            )
-                        }
-                    }
-                    
-                    startLiveActivity(routeName: timerRouteName, destination: timerDestination, stationName: timerStationName, etaDate: etaDate, startTime: Date())
-                    self.locationManager.startBackgroundTracking()
-                    withAnimation {
-                        activeTimer = ActiveTimerModel(
-                            routeName: timerRouteName,
-                            destination: timerDestination,
-                            etaDate: etaDate,
-                            targetAlertDate: etaDate.addingTimeInterval(-120),
-                            startTime: Date(),
-                            stopId: timerStopId,
-                            direction: timerDirection,
-                            stationName: timerStationName
-                        )
-                    }
-                    
-                    isNavigatingToRoute = false
-                    dashboardScrollTarget = "ActiveTimerCard"
-                }
-            }
-            Button("取消", role: .cancel) {}
-        } message: {
-            if let existing = activeTimer {
-                Text("您目前已為 \(existing.routeName) 設定了提醒。確定要取消舊提醒，並為 \(timerRouteName) 重新設定嗎？\n\n系統將在巴士預計抵達前 2 分鐘（即 \(formattedTime(timerTargetDate?.addingTimeInterval(-120) ?? Date()))）提醒您。")
-            } else {
-                Text("您是否要為 \(timerRouteName) 路線設定提醒？\n\n系統將在巴士預計抵達前 2 分鐘（即 \(formattedTime(timerTargetDate?.addingTimeInterval(-120) ?? Date()))）提醒您。")
-            }
+        .tabItem {
+            Label("到站預報", systemImage: "bus.fill")
         }
     }
     
-    var themeBackground: some View {
-        Color(.systemGroupedBackground)
-            .ignoresSafeArea()
+    private var favoritesTab: some View {
+        NavigationStack {
+            List {
+                if favoritesManager.favoriteRoutes.isEmpty {
+                    Text("您尚未加入任何常用路線。")
+                        .foregroundColor(.secondary)
+                        .padding()
+                        .listRowBackground(Color.clear)
+                } else {
+                    ForEach(favoritesManager.favoriteRoutes) { fav in
+                        Button(action: {
+                            // 🌟 NEW: Switch to Dashboard tab, THEN trigger navigation
+                            selectedTab = 0
+                            
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                                searchText = fav.route
+                                selectedDirection = fav.direction
+                                isNavigatingToRoute = true
+                                Task { await searchRoute(route: fav.route, direction: fav.direction, findNearest: true, shouldScroll: true) }
+                            }
+                        }) {
+                            HStack(spacing: 12) {
+                                Text(fav.route)
+                                    .font(.system(.body, design: .rounded))
+                                    .fontWeight(.bold)
+                                    .foregroundColor(.white)
+                                    .frame(width: 64, height: 36)
+                                    .background(RoundedRectangle(cornerRadius: 8).fill(Color(red: 0.65, green: 0.08, blue: 0.12)))
+                                
+                                VStack(alignment: .leading, spacing: 3) {
+                                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                                        Text("往")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                        Text(fav.destNameTc)
+                                            .font(.system(size: 15, weight: .bold))
+                                            .foregroundColor(.primary)
+                                            .lineLimit(1)
+                                    }
+                                }
+                                
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                    .onDelete { indexSet in
+                        favoritesManager.favoriteRoutes.remove(atOffsets: indexSet)
+                    }
+                }
+            }
+            .navigationTitle("常用路線")
+            .padding(.top, 16)
+            .background(themeBackground)
+            .scrollContentBackground(.hidden)
+        }
+        .tabItem {
+            Label("常用路線", systemImage: "star.fill")
+        }
+    }
+}
+
+// MARK: - Dashboard Components
+extension ContentView {
+    private var dashboardContentView: some View {
+        ZStack {
+            List {
+                searchBarView
+                
+                if let timer = activeTimer {
+                    activeTimerCardView(timer: timer)
+                }
+                
+                if showCustomKeyboard && !searchText.isEmpty {
+                    suggestionsSectionView
+                } else {
+                    nearbyDashboardSectionView
+                }
+            }
+            .listStyle(.insetGrouped)
+            .scrollContentBackground(.hidden)
+            .background(themeBackground)
+            .listSectionSpacing(.custom(16))
+            
+            .simultaneousGesture(
+                DragGesture().onChanged { _ in
+                    if showCustomKeyboard {
+                        dismissKeyboardSafe()
+                    }
+                }
+            )
+        }
+        .overlay(alignment: .bottom) {
+            if showCustomKeyboard { customKeyboardOverlay }
+        }
+        .navigationTitle(showCustomKeyboard ? "搜尋路線" : "九巴到站預報")
+        .navigationBarTitleDisplayMode(.large)
+        .toolbar { dashboardToolbar }
+    }
+    
+    private var searchBarView: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .foregroundColor(Color(UIColor.systemGray))
+                .font(.system(size: 17))
+            
+            Text(searchText.isEmpty ? "輸入路線 (例如 1A)" : searchText)
+                .foregroundColor(searchText.isEmpty ? Color(UIColor.placeholderText) : .primary)
+                .font(.system(size: 17))
+                .frame(maxWidth: .infinity, alignment: .leading)
+            
+            if !searchText.isEmpty {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundColor(Color(UIColor.systemGray3))
+                    .font(.system(size: 17))
+                    .padding(.trailing, 2)
+                    .padding(.vertical, 8)
+                    .onTapGesture {
+                        searchText = ""
+                    }
+            }
+        }
+        .padding(.horizontal, 8)
+        .frame(height: 48)
+        .background(Color(UIColor.systemGray5))
+        .cornerRadius(20)
+        .padding(.top, 16)
+        .listRowBackground(themeBackground)
+        .listRowInsets(EdgeInsets())
+        .listRowSeparator(.hidden)
+        .onTapGesture {
+            withAnimation(.spring()) { showCustomKeyboard = true }
+        }
+    }
+    
+    private func activeTimerCardView(timer: ActiveTimerModel) -> some View {
+        ActiveTimerCardView(
+            timer: timer,
+            currentTime: currentTime,
+            onCancel: {
+                withAnimation(.easeInOut(duration: 0.3)) { activeTimer = nil }
+                endLiveActivity()
+                self.locationManager.stopBackgroundTracking()
+                UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["KMBTimeAlarm"])
+            }
+        )
+        .id("ActiveTimerCard")
+        .listRowBackground(Color.clear)
+        .listRowInsets(EdgeInsets())
+        .listRowSeparator(.hidden)
+    }
+    
+    private var suggestionsSectionView: some View {
+        SuggestionsSectionView(
+            searchSuggestions: searchSuggestions,
+            onSuggestionTapped: { suggestion in
+                showCustomKeyboard = false
+                
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    searchText = suggestion.route
+                    let isOutbound = suggestion.bound.uppercased().hasPrefix("O")
+                    let newDir = isOutbound ? "outbound" : "inbound"
+                    
+                    selectedDirection = newDir
+                    isNavigatingToRoute = true
+                    Task { await searchRoute(route: suggestion.route.uppercased(), direction: newDir, findNearest: true, shouldScroll: true) }
+                }
+            }
+        )
+        .listRowBackground(Color.clear)
+        .listRowInsets(EdgeInsets())
+        .listRowSeparator(.hidden)
+    }
+    
+    private var nearbyDashboardSectionView: some View {
+        NearbyDashboardSectionView(
+            locationManager: locationManager,
+            expandedStopIds: $expandedStopIds,
+            viewMode: $dashboardViewMode,
+            allStops: allStops,
+            nearbyStops: nearbyStops,
+            currentTime: currentTime,
+            onRequestLocation: { locationManager.requestLocation() },
+            onRouteSelected: { route, stopInfo in
+                let newDir = route.directionCode == "O" ? "outbound" : "inbound"
+                selectedDirection = newDir
+                searchText = route.route
+                
+                isNavigatingToRoute = true
+                Task { await searchRoute(route: route.route, direction: newDir, findNearest: false, targetStopCode: stopInfo.stop, shouldScroll: true) }
+            },
+            onSetTimer: { route, stopInfo in
+                timerTargetDate = route.etas.first?.etaDate
+                timerRouteName = route.route
+                timerDestination = route.destNameTc
+                timerStationName = stopInfo.name_tc
+                timerStopId = stopInfo.stop
+                timerDirection = route.directionCode == "O" ? "outbound" : "inbound"
+                showingAddTimerAlert = true
+            },
+            onShowToast: { message in    // 🌟 Pass the toast function
+                showToast(message)
+            }
+        )
+    }
+    
+    private var customKeyboardOverlay: some View {
+        CustomKeyboardView(
+            text: $searchText,
+            validKeys: validNextKeys,
+            onSearch: {
+                showCustomKeyboard = false
+                isNavigatingToRoute = true
+                Task { await searchRoute(route: searchText.uppercased(), direction: selectedDirection, findNearest: true, shouldScroll: true) }
+            },
+            onDismiss: { dismissKeyboardSafe() }
+        )
+        .transition(.offset(y: 300))
+    }
+    
+    @ToolbarContentBuilder
+    private var dashboardToolbar: some ToolbarContent {
+        if !showCustomKeyboard {
+            ToolbarItemGroup(placement: .navigationBarTrailing) {
+                if isSearchingNearby {
+                    ProgressView()
+                } else {
+                    Button(action: {
+                        locationManager.requestLocation()
+                        Task {
+                            if let loc = locationManager.location {
+                                await updateNearbyStops(userLocation: loc)
+                            }
+                        }
+                    }) {
+                        Image(systemName: "arrow.clockwise").font(.system(size: 16, weight: .medium))
+                    }
+                }
+                
+                if !nearbyStops.isEmpty {
+                    Menu {
+                        Picker("顯示模式", selection: $dashboardViewMode) {
+                            Label("按巴士站", systemImage: "mappin.and.ellipse").tag(DashboardViewMode.byStation)
+                            Label("按車站名稱", systemImage: "building.2.crop.circle").tag(DashboardViewMode.byStationName)
+                            Label("全部路線", systemImage: "list.bullet").tag(DashboardViewMode.allBuses)
+                        }
+                    } label: {
+                        Image(systemName: dashboardViewMode == .byStation ? "rectangle.grid.1x2" : (dashboardViewMode == .byStationName ? "building.2.crop.circle" : "list.bullet"))
+                            .font(.system(size: 16, weight: .medium))
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Route Details
+extension ContentView {
+    private var routeDetailView: some View {
+        ScrollViewReader { routeProxy in
+            ZStack {
+                List {
+                    Picker("Direction", selection: $selectedDirection) {
+                        Text("去程 (Outbound)").tag("outbound")
+                        Text("回程 (Inbound)").tag("inbound")
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.top, 12)
+                    .onChange(of: selectedDirection) { newValue in
+                        if !searchText.isEmpty {
+                            Task { await searchRoute(route: searchText.uppercased(), direction: newValue, findNearest: true, shouldScroll: true) }
+                        }
+                    }
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
+                    
+                    TimetableSectionView(
+                        displayData: displayData,
+                        highlightedStopId: highlightedStopId,
+                        currentTime: currentTime,
+                        onSetTimer: { stop, etaDate in
+                            timerTargetDate = etaDate
+                            timerRouteName = searchText.uppercased()
+                            timerStationName = stop.stopNameTc
+                            timerStopId = stop.stopId
+                            timerDirection = selectedDirection == "outbound" ? "outbound" : "inbound"
+                            
+                            let boundPrefix = selectedDirection == "outbound" ? "O" : "I"
+                            let matchedRoute = allRoutes.first(where: { $0.route == timerRouteName && $0.bound == boundPrefix })
+                            timerDestination = matchedRoute?.destination ?? "終點站"
+                            
+                            showingAddTimerAlert = true
+                        }
+                    )
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
+                }
+                .listStyle(.insetGrouped)
+                .scrollContentBackground(.hidden)
+                .background(themeBackground)
+                
+                if isLoading {
+                    ProgressView("正在獲取數據...")
+                } else if displayData.isEmpty && !searchText.isEmpty {
+                    Text(systemMessage)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding()
+                }
+            }
+            .navigationTitle(searchText.isEmpty ? "路線資料" : searchText.uppercased())
+            .navigationBarTitleDisplayMode(.inline)
+            
+            .toolbar {
+                // 🌟 NEW: Toolbar Item Group for Star Button AND Refresh Button
+                ToolbarItemGroup(placement: .navigationBarTrailing) {
+                    
+                    // Star Button
+                    let isFav = favoritesManager.isFavorite(route: searchText.uppercased(), direction: selectedDirection)
+                    Button(action: {
+                        let boundPrefix = selectedDirection == "outbound" ? "O" : "I"
+                        let matchedRoute = allRoutes.first(where: { $0.route == searchText.uppercased() && $0.bound == boundPrefix })
+                        let dest = matchedRoute?.destination ?? "終點站"
+                        
+                        favoritesManager.toggleFavorite(route: searchText.uppercased(), direction: selectedDirection, destName: dest)
+                        showToast(isFav ? "已從常用路線移除" : "已加入常用路線")
+                    }) {
+                        Image(systemName: isFav ? "star.fill" : "star")
+                            .foregroundColor(isFav ? .orange : .primary)
+                    }
+                    
+                    // Refresh Button
+                    if isLoading {
+                        ProgressView()
+                    } else {
+                        Button(action: {
+                            Task {
+                                await searchRoute(route: searchText.uppercased(), direction: selectedDirection, findNearest: false, shouldScroll: false, isRefresh: true)
+                            }
+                        }) {
+                            Image(systemName: "arrow.clockwise").font(.system(size: 16, weight: .medium))
+                        }
+                    }
+                }
+            }
+            .onChange(of: scrollTriggerId) { _ in
+                if let target = highlightedStopId {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) {
+                            routeProxy.scrollTo(target, anchor: .center)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Alerts
+extension ContentView {
+    @ViewBuilder
+    private var alertButtons: some View {
+        Button(activeTimer == nil ? "設定提醒" : "確認替換", role: .none) {
+            if let etaDate = timerTargetDate {
+                if activeTimer != nil { endLiveActivity() }
+                
+                UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
+                    if granted {
+                        scheduleLocalNotification(
+                            routeName: timerRouteName,
+                            destination: timerDestination,
+                            alertDate: etaDate.addingTimeInterval(-120)
+                        )
+                    }
+                }
+                
+                startLiveActivity(routeName: timerRouteName, destination: timerDestination, stationName: timerStationName, etaDate: etaDate, startTime: Date())
+                self.locationManager.startBackgroundTracking()
+                withAnimation {
+                    activeTimer = ActiveTimerModel(
+                        routeName: timerRouteName,
+                        destination: timerDestination,
+                        etaDate: etaDate,
+                        targetAlertDate: etaDate.addingTimeInterval(-120),
+                        startTime: Date(),
+                        stopId: timerStopId,
+                        direction: timerDirection,
+                        stationName: timerStationName
+                    )
+                }
+                
+                isNavigatingToRoute = false
+                dashboardScrollTarget = "ActiveTimerCard"
+            }
+        }
+        Button("取消", role: .cancel) {}
+    }
+    
+    @ViewBuilder
+    private var alertMessage: some View {
+        if let existing = activeTimer {
+            Text("您目前已為 \(existing.routeName) 設定了提醒。確定要取消舊提醒，並為 \(timerRouteName) 重新設定嗎？\n\n系統將在巴士預計抵達前 2 分鐘（即 \(formattedTime(timerTargetDate?.addingTimeInterval(-120) ?? Date()))）提醒您。")
+        } else {
+            Text("您是否要為 \(timerRouteName) 路線設定提醒？\n\n系統將在巴士預計抵達前 2 分鐘（即 \(formattedTime(timerTargetDate?.addingTimeInterval(-120) ?? Date()))）提醒您。")
+        }
     }
 }

@@ -12,7 +12,6 @@ struct TimetableSectionView: View {
     let highlightedStopId: String?
     let currentTime: Date
     
-    // 🌟 新增 Callback: 當用家 Swipe 並設定 Timer 時觸發
     let onSetTimer: (StopDisplayModel, Date) -> Void
     
     var body: some View {
@@ -62,7 +61,6 @@ struct TimetableSectionView: View {
                                             else if(minutesLeft > 1){
                                                 Text("\(minutesLeft) 分鐘\(formattedRemark)")
                                                     .font(.system(size: 15, weight: .semibold, design: .rounded))
-                                                    // 🌟 呢度更新咗：如果是 Highlighted 車站，字體變藍色
                                                     .foregroundColor(isHighlighted ? .blue : .primary)
                                             }
                                             else{
@@ -74,7 +72,6 @@ struct TimetableSectionView: View {
                                         } else {
                                             Text("-")
                                                 .font(.system(size: 15, weight: .semibold, design: .rounded))
-                                                // 🌟 呢度都更新埋：連住個 "-" 都一齊變藍色保持統一
                                                 .foregroundColor(isHighlighted ? .blue : .primary)
                                         }
                                     }
@@ -90,14 +87,12 @@ struct TimetableSectionView: View {
                         .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
                         .listRowSeparator(.hidden)
                         .listRowBackground(Color(.secondarySystemGroupedBackground))
-                        // 🌟 加入向左滑動新增 Timer 嘅選項
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            // 尋找第一個有效且大於 2 分鐘嘅 ETA
                             if let validEtaDate = stop.etas.first(where: { $0.etaDate?.timeIntervalSince(currentTime) ?? 0 > 120 })?.etaDate {
                                 Button {
                                     onSetTimer(stop, validEtaDate)
                                 } label: {
-                                    Label("提醒", systemImage: "bell.fill")
+                                    Label("設定提示", systemImage: "bell.fill")
                                 }
                                 .tint(.blue)
                             }

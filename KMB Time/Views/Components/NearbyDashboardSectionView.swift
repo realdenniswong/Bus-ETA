@@ -9,6 +9,8 @@ import SwiftUI
 import CoreLocation
 
 struct NearbyDashboardSectionView: View {
+    @EnvironmentObject var favoritesManager: FavoritesManager
+    
     @ObservedObject var locationManager: LocationManager
     @Binding var expandedStopIds: Set<String>
     @Binding var viewMode: DashboardViewMode
@@ -20,16 +22,14 @@ struct NearbyDashboardSectionView: View {
     let onRequestLocation: () -> Void
     let onRouteSelected: (NearbyRouteModel, StopInfo) -> Void
     let onSetTimer: (NearbyRouteModel, StopInfo) -> Void
+    let onShowToast: (String) -> Void // 🌟 NEW: Callback for Toast Notification
     
     // MARK: - Sorting Helpers
     
-    // Helper to determine if a route is currently showing "暫無服務..." (no etaDate)
     private func hasNoService(route: NearbyRouteModel) -> Bool {
         return route.etas.first?.etaDate == nil
     }
     
-    // Helper to determine the sorting rank for By Station mode
-    // 0: 有班次去程, 1: 有班次回程, 2: 冇班次去程, 3: 冇班次回程
     private func sortRank(for route: NearbyRouteModel) -> Int {
         let noService = hasNoService(route: route)
         let isOutbound = (route.directionCode == "O")
@@ -40,23 +40,18 @@ struct NearbyDashboardSectionView: View {
         return 3
     }
     
-    // Helper to sort a simple array of routes (used in By Station mode)
     private func sortedRoutes(for routes: [NearbyRouteModel]) -> [NearbyRouteModel] {
         return routes.sorted { a, b in
             let rankA = sortRank(for: a)
             let rankB = sortRank(for: b)
             
-            // 1. Sort by Rank (有班次去程 -> 有班次回程 -> 冇班次去程 -> 冇班次回程)
             if rankA != rankB {
                 return rankA < rankB
             }
-            
-            // 2. Sort by Route Name
             return a.route.localizedStandardCompare(b.route) == .orderedAscending
         }
     }
     
-    // Helper to generate a flat list of all routes sorted by distance, then by ETA
     var flatRoutes: [(route: NearbyRouteModel, stop: StopInfo, distance: CLLocationDistance)] {
         var all: [(route: NearbyRouteModel, stop: StopInfo, distance: CLLocationDistance)] = []
         
@@ -67,18 +62,14 @@ struct NearbyDashboardSectionView: View {
         }
         
         return all.sorted(by: { a, b in
-            // 1. Move "沒有班次" to bottom
             let aNoService = hasNoService(route: a.route)
             let bNoService = hasNoService(route: b.route)
             if aNoService != bNoService {
                 return !aNoService
             }
-            
-            // 2. Distance
             if a.distance != b.distance {
                 return a.distance < b.distance
             }
-            // 3. ETA
             let aEta = a.route.etas.first?.etaDate ?? Date.distantFuture
             let bEta = b.route.etas.first?.etaDate ?? Date.distantFuture
             return aEta < bEta
@@ -98,19 +89,13 @@ struct NearbyDashboardSectionView: View {
         
         for stopModel in nearbyStops {
             let rawName = stopModel.stopInfo.name_tc
-            
-            // This Regex matches a space (optional), followed by an opening parenthesis,
-            // any characters that are NOT a closing parenthesis, and a final closing parenthesis
-            // at the very end of the string.
             let cleanName = rawName.replacingOccurrences(
                 of: "\\s*\\([^)]+\\)\\s*$",
                 with: "",
                 options: .regularExpression
             )
-            
             let dist = stopModel.distance
             
-            // Use `cleanName` for grouping instead of `rawName`
             if dict[cleanName] == nil {
                 dict[cleanName] = StationNameGroup(stationName: cleanName, minDistance: dist, outbound: [], inbound: [])
             }
@@ -126,11 +111,9 @@ struct NearbyDashboardSectionView: View {
             }
         }
         
-        // Convert to Array and Sort by distance
         var result = Array(dict.values)
         result.sort { $0.minDistance < $1.minDistance }
         
-        // Sort by Station ID, then by Route Name internally
         for i in 0..<result.count {
             result[i].outbound.sort {
                 let aNoService = hasNoService(route: $0.route)
@@ -158,24 +141,11 @@ struct NearbyDashboardSectionView: View {
                 return id1.localizedStandardCompare(id2) == .orderedAscending
             }
         }
-        
         return result
     }
     
     var body: some View {
-        // --- HEADER ---
-        HStack {
-            Text("附近車站")
-                .font(.title2)
-                .fontWeight(.bold)
-            Spacer()
-        }
-        .padding(.top, 12)
-        .padding(.bottom, -10)
-        .listRowBackground(Color.clear)
-        .listRowSeparator(.hidden)
-        
-        // --- CONTENT ---
+
         let status = locationManager.authorizationStatus
         
         if status == .notDetermined {
@@ -234,8 +204,6 @@ struct NearbyDashboardSectionView: View {
         }
     }
     
-    // MARK: - View Builders
-    
     @ViewBuilder
     private func renderByStation() -> some View {
         ForEach(nearbyStops) { stopModel in
@@ -287,7 +255,6 @@ struct NearbyDashboardSectionView: View {
                             .foregroundColor(.secondary)
                             .padding(.vertical, 4)
                     } else {
-                        // 利用更新後嘅 sortedRoutes 進行 4-tier 排序
                         ForEach(sortedRoutes(for: stopModel.routes)) { route in
                             routeRow(route: route, stopInfo: stopModel.stopInfo)
                         }
@@ -377,28 +344,20 @@ struct NearbyDashboardSectionView: View {
                             .foregroundColor(.secondary)
                             .padding(.vertical, 4)
                     } else {
-                        // 分解資料：分開有班次同冇班次
                         let activeOutbound = group.outbound.filter { !hasNoService(route: $0.route) }
                         let activeInbound = group.inbound.filter { !hasNoService(route: $0.route) }
                         let inactiveOutbound = group.outbound.filter { hasNoService(route: $0.route) }
                         let inactiveInbound = group.inbound.filter { hasNoService(route: $0.route) }
                         
-                        // 1. 去程 (有班次)
                         ForEach(activeOutbound, id: \.route.id) { item in
                             routeRowWithStationNumber(route: item.route, stopInfo: item.stopInfo)
                         }
-                        
-                        // 2. 回程 (有班次)
                         ForEach(activeInbound, id: \.route.id) { item in
                             routeRowWithStationNumber(route: item.route, stopInfo: item.stopInfo)
                         }
-                        
-                        // 3. 去程 (冇班次)
                         ForEach(inactiveOutbound, id: \.route.id) { item in
                             routeRowWithStationNumber(route: item.route, stopInfo: item.stopInfo)
                         }
-                        
-                        // 4. 回程 (冇班次)
                         ForEach(inactiveInbound, id: \.route.id) { item in
                             routeRowWithStationNumber(route: item.route, stopInfo: item.stopInfo)
                         }
@@ -442,7 +401,6 @@ struct NearbyDashboardSectionView: View {
                 
                 Spacer()
                 
-                // ETA Logic
                 HStack(spacing: 6) {
                     if let firstEta = route.etas.first, let etaDate = firstEta.etaDate {
                         let secondsLeft = etaDate.timeIntervalSince(currentTime)
@@ -480,10 +438,21 @@ struct NearbyDashboardSectionView: View {
                 Button {
                     onSetTimer(route, stopInfo)
                 } label: {
-                    Label("響鬧", systemImage: "bell.fill")
+                    Label("設定提示", systemImage: "bell.fill")
                 }
                 .tint(.blue)
             }
+            
+            let dirStr = route.directionCode == "O" ? "outbound" : "inbound"
+            let isFav = favoritesManager.isFavorite(route: route.route, direction: dirStr)
+            
+            Button {
+                favoritesManager.toggleFavorite(route: route.route, direction: dirStr, destName: route.destNameTc)
+                onShowToast(isFav ? "已從常用路線移除" : "已加入常用路線")
+            } label: {
+                Label(isFav ? "移除常用" : "加入常用", systemImage: isFav ? "star.slash.fill" : "star.fill")
+            }
+            .tint(isFav ? .red : .orange)
         }
     }
     
@@ -554,10 +523,21 @@ struct NearbyDashboardSectionView: View {
                 Button {
                     onSetTimer(route, stopInfo)
                 } label: {
-                    Label("響鬧", systemImage: "bell.fill")
+                    Label("設定提示", systemImage: "bell.fill")
                 }
                 .tint(.blue)
             }
+            
+            let dirStr = route.directionCode == "O" ? "outbound" : "inbound"
+            let isFav = favoritesManager.isFavorite(route: route.route, direction: dirStr)
+            
+            Button {
+                favoritesManager.toggleFavorite(route: route.route, direction: dirStr, destName: route.destNameTc)
+                onShowToast(isFav ? "已從常用路線移除" : "已加入常用路線")
+            } label: {
+                Label(isFav ? "移除常用" : "加入常用", systemImage: isFav ? "star.slash.fill" : "star.fill")
+            }
+            .tint(isFav ? .red : .orange)
         }
     }
     
@@ -620,7 +600,6 @@ struct NearbyDashboardSectionView: View {
     }
     
     private func extractPoleId(from rawName: String) -> String {
-        // Finds the last "(" and ")" in strings like "名稱 (T46)"
         if let lastOpen = rawName.lastIndex(of: "("),
            let lastClose = rawName.lastIndex(of: ")"),
            lastOpen < lastClose {
@@ -628,8 +607,6 @@ struct NearbyDashboardSectionView: View {
             let idString = rawName[rawName.index(after: lastOpen)..<lastClose]
             return String(idString)
         }
-        
-        // Fallback if no parentheses are found
         return "N/A"
     }
 }

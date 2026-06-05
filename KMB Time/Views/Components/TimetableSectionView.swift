@@ -54,21 +54,21 @@ struct TimetableSectionView: View {
                                             let remark = etaInfo.remark ?? ""
                                             let formattedRemark = remark.isEmpty ? "" : " (\(remark))"
                                             let minutesLeft = Int(secondsLeft / 60)
-                                            if(minutesLeft < 0){
+                                            if(minutesLeft < -1){
                                                 Text("遲到 \(minutesLeft * -1) 分鐘\(formattedRemark)")
                                                     .font(.system(size: 15, weight: .semibold, design: .rounded))
                                                     .foregroundColor(Color.red)
                                             }
-                                            else if(minutesLeft == 0){
-                                                Text("即將到站")
-                                                    .font(.system(size: 15, weight: .semibold, design: .rounded))
-                                                    .foregroundColor(Color.green)
-                                            }
-                                            else{
+                                            else if(minutesLeft > 1){
                                                 Text("\(minutesLeft) 分鐘\(formattedRemark)")
                                                     .font(.system(size: 15, weight: .semibold, design: .rounded))
                                                     // 🌟 呢度更新咗：如果是 Highlighted 車站，字體變藍色
                                                     .foregroundColor(isHighlighted ? .blue : .primary)
+                                            }
+                                            else{
+                                                Text("即將到站")
+                                                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                                    .foregroundColor(Color.green)
                                             }
                                             
                                         } else {

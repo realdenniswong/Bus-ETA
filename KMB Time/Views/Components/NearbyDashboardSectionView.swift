@@ -452,14 +452,14 @@ struct NearbyDashboardSectionView: View {
                             Text("遲到 \(-minutesLeft) 分鐘")
                                 .font(.system(size: 15, weight: .semibold, design: .rounded))
                                 .foregroundColor(.red)
-                        } else if minutesLeft == 0 {
-                            Text("即將抵達")
-                                .font(.system(size: 15, weight: .semibold, design: .rounded))
-                                .foregroundColor(Color.green)
-                        } else {
+                        } else if minutesLeft > 1 {
                             Text("\(minutesLeft) 分鐘")
                                 .font(.system(size: 15, weight: .semibold, design: .rounded))
                                 .foregroundColor(.primary)
+                        } else {
+                            Text("即將抵達")
+                                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                .foregroundColor(Color.green)
                         }
                     } else {
                         Text("暫無服務...")
@@ -526,14 +526,14 @@ struct NearbyDashboardSectionView: View {
                             Text("遲到 \(-minutesLeft) 分鐘")
                                 .font(.system(size: 15, weight: .semibold, design: .rounded))
                                 .foregroundColor(.red)
-                        } else if minutesLeft == 0 {
-                            Text("即將抵達")
-                                .font(.system(size: 15, weight: .semibold, design: .rounded))
-                                .foregroundColor(Color.green)
-                        } else {
+                        } else if minutesLeft > 1 {
                             Text("\(minutesLeft) 分鐘")
                                 .font(.system(size: 15, weight: .semibold, design: .rounded))
                                 .foregroundColor(.primary)
+                        } else {
+                            Text("即將抵達")
+                                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                .foregroundColor(Color.green)
                         }
                     } else {
                         Text("暫無服務...")

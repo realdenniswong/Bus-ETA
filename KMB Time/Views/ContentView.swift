@@ -11,6 +11,12 @@ import Combine
 import UserNotifications
 import ActivityKit
 
+// MARK: - Models
+struct FavoriteETA {
+    let stopName: String
+    let etaDate: Date?
+}
+
 // MARK: - View Modes
 enum DashboardViewMode {
     case byStation
@@ -68,6 +74,10 @@ struct ContentView: View {
     
     @State private var toastMessage: String? = nil // 🌟 NEW: Toast state
     
+    // 🌟 NEW: Properties for Favorites ETA
+    @State var favoriteETAs: [String: FavoriteETA] = [:]
+    @State var isRefreshingFavorites = false
+    
     @Environment(\.scenePhase) var scenePhase
     
     var searchSuggestions: [RouteSuggestion] {
@@ -116,7 +126,6 @@ struct ContentView: View {
             .ignoresSafeArea()
     }
     
-    // 🌟 NEW: Helper to show toasts with haptic feedback
     private func showToast(_ message: String) {
         let generator = UINotificationFeedbackGenerator()
         generator.notificationOccurred(.success)
@@ -136,18 +145,18 @@ struct ContentView: View {
     
     // MARK: - Main Body
     var body: some View {
-        TabView(selection: $selectedTab) { // 🌟 Bound to selectedTab
+        TabView(selection: $selectedTab) {
             mainDashboardTab
-                .tag(0) // 🌟 Tagged
+                .tag(0)
             favoritesTab
-                .tag(1) // 🌟 Tagged
+                .tag(1)
         }
         .alert(activeTimer == nil ? "設定巴士抵站提醒" : "替換巴士抵站提醒", isPresented: $showingAddTimerAlert) {
             alertButtons
         } message: {
             alertMessage
         }
-        .overlay(alignment: .top) { // 🌟 NEW: Toast Overlay
+        .overlay(alignment: .top) {
             if let message = toastMessage {
                 Text(message)
                     .font(.subheadline)
@@ -159,7 +168,7 @@ struct ContentView: View {
                     .cornerRadius(25)
                     .shadow(color: .black.opacity(0.2), radius: 8, y: 4)
                     .transition(.move(edge: .top).combined(with: .opacity))
-                    .padding(.top, 16) // Pushes it slightly below the dynamic island/notch
+                    .padding(.top, 16)
                     .zIndex(1)
             }
         }
@@ -203,14 +212,17 @@ extension ContentView {
                 Task {
                     if activeTimer != nil { await syncActiveTimer() }
                     
-                    if !isNavigatingToRoute {
-                        if !nearbyStops.isEmpty {
-                            await refreshNearbyETAs()
-                        } else if let location = locationManager.location {
-                            await updateNearbyStops(userLocation: location)
+                    // Dashboard Auto-refresh
+                    if selectedTab == 0 {
+                        if !isNavigatingToRoute {
+                            if !nearbyStops.isEmpty {
+                                await refreshNearbyETAs()
+                            } else if let location = locationManager.location {
+                                await updateNearbyStops(userLocation: location)
+                            }
+                        } else if !displayData.isEmpty && !showCustomKeyboard {
+                            await searchRoute(route: searchText.uppercased(), direction: selectedDirection, findNearest: false, shouldScroll: false, isRefresh: true)
                         }
-                    } else if !displayData.isEmpty && !showCustomKeyboard {
-                        await searchRoute(route: searchText.uppercased(), direction: selectedDirection, findNearest: false, shouldScroll: false, isRefresh: true)
                     }
                 }
             }
@@ -280,7 +292,6 @@ extension ContentView {
                 } else {
                     ForEach(favoritesManager.favoriteRoutes) { fav in
                         Button(action: {
-                            // 🌟 NEW: Switch to Dashboard tab, THEN trigger navigation
                             selectedTab = 0
                             
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
@@ -290,7 +301,7 @@ extension ContentView {
                                 Task { await searchRoute(route: fav.route, direction: fav.direction, findNearest: true, shouldScroll: true) }
                             }
                         }) {
-                            HStack(spacing: 12) {
+                            HStack(alignment: .center, spacing: 12) {
                                 Text(fav.route)
                                     .font(.system(.body, design: .rounded))
                                     .fontWeight(.bold)
@@ -308,12 +319,53 @@ extension ContentView {
                                             .foregroundColor(.primary)
                                             .lineLimit(1)
                                     }
+                                    
+                                    // 🌟 NEW: Nearest Station Name for Favorite Route
+                                    if let etaInfo = favoriteETAs[fav.id] {
+                                        Text(etaInfo.stopName)
+                                            .font(.caption2)
+                                            .foregroundColor(.secondary)
+                                            .lineLimit(1)
+                                    }
                                 }
                                 
                                 Spacer()
-                                Image(systemName: "chevron.right")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
+                                
+                                // 🌟 NEW: Dynamic ETA Display
+                                HStack(spacing: 6) {
+                                    if let etaInfo = favoriteETAs[fav.id] {
+                                        if let etaDate = etaInfo.etaDate {
+                                            let secondsLeft = etaDate.timeIntervalSince(currentTime)
+                                            let minutesLeft = Int(secondsLeft / 60)
+                                            
+                                            if minutesLeft < -1 {
+                                                Text("遲到 \(-minutesLeft) 分鐘")
+                                                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                                    .foregroundColor(.red)
+                                            } else if minutesLeft > 1 {
+                                                Text("\(minutesLeft) 分鐘")
+                                                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                                    .foregroundColor(.primary)
+                                            } else {
+                                                Text("即將抵達")
+                                                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                                    .foregroundColor(Color.green)
+                                            }
+                                        } else {
+                                            Text("暫無服務...")
+                                                .font(.caption2)
+                                                .foregroundColor(.secondary)
+                                        }
+                                    } else {
+                                        Text("載入中...")
+                                            .font(.caption2)
+                                            .foregroundColor(.secondary)
+                                    }
+                                    
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
                             }
                         }
                     }
@@ -326,6 +378,36 @@ extension ContentView {
             .padding(.top, 16)
             .background(themeBackground)
             .scrollContentBackground(.hidden)
+            // 🌟 NEW: Refresh Toolbar for Favorites
+            .toolbar {
+                ToolbarItemGroup(placement: .navigationBarTrailing) {
+                    if isRefreshingFavorites {
+                        ProgressView()
+                    } else {
+                        Button(action: {
+                            Task {
+                                await refreshFavoritesETAs()
+                            }
+                        }) {
+                            Image(systemName: "arrow.clockwise").font(.system(size: 16, weight: .medium))
+                        }
+                    }
+                }
+            }
+            .onReceive(refreshTimer) { _ in
+                if selectedTab == 1 {
+                    Task { await refreshFavoritesETAs() }
+                }
+            }
+            .onAppear {
+                Task { await refreshFavoritesETAs() }
+            }
+            .onChange(of: favoritesManager.favoriteRoutes.count) { _ in
+                Task { await refreshFavoritesETAs() }
+            }
+            .refreshable {
+                await refreshFavoritesETAs()
+            }
         }
         .tabItem {
             Label("常用路線", systemImage: "star.fill")
@@ -471,7 +553,7 @@ extension ContentView {
                 timerDirection = route.directionCode == "O" ? "outbound" : "inbound"
                 showingAddTimerAlert = true
             },
-            onShowToast: { message in    // 🌟 Pass the toast function
+            onShowToast: { message in
                 showToast(message)
             }
         )
@@ -587,10 +669,7 @@ extension ContentView {
             .navigationBarTitleDisplayMode(.inline)
             
             .toolbar {
-                // 🌟 NEW: Toolbar Item Group for Star Button AND Refresh Button
                 ToolbarItemGroup(placement: .navigationBarTrailing) {
-                    
-                    // Star Button
                     let isFav = favoritesManager.isFavorite(route: searchText.uppercased(), direction: selectedDirection)
                     Button(action: {
                         let boundPrefix = selectedDirection == "outbound" ? "O" : "I"
@@ -604,7 +683,6 @@ extension ContentView {
                             .foregroundColor(isFav ? .orange : .primary)
                     }
                     
-                    // Refresh Button
                     if isLoading {
                         ProgressView()
                     } else {

@@ -99,7 +99,7 @@ extension ContentView {
         }
     }
     
-    // 🌟 新增：純粹刷新畫面上已有車站嘅 ETA，唔重新計 GPS (更快)
+    // 🌟 純粹刷新畫面上已有車站嘅 ETA，唔重新計 GPS (更快)
     func refreshNearbyETAs() async {
         guard !nearbyStops.isEmpty else { return }
         
@@ -120,7 +120,6 @@ extension ContentView {
     func fetchRoutesForStop(stopId: String) async -> [NearbyRouteModel] {
         guard let url = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/stop-eta/\(stopId)") else { return [] }
         do {
-            // 🌟 強制忽略系統 Cache，保證每次攞最新時間
             var request = URLRequest(url: url)
             request.cachePolicy = .reloadIgnoringLocalCacheData
             
@@ -187,14 +186,12 @@ extension ContentView {
         let etaUrl = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/route-eta/\(route)/1")!
         
         do {
-            // 🌟 強制忽略系統 Cache
             var routeStopReq = URLRequest(url: routeStopUrl)
             routeStopReq.cachePolicy = .reloadIgnoringLocalCacheData
             
             var etaReq = URLRequest(url: etaUrl)
             etaReq.cachePolicy = .reloadIgnoringLocalCacheData
             
-            // 並行發送 Request
             async let fetchRouteStop = URLSession.shared.data(for: routeStopReq)
             async let fetchEta = URLSession.shared.data(for: etaReq)
             
@@ -287,7 +284,6 @@ extension ContentView {
         guard let url = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/stop-eta/\(timer.stopId)") else { return }
         
         do {
-            // 🌟 背景同步同樣強制忽略 Cache
             var request = URLRequest(url: url)
             request.cachePolicy = .reloadIgnoringLocalCacheData
             
@@ -422,5 +418,103 @@ extension ContentView {
                 }
             }
         }
+    }
+    
+    // 🌟 NEW: Fetch and Match ETA specifically for Favorites list
+    func refreshFavoritesETAs() async {
+        let userLoc = await MainActor.run { self.locationManager.location }
+        let currentFavs = await MainActor.run { self.favoritesManager.favoriteRoutes }
+        let currentStopInfoDict = await MainActor.run { self.stopInfoDictionary }
+        let currentStopDict = await MainActor.run { self.stopDictionary }
+        let currentAllStops = await MainActor.run { self.allStops }
+        
+        await MainActor.run { isRefreshingFavorites = true }
+        
+        for fav in currentFavs {
+            let route = fav.route
+            let currentDir = fav.direction
+            
+            let routeStopUrl = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/route-stop/\(route)/\(currentDir)/1")!
+            let etaUrl = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/route-eta/\(route)/1")!
+            
+            do {
+                var routeStopReq = URLRequest(url: routeStopUrl)
+                routeStopReq.cachePolicy = .reloadIgnoringLocalCacheData
+                var etaReq = URLRequest(url: etaUrl)
+                etaReq.cachePolicy = .reloadIgnoringLocalCacheData
+                
+                async let fetchRouteStop = URLSession.shared.data(for: routeStopReq)
+                async let fetchEta = URLSession.shared.data(for: etaReq)
+                
+                let (routeStopData, _) = try await fetchRouteStop
+                let (etaData, _) = try await fetchEta
+                
+                let decoder = JSONDecoder()
+                let routeStopsResponse = try decoder.decode(RouteStopResponse.self, from: routeStopData).data
+                let allEtasResponse = try decoder.decode(ETAResponse.self, from: etaData).data
+                
+                let targetDirectionCode = currentDir == "outbound" ? "O" : "I"
+                let filteredEtas = allEtasResponse.filter { $0.dir == targetDirectionCode }
+                
+                var nearestStopCode: String? = routeStopsResponse.first?.stop
+                var nearestSeq: Int = Int(routeStopsResponse.first?.seq ?? "1") ?? 1
+                var nearestStopName: String = "未知車站"
+                
+                if let firstStopCode = nearestStopCode {
+                    nearestStopName = currentStopInfoDict[firstStopCode]?.name_tc ?? currentStopDict[firstStopCode] ?? "未知車站"
+                }
+                
+                // If location is available, find nearest stop instead
+                if let userLoc = userLoc {
+                    var minDistance: CLLocationDistance = .infinity
+                    for rs in routeStopsResponse {
+                        let loc: CLLocation? = currentStopInfoDict[rs.stop]?.clLocation ?? currentAllStops.first(where: { $0.stop == rs.stop })?.clLocation
+                        if let stopLoc = loc {
+                            let dist = userLoc.distance(from: stopLoc)
+                            if dist < minDistance {
+                                minDistance = dist
+                                nearestStopCode = rs.stop
+                                nearestSeq = Int(rs.seq) ?? 0
+                                nearestStopName = currentStopInfoDict[rs.stop]?.name_tc ?? currentStopDict[rs.stop] ?? "未知車站"
+                            }
+                        }
+                    }
+                }
+                
+                if let _ = nearestStopCode {
+                    let stopEtas = filteredEtas.filter { $0.seq == nearestSeq }
+                    let dateFormatter = ISO8601DateFormatter()
+                    var validDates: [Date] = []
+
+                    // 1. Convert all valid eta strings to Date objects
+                    for etaItem in stopEtas {
+                        if let etaString = etaItem.eta, let date = dateFormatter.date(from: etaString) {
+                            validDates.append(date)
+                        }
+                    }
+
+                    // 2. Sort chronologically so the soonest bus (e.g., 5 mins) comes before the later bus (e.g., 10 mins)
+                    validDates.sort()
+
+                    // 3. Grab the very first one!
+                    let firstEtaDate = validDates.first
+                    
+                    let favId = fav.id
+                    let etaInfo = FavoriteETA(stopName: nearestStopName, etaDate: firstEtaDate)
+                    
+                    await MainActor.run {
+                        self.favoriteETAs[favId] = etaInfo
+                    }
+                }
+            } catch {
+                print("Failed to fetch ETA for favorite \(fav.route): \(error)")
+                let favId = fav.id
+                await MainActor.run {
+                    self.favoriteETAs[favId] = FavoriteETA(stopName: "無法加載", etaDate: nil)
+                }
+            }
+        }
+        
+        await MainActor.run { isRefreshingFavorites = false }
     }
 }

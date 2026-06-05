@@ -448,7 +448,7 @@ struct NearbyDashboardSectionView: View {
                         let secondsLeft = etaDate.timeIntervalSince(currentTime)
                         let minutesLeft = Int(secondsLeft / 60)
                         
-                        if minutesLeft < 0 {
+                        if minutesLeft < -1 {
                             Text("遲到 \(-minutesLeft) 分鐘")
                                 .font(.system(size: 15, weight: .semibold, design: .rounded))
                                 .foregroundColor(.red)
@@ -522,7 +522,7 @@ struct NearbyDashboardSectionView: View {
                         let secondsLeft = etaDate.timeIntervalSince(currentTime)
                         let minutesLeft = Int(secondsLeft / 60)
                         
-                        if minutesLeft < 0 {
+                        if minutesLeft < -1 {
                             Text("遲到 \(-minutesLeft) 分鐘")
                                 .font(.system(size: 15, weight: .semibold, design: .rounded))
                                 .foregroundColor(.red)

@@ -310,6 +310,8 @@ extension ContentView {
                                     .font(.system(.body, design: .rounded))
                                     .fontWeight(.bold)
                                     .foregroundColor(.white)
+                                    .lineLimit(1) // Add this
+                                    .minimumScaleFactor(0.5) // Add this
                                     .frame(width: 64, height: 36)
                                     .background(RoundedRectangle(cornerRadius: 8).fill(Color(red: 0.65, green: 0.08, blue: 0.12)))
                                 

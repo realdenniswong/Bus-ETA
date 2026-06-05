@@ -377,6 +377,8 @@ struct NearbyDashboardSectionView: View {
                     .font(.system(.body, design: .rounded))
                     .fontWeight(.bold)
                     .foregroundColor(.white)
+                    .lineLimit(1) // Forces the text to stay on one line
+                    .minimumScaleFactor(0.5) // Allows the text to shrink up to 50% of its original size to fit
                     .frame(width: 64, height: 36)
                     .background(
                         RoundedRectangle(cornerRadius: 8)
@@ -466,6 +468,8 @@ struct NearbyDashboardSectionView: View {
                     .font(.system(.body, design: .rounded))
                     .fontWeight(.bold)
                     .foregroundColor(.white)
+                    .lineLimit(1) // Forces the text to stay on one line
+                    .minimumScaleFactor(0.5) // Allows the text to shrink up to 50% of its original size to fit
                     .frame(width: 64, height: 36)
                     .background(
                         RoundedRectangle(cornerRadius: 8)

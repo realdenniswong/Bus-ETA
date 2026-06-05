@@ -276,6 +276,10 @@ extension ContentView {
                 }
             }
         }
+        //當 showCustomKeyboard 係 true 嗰陣隱藏 Tab Bar
+        .toolbar(showCustomKeyboard ? .hidden : .visible, for: .tabBar)
+        //加個動畫令 Tab Bar 消失/出現嗰陣順滑啲
+        .animation(.easeInOut(duration: 0.2), value: showCustomKeyboard)
         .tabItem {
             Label("到站預報", systemImage: "bus.fill")
         }

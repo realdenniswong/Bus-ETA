@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg width="100%" height="100%" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xml:space="preserve" xmlns:serif="http://www.serif.com/" style="fill-rule:evenodd;clip-rule:evenodd;">
+    <path d="M1024,200L1024,824C1024,934.383 934.383,1024 824,1024L200,1024C89.617,1024 0,934.383 0,824L0,200C0,89.617 89.617,0 200,0L824,0C934.383,0 1024,89.617 1024,200Z" style="fill:rgb(242,242,242);stroke:rgb(224,224,224);stroke-width:10px;"/>
+    <rect x="362" y="0" width="300" height="1024" style="fill:rgb(169,169,169);"/>
+    <rect x="0" y="362" width="1024" height="300" style="fill:rgb(169,169,169);"/>
+    <path d="M362,100C362,274.667 274.667,362 100,362" style="fill:rgb(242,242,242);fill-rule:nonzero;"/>
+    <path d="M662,100C662,274.667 749.333,362 924,362" style="fill:rgb(242,242,242);fill-rule:nonzero;"/>
+    <path d="M362,924C362,749.333 274.667,662 100,662" style="fill:rgb(242,242,242);fill-rule:nonzero;"/>
+    <path d="M662,924C662,749.333 749.333,662 924,662" style="fill:rgb(242,242,242);fill-rule:nonzero;"/>
+    <path d="M362,0L362,362L0,362M662,0L662,362L1024,362M362,1024L362,662L0,662M662,1024L662,662L1024,662" style="fill:none;fill-rule:nonzero;stroke:white;stroke-width:20px;stroke-linecap:round;"/>
+    <path d="M512,0L512,300M512,686.115L512,1024M0,512L300,512M687.756,512L1024,512" style="fill:none;fill-rule:nonzero;stroke:white;stroke-width:15px;stroke-linecap:round;stroke-dasharray:30,45,30,45,30,45;stroke-dashoffset:30;"/>
+    <circle cx="512" cy="512" r="160" style="fill:white;stroke:rgb(63,169,245);stroke-width:15px;"/>
+    <path d="M512,512L630,400" style="fill:none;fill-rule:nonzero;stroke:black;stroke-width:25px;stroke-linecap:round;"/>
+    <path d="M512,512L430,470" style="fill:none;fill-rule:nonzero;stroke:black;stroke-width:35px;stroke-linecap:round;"/>
+    <circle cx="512" cy="512" r="15" style="fill:rgb(63,169,245);"/>
+</svg>

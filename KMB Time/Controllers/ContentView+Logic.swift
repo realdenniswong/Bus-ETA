@@ -6,7 +6,48 @@ import ActivityKit
 
 fileprivate class CSVRouteCache {
     static let shared = CSVRouteCache()
-    var routesForStop: [String: [(route: String, bound: String)]] = [:]
+    var routesForStop: [String: [(route: String, bound: String, seq: Int)]] = [:]
+}
+
+fileprivate class CTBStopResolver {
+    static let shared = CTBStopResolver()
+    
+    private var routeStopsCache: [String: [Int: String]] = [:]
+    private var lock = NSLock()
+    
+    func getRealStopId(route: String, bound: String, seq: Int) async -> String? {
+        let key = "\(route)-\(bound)"
+        
+        lock.lock()
+        if let stops = routeStopsCache[key] {
+            lock.unlock()
+            return stops[seq]
+        }
+        lock.unlock()
+        
+        let dirStr = bound == "O" ? "outbound" : "inbound"
+        let safeRoute = route.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? route
+        guard let url = URL(string: "https://rt.data.gov.hk/v2/transport/citybus/route-stop/CTB/\(safeRoute)/\(dirStr)") else { return nil }
+        
+        do {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            let response = try JSONDecoder().decode(CTBRouteStopResponse.self, from: data)
+            
+            var stopsDict: [Int: String] = [:]
+            for stopItem in response.data {
+                stopsDict[stopItem.seq] = stopItem.stop
+            }
+            
+            lock.lock()
+            routeStopsCache[key] = stopsDict
+            lock.unlock()
+            
+            return stopsDict[seq]
+        } catch {
+            print("🐛 [DEBUG] Failed to resolve CTB stop ID for \(route)-\(bound) seq \(seq): \(error)")
+            return nil
+        }
+    }
 }
 
 // MARK: - Controller / Business Logic
@@ -94,18 +135,21 @@ extension ContentView {
                     if let csvContent = try? String(contentsOfFile: csvPath, encoding: .utf8) {
                         let lines = csvContent.components(separatedBy: .newlines)
                         
-                        var tempRouteCache: [String: [(route: String, bound: String)]] = [:]
+                        var tempRouteCache: [String: [(route: String, bound: String, seq: Int)]] = [:]
                         
                         for (index, line) in lines.enumerated() {
                             if index == 0 || line.isEmpty { continue }
                             let columns = parseCSVLine(line)
                             if columns.count >= 12 {
                                 let routeSeq = columns[1].trimmingCharacters(in: .whitespacesAndNewlines) // 1=去程, 2=回程
+                                let stopSeqStr = columns[2].trimmingCharacters(in: .whitespacesAndNewlines)
                                 let stopId = columns[3].trimmingCharacters(in: .whitespacesAndNewlines)
                                 let stopNameCc = columns[5].trimmingCharacters(in: .whitespacesAndNewlines)
                                 let routeName = columns[9].trimmingCharacters(in: .whitespacesAndNewlines) // 如: E21
                                 let lonStr = columns[10].trimmingCharacters(in: .whitespacesAndNewlines)
                                 let latStr = columns[11].trimmingCharacters(in: .whitespacesAndNewlines)
+                                
+                                let stopSeq = Int(stopSeqStr) ?? 1
                                 
                                 // 將 CSV 的方向代碼轉換為 API 使用的 O (Outbound) 和 I (Inbound)
                                 let bound = (routeSeq == "1") ? "O" : "I"
@@ -113,8 +157,8 @@ extension ContentView {
                                 // 把路線加入該車站的專屬名單中
                                 if !stopId.isEmpty && !routeName.isEmpty {
                                     if tempRouteCache[stopId] == nil { tempRouteCache[stopId] = [] }
-                                    if !tempRouteCache[stopId]!.contains(where: { $0.route == routeName && $0.bound == bound }) {
-                                        tempRouteCache[stopId]!.append((route: routeName, bound: bound))
+                                    if !tempRouteCache[stopId]!.contains(where: { $0.route == routeName && $0.bound == bound && $0.seq == stopSeq }) {
+                                        tempRouteCache[stopId]!.append((route: routeName, bound: bound, seq: stopSeq))
                                     }
                                 }
                                 
@@ -301,37 +345,6 @@ extension ContentView {
             // ==========================================
             // 直接從我們一開始讀好的 CSV 中，拿出這座車站「理應包含」的所有城巴路線！
             let expectedCTBRoutes = CSVRouteCache.shared.routesForStop[stopId] ?? []
-            var fetchedCTBEtas: [String: [ETADisplayInfo]] = [:]
-            
-            // 呼叫一次城巴綜合 API，把目前有車的時間先收集起來
-            if let ctbStopUrl = URL(string: "https://rt.data.gov.hk/v2/transport/citybus/eta/CTB/\(stopId)/ALL") {
-                if let (eData, _) = try? await URLSession.shared.data(from: ctbStopUrl),
-                   let json = try? JSONSerialization.jsonObject(with: eData) as? [String: Any],
-                   let dataArr = json["data"] as? [[String: Any]] {
-                    
-                    for item in dataArr {
-                        let route = item["route"] as? String ?? ""
-                        let dirStr = item["dir"] as? String ?? "O"
-                        let itemEta = item["eta"] as? String ?? ""
-                        let itemRmk = item["rmk_tc"] as? String ?? ""
-                        
-                        guard !route.isEmpty, !itemEta.isEmpty else { continue }
-                        
-                        var date = dateFormatter.date(from: itemEta)
-                        if date == nil {
-                            dateFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-                            date = dateFormatter.date(from: itemEta)
-                            dateFormatter.formatOptions = [.withInternetDateTime]
-                        }
-                        
-                        if let validDate = date {
-                            let key = "\(route)-\(dirStr)"
-                            let displayInfo = ETADisplayInfo(etaDate: validDate, remark: itemRmk.isEmpty ? "城巴" : itemRmk)
-                            fetchedCTBEtas[key, default: []].append(displayInfo)
-                        }
-                    }
-                }
-            }
             
             // 🌟 核心魔法：根據 CSV 名單，確保每一條路線都有上榜！
             for expected in expectedCTBRoutes {
@@ -343,7 +356,35 @@ extension ContentView {
                 // 去找這條線的目的地名稱（若沒找到就顯示「城巴」）
                 let fallbackDest = currentRoutes.first(where: { $0.route == expected.route && $0.bound == expected.bound })?.destination ?? "城巴"
                 
-                var etas = fetchedCTBEtas[routeKey] ?? []
+                var etas: [ETADisplayInfo] = []
+                
+                // 🌟 透過 CTBStopResolver 解析出真正的 6 位數 API stopId
+                if let realStopId = await CTBStopResolver.shared.getRealStopId(route: expected.route, bound: expected.bound, seq: expected.seq) {
+                    if let etaUrl = URL(string: "https://rt.data.gov.hk/v2/transport/citybus/eta/CTB/\(realStopId)/\(expected.route)") {
+                        if let (eData, _) = try? await URLSession.shared.data(from: etaUrl),
+                           let json = try? JSONSerialization.jsonObject(with: eData) as? [String: Any],
+                           let dataArr = json["data"] as? [[String: Any]] {
+                            for item in dataArr {
+                                let itemDir = (item["dir"] as? String)?.uppercased() ?? ""
+                                let itemEta = item["eta"] as? String ?? ""
+                                let itemRmk = item["rmk_tc"] as? String ?? ""
+                                
+                                if itemDir == expected.bound, !itemEta.isEmpty {
+                                    var date = dateFormatter.date(from: itemEta)
+                                    if date == nil {
+                                        dateFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                                        date = dateFormatter.date(from: itemEta)
+                                        dateFormatter.formatOptions = [.withInternetDateTime]
+                                    }
+                                    if let validDate = date {
+                                        etas.append(ETADisplayInfo(etaDate: validDate, remark: itemRmk.isEmpty ? "城巴" : itemRmk))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                
                 etas.sort { ($0.etaDate ?? Date.distantFuture) < ($1.etaDate ?? Date.distantFuture) }
                 
                 // 🛡️ 無敵防禦：如果這條 CSV 寫明有的線，API 卻說沒 ETA（例如凌晨收車的 E21）
@@ -625,7 +666,37 @@ extension ContentView {
                         }
                     }
                 } else if let code = targetStopCode {
-                    targetId = results.first(where: { $0.stopId == code })?.id
+                    if let exactMatch = results.first(where: { $0.stopId == code }) {
+                        targetId = exactMatch.id
+                    } else {
+                        // 如果沒有精確匹配（例如城巴 CSV 的舊 ID 與 API 的新 6 位數 ID），我們透過名稱或經緯度來匹配
+                        let cleanTargetName = stopInfoDictionary[code]?.name_tc.replacingOccurrences(of: "\\s*\\([^)]+\\)\\s*$", with: "", options: .regularExpression) ?? ""
+                        
+                        let targetLoc = stopInfoDictionary[code]?.clLocation
+                        
+                        // 先嘗試名稱匹配
+                        if let nameMatch = results.first(where: { rs in
+                            let cleanRsName = rs.stopNameTc.replacingOccurrences(of: "\\s*\\([^)]+\\)\\s*$", with: "", options: .regularExpression)
+                            return !cleanTargetName.isEmpty && cleanRsName == cleanTargetName
+                        }) {
+                            targetId = nameMatch.id
+                        } else if let targetLoc = targetLoc {
+                            // 再嘗試距離最接近匹配（小於 100 米）
+                            var minD: CLLocationDistance = 100
+                            var bestRs: StopDisplayModel? = nil
+                            for rs in results {
+                                let loc: CLLocation? = rs.location ?? stopInfoDictionary[rs.stopId]?.clLocation
+                                if let stopLoc = loc {
+                                    let d = targetLoc.distance(from: stopLoc)
+                                    if d < minD {
+                                        minD = d
+                                        bestRs = rs
+                                    }
+                                }
+                            }
+                            targetId = bestRs?.id
+                        }
+                    }
                 } else {
                     targetId = highlightedStopId
                 }

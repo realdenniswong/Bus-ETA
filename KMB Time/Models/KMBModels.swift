@@ -5,7 +5,6 @@
 //  Created by Dennis Wong on 6/4/26.
 //
 
-
 import Foundation
 import CoreLocation
 
@@ -32,6 +31,7 @@ struct RouteStop: Codable {
     let stop: String
 }
 
+// 🌟 共用 ETA 模型 (九巴與城巴的 JSON 結構相容)
 struct ETAResponse: Codable { let data: [ETAItem] }
 struct ETAItem: Codable {
     let seq: Int
@@ -52,6 +52,7 @@ struct StopDisplayModel: Identifiable {
     let stopId: String
     let stopNameTc: String
     let etas: [ETADisplayInfo]
+    var location: CLLocation? = nil // 🌟 新增：用於城巴計算最近車站
 }
 
 struct NearbyStopModel: Identifiable {
@@ -94,6 +95,7 @@ struct RouteItem: Codable {
 }
 
 struct RouteSuggestion: Hashable {
+    let co: String       // 🌟 新增："KMB" 或 "CTB"
     let route: String
     let bound: String
     let origin: String
@@ -105,10 +107,26 @@ struct ActiveTimerModel: Identifiable, Equatable {
     let id = UUID()
     let routeName: String
     let destination: String
-    var etaDate: Date            
-    var targetAlertDate: Date    
+    var etaDate: Date
+    var targetAlertDate: Date
     let startTime: Date
-    let stopId: String           
-    let direction: String        
-    let stationName: String      
+    let stopId: String
+    let direction: String
+    let stationName: String
 }
+
+// MARK: - 城巴 (CTB) 專用 Models 🌟
+struct CTBRouteResponse: Codable { let data: [CTBRouteItem] }
+struct CTBRouteItem: Codable {
+    let route: String
+    let orig_tc: String
+    let dest_tc: String
+}
+
+struct CTBRouteStopResponse: Codable { let data: [CTBRouteStop] }
+struct CTBRouteStop: Codable {
+    let seq: Int
+    let stop: String
+}
+
+struct CTBStopResponse: Codable { let data: StopInfo }

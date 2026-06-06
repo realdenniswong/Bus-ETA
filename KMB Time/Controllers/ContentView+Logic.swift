@@ -9,22 +9,46 @@ extension ContentView {
     
     // MARK: - Network Functions
     func loadAllRoutes() async {
-        guard let url = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/route/") else { return }
+        guard let kmbUrl = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/route/"),
+              let ctbUrl = URL(string: "https://rt.data.gov.hk/v2/transport/citybus/route/CTB") else { return }
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
-            let response = try JSONDecoder().decode(AllRoutesResponse.self, from: data)
+            async let fetchKMB = URLSession.shared.data(from: kmbUrl)
+            async let fetchCTB = URLSession.shared.data(from: ctbUrl)
+            
+            let (kmbData, _) = try await fetchKMB
+            let kmbResponse = try JSONDecoder().decode(AllRoutesResponse.self, from: kmbData)
+            
+            let (ctbData, _) = try await fetchCTB
+            let ctbResponse = try JSONDecoder().decode(CTBRouteResponse.self, from: ctbData)
             
             var uniqueSuggestions: [String: RouteSuggestion] = [:]
             
-            for item in response.data {
+            // 1. 載入九巴路線 (打底)
+            for item in kmbResponse.data {
                 let key = "\(item.route)-\(item.bound)"
                 if uniqueSuggestions[key] == nil {
-                    uniqueSuggestions[key] = RouteSuggestion(
-                        route: item.route,
-                        bound: item.bound,
-                        origin: item.orig_tc,
-                        destination: item.dest_tc
-                    )
+                    uniqueSuggestions[key] = RouteSuggestion(co: "KMB", route: item.route, bound: item.bound, origin: item.orig_tc, destination: item.dest_tc)
+                }
+            }
+            
+            // 2. 載入城巴路線 (比對聯營)
+            for item in ctbResponse.data {
+                // 處理去程 (O)
+                let keyO = "\(item.route)-O"
+                if uniqueSuggestions[keyO] != nil {
+                    // 已經存在於九巴字典中 -> 這是聯營線！
+                    uniqueSuggestions[keyO] = RouteSuggestion(co: "JOINT", route: item.route, bound: "O", origin: item.orig_tc, destination: item.dest_tc)
+                } else {
+                    // 九巴沒有 -> 這是城巴獨營線
+                    uniqueSuggestions[keyO] = RouteSuggestion(co: "CTB", route: item.route, bound: "O", origin: item.orig_tc, destination: item.dest_tc)
+                }
+                
+                // 處理回程 (I)
+                let keyI = "\(item.route)-I"
+                if uniqueSuggestions[keyI] != nil {
+                    uniqueSuggestions[keyI] = RouteSuggestion(co: "JOINT", route: item.route, bound: "I", origin: item.dest_tc, destination: item.orig_tc)
+                } else {
+                    uniqueSuggestions[keyI] = RouteSuggestion(co: "CTB", route: item.route, bound: "I", origin: item.dest_tc, destination: item.orig_tc)
                 }
             }
             
@@ -37,7 +61,7 @@ extension ContentView {
                 self.allRoutes = sortedRoutes
             }
         } catch {
-            print("Failed to load all routes: \(error)")
+            print("🐛 [DEBUG] Failed to load all routes: \(error)")
         }
     }
     
@@ -165,117 +189,292 @@ extension ContentView {
     }
     
     func searchRoute(route: String, direction: String? = nil, findNearest: Bool = false, targetStopCode: String? = nil, shouldScroll: Bool = false, isRefresh: Bool = false) async {
-        guard !route.isEmpty else { return }
-        
-        print("🐛 [DEBUG] 開始搜尋路線: \(route) | findNearest: \(findNearest) | shouldScroll: \(shouldScroll)")
-        
-        let currentDir = direction ?? self.selectedDirection
-        
-        await MainActor.run {
-            if let newDir = direction {
-                self.selectedDirection = newDir
+            guard !route.isEmpty else { return }
+            
+            let currentDir = direction ?? self.selectedDirection
+            let company = allRoutes.first(where: { $0.route == route })?.co ?? "KMB"
+            
+            await MainActor.run {
+                if let newDir = direction { self.selectedDirection = newDir }
+                if !isRefresh { isLoading = true; displayData = []; highlightedStopId = nil }
             }
-            if !isRefresh {
-                isLoading = true
-                displayData = []
-                highlightedStopId = nil
-            }
-        }
-        
-        let routeStopUrl = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/route-stop/\(route)/\(currentDir)/1")!
-        let etaUrl = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/route-eta/\(route)/1")!
-        
-        do {
-            var routeStopReq = URLRequest(url: routeStopUrl)
-            routeStopReq.cachePolicy = .reloadIgnoringLocalCacheData
             
-            var etaReq = URLRequest(url: etaUrl)
-            etaReq.cachePolicy = .reloadIgnoringLocalCacheData
-            
-            async let fetchRouteStop = URLSession.shared.data(for: routeStopReq)
-            async let fetchEta = URLSession.shared.data(for: etaReq)
-            
-            let (routeStopData, _) = try await fetchRouteStop
-            let (etaData, _) = try await fetchEta
-            
-            let decoder = JSONDecoder()
-            let routeStops = try await decoder.decode(RouteStopResponse.self, from: routeStopData).data
-            let allEtas = try await decoder.decode(ETAResponse.self, from: etaData).data
-            
-            let targetDirectionCode = currentDir == "outbound" ? "O" : "I"
-            let filteredEtas = allEtas.filter { $0.dir == targetDirectionCode }
-            
-            let dateFormatter = ISO8601DateFormatter()
-            var results: [StopDisplayModel] = []
-            
-            for routeStop in routeStops {
-                let stopNameTc: String
-                if let stopInfo = stopInfoDictionary[routeStop.stop] {
-                    stopNameTc = stopInfo.name_tc
-                } else {
-                    stopNameTc = stopDictionary[routeStop.stop] ?? "未知車站"
+            do {
+                var results: [StopDisplayModel] = []
+                let targetDirectionCode = currentDir == "outbound" ? "O" : "I"
+                let dateFormatter = ISO8601DateFormatter()
+                
+                let safeRoute = route.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? route
+                
+                // ==========================================
+                // 🔴 九巴 (KMB) 處理邏輯
+                // ==========================================
+                if company == "KMB" {
+                    let routeStopUrl = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/route-stop/\(safeRoute)/\(currentDir)/1")!
+                    let etaUrl = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/route-eta/\(safeRoute)/1")!
+                    
+                    var routeStopReq = URLRequest(url: routeStopUrl)
+                    routeStopReq.cachePolicy = .reloadIgnoringLocalCacheData
+                    var etaReq = URLRequest(url: etaUrl)
+                    etaReq.cachePolicy = .reloadIgnoringLocalCacheData
+                    
+                    async let fetchRouteStop = URLSession.shared.data(for: routeStopReq)
+                    async let fetchEta = URLSession.shared.data(for: etaReq)
+                    
+                    let (routeStopData, _) = try await fetchRouteStop
+                    let (etaData, _) = try await fetchEta
+                    
+                    let decoder = JSONDecoder()
+                    let routeStops = try await decoder.decode(RouteStopResponse.self, from: routeStopData).data
+                    let allEtas = try await decoder.decode(ETAResponse.self, from: etaData).data
+                    let filteredEtas = allEtas.filter { $0.dir == targetDirectionCode }
+                    
+                    for routeStop in routeStops {
+                        let stopNameTc = stopInfoDictionary[routeStop.stop]?.name_tc ?? stopDictionary[routeStop.stop] ?? "未知車站"
+                        let seqInt = Int(routeStop.seq) ?? 0
+                        let stopEtas = filteredEtas.filter { $0.seq == seqInt }
+                        
+                        var parsedEtas: [ETADisplayInfo] = []
+                        for etaItem in stopEtas {
+                            if let etaString = etaItem.eta, !etaString.isEmpty, let etaDate = dateFormatter.date(from: etaString) {
+                                parsedEtas.append(ETADisplayInfo(etaDate: etaDate, remark: etaItem.rmk_tc))
+                            }
+                        }
+                        results.append(StopDisplayModel(seq: seqInt, stopId: routeStop.stop, stopNameTc: stopNameTc, etas: parsedEtas))
+                    }
                 }
-                
-                let seqInt = Int(routeStop.seq) ?? 0
-                let stopEtas = filteredEtas.filter { $0.seq == seqInt }
-                
-                var parsedEtas: [ETADisplayInfo] = []
-                for etaItem in stopEtas {
-                    if let etaString = etaItem.eta, let etaDate = dateFormatter.date(from: etaString) {
-                        parsedEtas.append(ETADisplayInfo(etaDate: etaDate, remark: etaItem.rmk_tc))
+                // ==========================================
+                // 🟡 城巴 (CTB) 處理邏輯
+                // ==========================================
+                else if company == "CTB" {
+                    let dirStr = currentDir == "outbound" ? "outbound" : "inbound"
+                    let routeStopUrl = URL(string: "https://rt.data.gov.hk/v2/transport/citybus/route-stop/CTB/\(safeRoute)/\(dirStr)")!
+                    
+                    var routeStopReq = URLRequest(url: routeStopUrl)
+                    routeStopReq.cachePolicy = .reloadIgnoringLocalCacheData
+                    let (rsData, _) = try await URLSession.shared.data(for: routeStopReq)
+                    let routeStops = try JSONDecoder().decode(CTBRouteStopResponse.self, from: rsData).data
+                    
+                    results = await withTaskGroup(of: StopDisplayModel?.self) { group in
+                        for rs in routeStops {
+                            group.addTask {
+                                var stopNameTc = "車站 \(rs.stop)"
+                                var location: CLLocation? = nil
+                                
+                                // 1. 取車站名稱
+                                do {
+                                    let stopUrl = URL(string: "https://rt.data.gov.hk/v2/transport/citybus/stop/\(rs.stop)")!
+                                    var sReq = URLRequest(url: stopUrl)
+                                    sReq.cachePolicy = .returnCacheDataElseLoad
+                                    let (sData, _) = try await URLSession.shared.data(for: sReq)
+                                    let stopInfo = try JSONDecoder().decode(CTBStopResponse.self, from: sData).data
+                                    stopNameTc = stopInfo.name_tc
+                                    location = stopInfo.clLocation
+                                } catch { }
+                                
+                                // 2. 取此站 ETA (🌟 改用 JSONSerialization 動態解析，徹底避免 Codable 型別閃退)
+                                var parsedEtas: [ETADisplayInfo] = []
+                                do {
+                                    let etaUrl = URL(string: "https://rt.data.gov.hk/v2/transport/citybus/eta/CTB/\(rs.stop)/\(safeRoute)")!
+                                    
+                                    print("🐛 [DEBUG] CTB API URL: \(etaUrl.absoluteString)")
+                                    
+                                    var eReq = URLRequest(url: etaUrl)
+                                    eReq.cachePolicy = .reloadIgnoringLocalCacheData
+                                    let (eData, _) = try await URLSession.shared.data(for: eReq)
+                                    
+                                    if let json = try JSONSerialization.jsonObject(with: eData) as? [String: Any],
+                                       let dataArr = json["data"] as? [[String: Any]] {
+                                        
+                                        let formatter = ISO8601DateFormatter()
+                                        
+                                        for item in dataArr {
+                                            let itemDir = (item["dir"] as? String)?.uppercased() ?? ""
+                                            
+                                            // 🌟 寬鬆解析 seq (防範 API 隨機傳回 String 或 Int)
+                                            var itemSeq = -1
+                                            if let sInt = item["seq"] as? Int { itemSeq = sInt }
+                                            else if let sStr = item["seq"] as? String, let sParsed = Int(sStr) { itemSeq = sParsed }
+                                            
+                                            let itemEta = item["eta"] as? String ?? ""
+                                            let itemRmk = item["rmk_tc"] as? String ?? ""
+                                            
+                                            if itemDir == targetDirectionCode, !itemEta.isEmpty {
+                                                // 🌟 只要 seq 吻合，或是 API 根本沒給 seq (itemSeq == -1) 就強制放行
+                                                if itemSeq == rs.seq || itemSeq == -1 {
+                                                    var etaDate = formatter.date(from: itemEta)
+                                                    if etaDate == nil {
+                                                        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                                                        etaDate = formatter.date(from: itemEta)
+                                                        formatter.formatOptions = [.withInternetDateTime]
+                                                    }
+                                                    
+                                                    if let validDate = etaDate {
+                                                        parsedEtas.append(ETADisplayInfo(etaDate: validDate, remark: itemRmk))
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                } catch { }
+                                
+                                // 🌟 確保解析出來的 ETA 乖乖由近到遠排序
+                                parsedEtas.sort { ($0.etaDate ?? Date.distantFuture) < ($1.etaDate ?? Date.distantFuture) }
+                                
+                                return StopDisplayModel(seq: rs.seq, stopId: rs.stop, stopNameTc: stopNameTc, etas: parsedEtas, location: location)
+                            }
+                        }
+                        
+                        var collected = [StopDisplayModel]()
+                        for await model in group {
+                            if let m = model { collected.append(m) }
+                        }
+                        return collected.sorted { $0.seq < $1.seq }
+                    }
+                }
+                // ==========================================
+                // 🟢 聯營線 (JOINT) 合併邏輯！
+                // ==========================================
+                else if company == "JOINT" {
+                    let dirStr = currentDir == "outbound" ? "outbound" : "inbound"
+                    
+                    // 1. 準備兩家公司的 URL
+                    let kmbRouteStopUrl = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/route-stop/\(safeRoute)/\(currentDir)/1")!
+                    let kmbEtaUrl = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/route-eta/\(safeRoute)/1")!
+                    let ctbRouteStopUrl = URL(string: "https://rt.data.gov.hk/v2/transport/citybus/route-stop/CTB/\(safeRoute)/\(dirStr)")!
+                    
+                    // 2. 併發下載基礎資料 (九巴車站、九巴全線ETA、城巴車站)
+                    async let fetchKmbRs = URLSession.shared.data(from: kmbRouteStopUrl)
+                    async let fetchKmbEta = URLSession.shared.data(from: kmbEtaUrl)
+                    async let fetchCtbRs = URLSession.shared.data(from: ctbRouteStopUrl)
+                    
+                    let (kmbRsData, _) = try await fetchKmbRs
+                    let (kmbEtaData, _) = try await fetchKmbEta
+                    let ctbRsResponse = try? await fetchCtbRs
+                    let ctbRsData = ctbRsResponse?.0
+                    
+                    let kmbStops = try JSONDecoder().decode(RouteStopResponse.self, from: kmbRsData).data
+                    let kmbEtas = try JSONDecoder().decode(ETAResponse.self, from: kmbEtaData).data.filter { $0.dir == targetDirectionCode }
+                    let ctbStops = (try? JSONDecoder().decode(CTBRouteStopResponse.self, from: ctbRsData ?? Data()).data) ?? []
+                    
+                    // 3. 利用 TaskGroup 瞬間拉取城巴全線 ETA (加入防封鎖微延遲)
+                    let ctbEtaDict = await withTaskGroup(of: (Int, [ETADisplayInfo]).self) { group in
+                        for (index, ctbStop) in ctbStops.enumerated() {
+                            group.addTask {
+                                try? await Task.sleep(nanoseconds: UInt64(index) * 20_000_000) // 防封鎖機制
+                                var etas: [ETADisplayInfo] = []
+                                
+                                if let url = URL(string: "https://rt.data.gov.hk/v2/transport/citybus/eta/CTB/\(ctbStop.stop)/\(safeRoute)"),
+                                   let (data, _) = try? await URLSession.shared.data(from: url) {
+                                    
+                                    // 動態寬鬆解析 CTB ETA
+                                    if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                                       let dataArr = json["data"] as? [[String: Any]] {
+                                        
+                                        let formatter = ISO8601DateFormatter()
+                                        for item in dataArr {
+                                            let itemDir = (item["dir"] as? String)?.uppercased() ?? ""
+                                            let itemEta = item["eta"] as? String ?? ""
+                                            
+                                            if itemDir == targetDirectionCode, !itemEta.isEmpty {
+                                                var etaDate = formatter.date(from: itemEta)
+                                                if etaDate == nil {
+                                                    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                                                    etaDate = formatter.date(from: itemEta)
+                                                    formatter.formatOptions = [.withInternetDateTime]
+                                                }
+                                                if let validDate = etaDate {
+                                                    etas.append(ETADisplayInfo(etaDate: validDate, remark: item["rmk_tc"] as? String))
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                return (ctbStop.seq, etas) // 回傳：(車站序號, [ETA時間])
+                            }
+                        }
+                        var dict = [Int: [ETADisplayInfo]]()
+                        for await (seq, etas) in group { dict[seq] = etas }
+                        return dict
+                    }
+                    
+                    // 4. 以「九巴車站」為骨幹，開始縫合 ETA 數據
+                    for kmbStop in kmbStops {
+                        let seqInt = Int(kmbStop.seq) ?? 0
+                        let stopNameTc = stopInfoDictionary[kmbStop.stop]?.name_tc ?? stopDictionary[kmbStop.stop] ?? "未知車站"
+                        var combinedEtas: [ETADisplayInfo] = []
+                        
+                        // A. 塞入九巴的時間 (並加上 "九巴" 標籤)
+                        for etaItem in kmbEtas.filter({ $0.seq == seqInt }) {
+                            if let etaStr = etaItem.eta, !etaStr.isEmpty, let date = dateFormatter.date(from: etaStr) {
+                                let rawRmk = etaItem.rmk_tc ?? ""
+                                let finalRmk = rawRmk.isEmpty ? "九巴" : "九巴 - \(rawRmk)"
+                                combinedEtas.append(ETADisplayInfo(etaDate: date, remark: finalRmk))
+                            }
+                        }
+                        
+                        // B. 塞入城巴的時間 (利用同一個 seqInt 去找對應的車站，加上 "城巴" 標籤)
+                        if let ctbEtas = ctbEtaDict[seqInt] {
+                            for ctbEta in ctbEtas {
+                                let rawRmk = ctbEta.remark ?? ""
+                                let finalRmk = rawRmk.isEmpty ? "城巴" : "城巴 - \(rawRmk)"
+                                combinedEtas.append(ETADisplayInfo(etaDate: ctbEta.etaDate, remark: finalRmk))
+                            }
+                        }
+                        
+                        // C. 重新排序：不管是九巴還城巴，誰先到就排前面！
+                        combinedEtas.sort { ($0.etaDate ?? Date.distantFuture) < ($1.etaDate ?? Date.distantFuture) }
+                        
+                        // D. 取前三班車，存入結果
+                        results.append(StopDisplayModel(seq: seqInt, stopId: kmbStop.stop, stopNameTc: stopNameTc, etas: Array(combinedEtas.prefix(3))))
                     }
                 }
                 
-                results.append(StopDisplayModel(seq: seqInt, stopId: routeStop.stop, stopNameTc: stopNameTc, etas: parsedEtas))
-            }
-            
-            var targetId: String? = nil
-            if findNearest {
-                if let userLoc = locationManager.location, !results.isEmpty {
-                    var minDistance: CLLocationDistance = .infinity
-                    for rs in results {
-                        let loc: CLLocation? = stopInfoDictionary[rs.stopId]?.clLocation ?? allStops.first(where: { $0.stop == rs.stopId })?.clLocation
-                        if let stopLoc = loc {
-                            let dist = userLoc.distance(from: stopLoc)
-                            if dist < minDistance {
-                                minDistance = dist
-                                targetId = rs.id
+                
+                // ==========================================
+                // 共用邏輯：計算最近車站與 UI 更新
+                // ==========================================
+                var targetId: String? = nil
+                if findNearest {
+                    if let userLoc = locationManager.location, !results.isEmpty {
+                        var minDistance: CLLocationDistance = .infinity
+                        for rs in results {
+                            let loc: CLLocation? = rs.location ?? stopInfoDictionary[rs.stopId]?.clLocation ?? allStops.first(where: { $0.stop == rs.stopId })?.clLocation
+                            if let stopLoc = loc {
+                                let dist = userLoc.distance(from: stopLoc)
+                                if dist < minDistance {
+                                    minDistance = dist
+                                    targetId = rs.id
+                                }
                             }
                         }
                     }
-                }
-            } else if let code = targetStopCode {
-                targetId = results.first(where: { $0.stopId == code })?.id
-            } else {
-                targetId = highlightedStopId
-            }
-            
-            await MainActor.run {
-                self.highlightedStopId = targetId
-                
-                if results.isEmpty {
-                    systemMessage = "沒有找到路線 \(route) 的 \(currentDir == "outbound" ? "去程" : "回程") 班次數據。"
-                    if !isRefresh { displayData = [] }
+                } else if let code = targetStopCode {
+                    targetId = results.first(where: { $0.stopId == code })?.id
                 } else {
-                    displayData = results
+                    targetId = highlightedStopId
                 }
                 
-                if shouldScroll {
-                    self.scrollTriggerId = UUID()
+                await MainActor.run {
+                    self.highlightedStopId = targetId
+                    
+                    if results.isEmpty {
+                        systemMessage = "沒有找到路線 \(route) 的 \(currentDir == "outbound" ? "去程" : "回程") 班次數據。"
+                        if !isRefresh { displayData = [] }
+                    } else {
+                        displayData = results
+                    }
+                    
+                    if shouldScroll { self.scrollTriggerId = UUID() }
+                    if !isRefresh { isLoading = false }
                 }
-                
-                if !isRefresh { isLoading = false }
-            }
-        } catch {
-            await MainActor.run {
-                systemMessage = "無法加載數據或找不到此路線。"
-                if !isRefresh {
-                    displayData = []
-                    isLoading = false
+            } catch {
+                await MainActor.run {
+                    systemMessage = "無法加載數據或找不到此路線。"
+                    if !isRefresh { displayData = []; isLoading = false }
                 }
             }
         }
-    }
     
     // MARK: - 實時背景同步與追蹤更新函數
     func syncActiveTimer() async {

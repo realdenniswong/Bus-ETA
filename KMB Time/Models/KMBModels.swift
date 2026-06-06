@@ -130,3 +130,11 @@ struct CTBRouteStop: Codable {
 }
 
 struct CTBStopResponse: Codable { let data: StopInfo }
+
+struct CTBStopCSVItem {
+    let routeName: String
+    let stopId: String
+    let stopNameCc: String
+    let longitude: Double
+    let latitude: Double
+}

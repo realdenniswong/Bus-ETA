@@ -4,6 +4,11 @@ import Combine
 import UserNotifications
 import ActivityKit
 
+fileprivate class CSVRouteCache {
+    static let shared = CSVRouteCache()
+    var routesForStop: [String: [(route: String, bound: String)]] = [:]
+}
+
 // MARK: - Controller / Business Logic
 extension ContentView {
     
@@ -65,32 +70,95 @@ extension ContentView {
         }
     }
     
-    func loadAllStops() async {
-        guard let url = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/stop/") else { return }
-        do {
-            let (data, _) = try await URLSession.shared.data(from: url)
-            let response = try JSONDecoder().decode(StopResponse.self, from: data)
-            
-            var newDict: [String: String] = [:]
-            var newInfoDict: [String: StopInfo] = [:]
-            for stop in response.data {
-                newDict[stop.stop] = stop.name_tc
-                newInfoDict[stop.stop] = stop
+    // 替換你原本 ContentView+Logic.swift 裡的 loadAllStops() 函數
+    // MARK: - 1. 完美融合九巴 API 與城巴 CSV 站點
+        func loadAllStops() async {
+            guard let url = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/stop/") else { return }
+            do {
+                let (data, _) = try await URLSession.shared.data(from: url)
+                let response = try JSONDecoder().decode(StopResponse.self, from: data)
+                
+                var newDict: [String: String] = [:]
+                var newInfoDict: [String: StopInfo] = [:]
+                
+                for stop in response.data {
+                    if let latStr = stop.lat, let lonStr = stop.long,
+                       let lat = Double(latStr), let lon = Double(lonStr), lat != 0.0, lon != 0.0 {
+                        newDict[stop.stop] = stop.name_tc
+                        newInfoDict[stop.stop] = stop
+                    }
+                }
+                
+                // 🌟 核心修改：利用你的 CSV，把城巴的路線底牌翻出來！
+                if let csvPath = Bundle.main.path(forResource: "ctb_routes_all_stops", ofType: "csv") {
+                    if let csvContent = try? String(contentsOfFile: csvPath, encoding: .utf8) {
+                        let lines = csvContent.components(separatedBy: .newlines)
+                        
+                        var tempRouteCache: [String: [(route: String, bound: String)]] = [:]
+                        
+                        for (index, line) in lines.enumerated() {
+                            if index == 0 || line.isEmpty { continue }
+                            let columns = parseCSVLine(line)
+                            if columns.count >= 12 {
+                                let routeSeq = columns[1].trimmingCharacters(in: .whitespacesAndNewlines) // 1=去程, 2=回程
+                                let stopId = columns[3].trimmingCharacters(in: .whitespacesAndNewlines)
+                                let stopNameCc = columns[5].trimmingCharacters(in: .whitespacesAndNewlines)
+                                let routeName = columns[9].trimmingCharacters(in: .whitespacesAndNewlines) // 如: E21
+                                let lonStr = columns[10].trimmingCharacters(in: .whitespacesAndNewlines)
+                                let latStr = columns[11].trimmingCharacters(in: .whitespacesAndNewlines)
+                                
+                                // 將 CSV 的方向代碼轉換為 API 使用的 O (Outbound) 和 I (Inbound)
+                                let bound = (routeSeq == "1") ? "O" : "I"
+                                
+                                // 把路線加入該車站的專屬名單中
+                                if !stopId.isEmpty && !routeName.isEmpty {
+                                    if tempRouteCache[stopId] == nil { tempRouteCache[stopId] = [] }
+                                    if !tempRouteCache[stopId]!.contains(where: { $0.route == routeName && $0.bound == bound }) {
+                                        tempRouteCache[stopId]!.append((route: routeName, bound: bound))
+                                    }
+                                }
+                                
+                                // 同時補齊純城巴站點的座標
+                                if let lat = Double(latStr), let lon = Double(lonStr), lat != 0.0, lon != 0.0 {
+                                    if newDict[stopId] == nil {
+                                        newDict[stopId] = stopNameCc
+                                        newInfoDict[stopId] = StopInfo(stop: stopId, name_tc: stopNameCc, lat: latStr, long: lonStr)
+                                    }
+                                }
+                            }
+                        }
+                        CSVRouteCache.shared.routesForStop = tempRouteCache
+                    }
+                }
+                
+                await MainActor.run {
+                    self.allStops = Array(newInfoDict.values)
+                    self.stopDictionary = newDict
+                    self.stopInfoDictionary = newInfoDict
+                }
+                
+                if let userLoc = locationManager.location {
+                    await updateNearbyStops(userLocation: userLoc)
+                }
+            } catch {
+                print("Failed to load stops dictionary: \(error)")
             }
-            
-            await MainActor.run {
-                self.allStops = response.data
-                self.stopDictionary = newDict
-                self.stopInfoDictionary = newInfoDict
-            }
-            
-            if let userLoc = locationManager.location {
-                await updateNearbyStops(userLocation: userLoc)
-            }
-        } catch {
-            print("Failed to load stops dictionary: \(error)")
         }
-    }
+        
+        func parseCSVLine(_ line: String) -> [String] {
+            var result: [String] = []
+            var current = ""
+            var insideQuotes = false
+            for char in line {
+                if char == "\"" { insideQuotes.toggle() }
+                else if char == "," && !insideQuotes {
+                    result.append(current)
+                    current = ""
+                } else { current.append(char) }
+            }
+            result.append(current)
+            return result
+        }
     
     func updateNearbyStops(userLocation: CLLocation) async {
         guard !allStops.isEmpty else { return }
@@ -141,136 +209,158 @@ extension ContentView {
         }
     }
     
+    // MARK: - 3. 跨平台抓取九巴與城巴 ETA
     func fetchRoutesForStop(stopId: String) async -> [NearbyRouteModel] {
-            guard let url = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/stop-eta/\(stopId)") else { return [] }
-            
-            // 🌟 Safely grab the current known routes from the MainActor
             let currentRoutes = await MainActor.run { self.allRoutes }
+            let dateFormatter = ISO8601DateFormatter()
+            var finalRouteModels: [NearbyRouteModel] = []
+            var processedKMBRouteBounds = Set<String>() // 紀錄九巴已經處理過的路線
             
-            do {
-                var request = URLRequest(url: url)
-                request.cachePolicy = .reloadIgnoringLocalCacheData
-                
-                let (data, _) = try await URLSession.shared.data(for: request)
-                let response = try JSONDecoder().decode(StopETAResponse.self, from: data)
-                
-                var grouped: [String: [StopETAItem]] = [:]
-                            
-                for item in response.data {
-                    guard item.service_type == 1 else { continue }
+            // ==========================================
+            // 🔴 1. 九巴端 ETA 數據
+            // ==========================================
+            if let kmbUrl = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/stop-eta/\(stopId)") {
+                if let (data, _) = try? await URLSession.shared.data(from: kmbUrl),
+                   let response = try? JSONDecoder().decode(StopETAResponse.self, from: data) {
                     
-                    let key = "\(item.route)-\(item.dir)-\(item.dest_tc)"
-                    grouped[key, default: []].append(item)
-                }
-                
-                // 🌟 Use a TaskGroup to process routes and fetch CTB ETAs concurrently without freezing the UI
-                let finalRoutes = await withTaskGroup(of: NearbyRouteModel?.self) { group in
-                    for (_, items) in grouped {
-                        guard let first = items.first else { continue }
-                        
-                        group.addTask {
-                            let sortedItems = items.sorted { $0.eta_seq < $1.eta_seq }
-                            var etaInfos: [ETADisplayInfo] = []
-                            let dateFormatter = ISO8601DateFormatter()
-                            
-                            let boundCode = first.dir // "O" or "I"
-                            let dirStr = boundCode == "O" ? "outbound" : "inbound"
-                            
-                            // 1. Check if this specific route and direction is a JOINT route
-                            let isJoint = currentRoutes.contains(where: { $0.route == first.route && $0.bound == boundCode && $0.co == "JOINT" })
-                            
-                            // 2. Parse KMB ETAs
-                            for etaItem in sortedItems {
-                                if let etaString = etaItem.eta, let etaDate = dateFormatter.date(from: etaString) {
-                                    let rawRmk = etaItem.rmk_tc ?? ""
-                                    // If joint, label it clearly. If solo, leave standard remarks.
-                                    let finalRmk = (isJoint && rawRmk.isEmpty) ? "九巴" : (!isJoint ? rawRmk : "九巴 - \(rawRmk)")
-                                    etaInfos.append(ETADisplayInfo(etaDate: etaDate, remark: finalRmk))
+                    var groupedKMB: [String: [StopETAItem]] = [:]
+                    for item in response.data where item.service_type == 1 {
+                        let key = "\(item.route)-\(item.dir)-\(item.dest_tc)"
+                        groupedKMB[key, default: []].append(item)
+                    }
+                    
+                    let kmbRoutes = await withTaskGroup(of: NearbyRouteModel?.self) { group in
+                        for (_, items) in groupedKMB {
+                            guard let first = items.first else { continue }
+                            group.addTask {
+                                let sortedItems = items.sorted { $0.eta_seq < $1.eta_seq }
+                                var etaInfos: [ETADisplayInfo] = []
+                                let boundCode = first.dir
+                                let dirStr = boundCode == "O" ? "outbound" : "inbound"
+                                
+                                let isJoint = currentRoutes.contains(where: { $0.route == first.route && $0.bound == boundCode && $0.co == "JOINT" })
+                                
+                                for etaItem in sortedItems {
+                                    if let etaString = etaItem.eta, let etaDate = dateFormatter.date(from: etaString) {
+                                        let rawRmk = etaItem.rmk_tc ?? ""
+                                        let finalRmk = (isJoint && rawRmk.isEmpty) ? "九巴" : (!isJoint ? rawRmk : "九巴 - \(rawRmk)")
+                                        etaInfos.append(ETADisplayInfo(etaDate: etaDate, remark: finalRmk))
+                                    }
                                 }
-                            }
-                            
-                            // 3. If it IS a joint route, hunt down the CTB ETAs!
-                            if isJoint {
-                                do {
+                                
+                                if isJoint {
                                     let safeRoute = first.route.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? first.route
-                                    let kmbSeq = first.eta_seq
-                                    
-                                    // Step A: Fetch CTB route-stop to find the CTB Stop ID for this sequence
-                                    let routeStopUrl = URL(string: "https://rt.data.gov.hk/v2/transport/citybus/route-stop/CTB/\(safeRoute)/\(dirStr)")!
-                                    var rsReq = URLRequest(url: routeStopUrl)
-                                    rsReq.cachePolicy = .returnCacheDataElseLoad
-                                    
-                                    let (rsData, _) = try await URLSession.shared.data(for: rsReq)
-                                    let ctbStops = try JSONDecoder().decode(CTBRouteStopResponse.self, from: rsData).data
-                                    
-                                    // Find the CTB stop that matches the KMB sequence number
-                                    if let ctbStop = ctbStops.first(where: { $0.seq == kmbSeq }) {
+                                    if let ctbRsUrl = URL(string: "https://rt.data.gov.hk/v2/transport/citybus/route-stop/CTB/\(safeRoute)/\(dirStr)"),
+                                       let (csData, _) = try? await URLSession.shared.data(from: ctbRsUrl),
+                                       let ctbStops = try? JSONDecoder().decode(CTBRouteStopResponse.self, from: csData).data,
+                                       let matchedStop = ctbStops.first(where: { $0.seq == first.eta_seq }),
+                                       let etaUrl = URL(string: "https://rt.data.gov.hk/v2/transport/citybus/eta/CTB/\(matchedStop.stop)/\(safeRoute)") {
                                         
-                                        // Step B: Fetch the real-time CTB ETAs for that specific stop
-                                        let etaUrl = URL(string: "https://rt.data.gov.hk/v2/transport/citybus/eta/CTB/\(ctbStop.stop)/\(safeRoute)")!
-                                        var eReq = URLRequest(url: etaUrl)
-                                        eReq.cachePolicy = .reloadIgnoringLocalCacheData
-                                        
-                                        let (eData, _) = try await URLSession.shared.data(for: eReq)
-                                        
-                                        // Step C: Safely parse CTB data using your crash-proof dynamic parsing logic
-                                        if let json = try JSONSerialization.jsonObject(with: eData) as? [String: Any],
+                                        if let (eData, _) = try? await URLSession.shared.data(from: etaUrl),
+                                           let json = try? JSONSerialization.jsonObject(with: eData) as? [String: Any],
                                            let dataArr = json["data"] as? [[String: Any]] {
-                                            
                                             for item in dataArr {
                                                 let itemDir = (item["dir"] as? String)?.uppercased() ?? ""
                                                 let itemEta = item["eta"] as? String ?? ""
                                                 let itemRmk = item["rmk_tc"] as? String ?? ""
-                                                
                                                 if itemDir == boundCode, !itemEta.isEmpty {
-                                                    var etaDate = dateFormatter.date(from: itemEta)
-                                                    if etaDate == nil {
+                                                    var date = dateFormatter.date(from: itemEta)
+                                                    if date == nil {
                                                         dateFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-                                                        etaDate = dateFormatter.date(from: itemEta)
+                                                        date = dateFormatter.date(from: itemEta)
                                                         dateFormatter.formatOptions = [.withInternetDateTime]
                                                     }
-                                                    
-                                                    if let validDate = etaDate {
-                                                        let finalRmk = itemRmk.isEmpty ? "城巴" : "城巴 - \(itemRmk)"
-                                                        etaInfos.append(ETADisplayInfo(etaDate: validDate, remark: finalRmk))
+                                                    if let validDate = date {
+                                                        etaInfos.append(ETADisplayInfo(etaDate: validDate, remark: itemRmk.isEmpty ? "城巴" : "城巴 - \(itemRmk)"))
                                                     }
                                                 }
                                             }
                                         }
                                     }
-                                } catch {
-                                    print("🐛 [DEBUG] Failed to fetch CTB ETA for dashboard joint route \(first.route): \(error)")
                                 }
+                                
+                                etaInfos.sort { ($0.etaDate ?? Date.distantFuture) < ($1.etaDate ?? Date.distantFuture) }
+                                return NearbyRouteModel(route: first.route, directionCode: first.dir, destNameTc: first.dest_tc, etas: etaInfos.isEmpty ? [ETADisplayInfo(etaDate: nil, remark: "暫無服務")] : Array(etaInfos.prefix(3)))
                             }
-                            
-                            // 4. Sort EVERYTHING (KMB + CTB) chronologically, then just take the next 3 buses
-                            etaInfos.sort { ($0.etaDate ?? Date.distantFuture) < ($1.etaDate ?? Date.distantFuture) }
-                            let finalEtas = Array(etaInfos.prefix(3))
-                            
-                            return NearbyRouteModel(
-                                route: first.route,
-                                directionCode: first.dir,
-                                destNameTc: first.dest_tc,
-                                etas: finalEtas
-                            )
                         }
+                        var collected = [NearbyRouteModel]()
+                        for await res in group { if let r = res { collected.append(r) } }
+                        return collected
                     }
                     
-                    // Collect the processed routes
-                    var collectedRoutes: [NearbyRouteModel] = []
-                    for await result in group {
-                        if let validRoute = result {
-                            collectedRoutes.append(validRoute)
+                    finalRouteModels.append(contentsOf: kmbRoutes)
+                    // 標記已經處理過的九巴路線
+                    for r in kmbRoutes {
+                        processedKMBRouteBounds.insert("\(r.route)-\(r.directionCode)")
+                    }
+                }
+            }
+            
+            // ==========================================
+            // 🟡 2. 🌟 終極解法：城巴路線直接由 CSV 說了算！
+            // ==========================================
+            // 直接從我們一開始讀好的 CSV 中，拿出這座車站「理應包含」的所有城巴路線！
+            let expectedCTBRoutes = CSVRouteCache.shared.routesForStop[stopId] ?? []
+            var fetchedCTBEtas: [String: [ETADisplayInfo]] = [:]
+            
+            // 呼叫一次城巴綜合 API，把目前有車的時間先收集起來
+            if let ctbStopUrl = URL(string: "https://rt.data.gov.hk/v2/transport/citybus/eta/CTB/\(stopId)/ALL") {
+                if let (eData, _) = try? await URLSession.shared.data(from: ctbStopUrl),
+                   let json = try? JSONSerialization.jsonObject(with: eData) as? [String: Any],
+                   let dataArr = json["data"] as? [[String: Any]] {
+                    
+                    for item in dataArr {
+                        let route = item["route"] as? String ?? ""
+                        let dirStr = item["dir"] as? String ?? "O"
+                        let itemEta = item["eta"] as? String ?? ""
+                        let itemRmk = item["rmk_tc"] as? String ?? ""
+                        
+                        guard !route.isEmpty, !itemEta.isEmpty else { continue }
+                        
+                        var date = dateFormatter.date(from: itemEta)
+                        if date == nil {
+                            dateFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                            date = dateFormatter.date(from: itemEta)
+                            dateFormatter.formatOptions = [.withInternetDateTime]
+                        }
+                        
+                        if let validDate = date {
+                            let key = "\(route)-\(dirStr)"
+                            let displayInfo = ETADisplayInfo(etaDate: validDate, remark: itemRmk.isEmpty ? "城巴" : itemRmk)
+                            fetchedCTBEtas[key, default: []].append(displayInfo)
                         }
                     }
-                    return collectedRoutes
+                }
+            }
+            
+            // 🌟 核心魔法：根據 CSV 名單，確保每一條路線都有上榜！
+            for expected in expectedCTBRoutes {
+                let routeKey = "\(expected.route)-\(expected.bound)"
+                
+                // 如果這條線是聯營線，而且上半部九巴已經處理過了，直接跳過防重複
+                if processedKMBRouteBounds.contains(routeKey) { continue }
+                
+                // 去找這條線的目的地名稱（若沒找到就顯示「城巴」）
+                let fallbackDest = currentRoutes.first(where: { $0.route == expected.route && $0.bound == expected.bound })?.destination ?? "城巴"
+                
+                var etas = fetchedCTBEtas[routeKey] ?? []
+                etas.sort { ($0.etaDate ?? Date.distantFuture) < ($1.etaDate ?? Date.distantFuture) }
+                
+                // 🛡️ 無敵防禦：如果這條 CSV 寫明有的線，API 卻說沒 ETA（例如凌晨收車的 E21）
+                // 我們主動給它塞入「暫無服務」，確保它永遠不會消失！
+                if etas.isEmpty {
+                    etas.append(ETADisplayInfo(etaDate: nil, remark: "暫無服務"))
                 }
                 
-                return finalRoutes.sorted { $0.route.localizedStandardCompare($1.route) == .orderedAscending }
-            } catch {
-                print("Failed to fetch routes for stop \(stopId): \(error)")
-                return []
+                finalRouteModels.append(NearbyRouteModel(
+                    route: expected.route,
+                    directionCode: expected.bound,
+                    destNameTc: fallbackDest,
+                    etas: Array(etas.prefix(3))
+                ))
             }
+            
+            return finalRouteModels.sorted { $0.route.localizedStandardCompare($1.route) == .orderedAscending }
         }
     
     func searchRoute(route: String, direction: String? = nil, findNearest: Bool = false, targetStopCode: String? = nil, shouldScroll: Bool = false, isRefresh: Bool = false) async {

@@ -109,16 +109,8 @@ struct ContentView: View {
     
     private func dismissKeyboardSafe() {
         withAnimation(.spring()) { showCustomKeyboard = false }
-        
-        if !isNavigatingToRoute {
-            searchText = ""
-            displayData = []
-            highlightedStopId = nil
-            
-            if let loc = self.locationManager.location {
-                Task { await updateNearbyStops(userLocation: loc) }
-            }
-        }
+        // 🛑 Removed the code that clears `searchText`.
+        // Now the user keeps their search query when scrolling to dismiss!
     }
     
     var themeBackground: some View {
@@ -432,7 +424,7 @@ extension ContentView {
                     activeTimerCardView(timer: timer)
                 }
                 
-                if showCustomKeyboard && !searchText.isEmpty {
+                if !searchText.isEmpty {
                     suggestionsSectionView
                 } else {
                     nearbyDashboardSectionView

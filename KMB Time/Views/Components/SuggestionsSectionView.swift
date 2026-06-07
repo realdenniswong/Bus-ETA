@@ -1,63 +1,58 @@
-//
-//  SuggestionsSectionView.swift
-//  KMB Time
-//
-
 import SwiftUI
 
 struct SuggestionsSectionView: View {
-    let searchSuggestions: [RouteSuggestion]
-    let onSuggestionTapped: (RouteSuggestion) -> Void
+    let suggestions: [RouteSuggestion]
+    let allRoutes: [RouteSuggestion]
+    let onSelected: (RouteSuggestion, String) -> Void
     
     var body: some View {
-        Section(header: Text("建議路線")) {
-            if searchSuggestions.isEmpty {
-                Text("找不到相關路線")
-                    .foregroundColor(.secondary)
-                    .padding()
-            } else {
-                ForEach(searchSuggestions) { suggestion in
-                    Button(action: {
-                        onSuggestionTapped(suggestion)
-                    }) {
-                        HStack(spacing: 12) {
-                            // 🌟 顯示路線與公司標籤
-                            VStack(spacing: 2) {
-                                Text(suggestion.route)
-                                    .font(.system(size: 16, weight: .bold, design: .rounded))
-                                    .foregroundColor(.white)
-                                    .frame(width: 52, height: 32)
-                                    .background(suggestion.co == "CTB" ? Color.orange : Color(red: 0.65, green: 0.08, blue: 0.12))
-                                    .cornerRadius(8)
-                            }
+        // 🌟 直接用 Apple 原生嘅 Section，SwiftUI 會自動搞掂所有圓角同背景！
+        Section {
+            ForEach(suggestions, id: \.id) { suggestion in
+                Button(action: {
+                    let isJoint = JointRouteEvaluator.checkIsJoint(route: suggestion.route, allRoutes: allRoutes)
+                    let finalCompany = isJoint ? "JOINT" : suggestion.co
+                    onSelected(suggestion, finalCompany)
+                }) {
+                    HStack(spacing: 12) {
+                        // 號碼牌
+                        Text(suggestion.route)
+                            .font(.system(.body, design: .rounded)).fontWeight(.bold)
+                            .foregroundColor(.white)
+                            .frame(width: 54, height: 32)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(JointRouteEvaluator.fetchThemeColor(route: suggestion.route, originalCo: suggestion.co, allRoutes: allRoutes))
+                            )
+                            .fixedSize()
+                        
+                        // 起訖站
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(suggestion.destination)
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundColor(.primary)
+                                .lineLimit(1)
                             
-                            // 🌟 顯示目的地與詳細資訊
-                            VStack(alignment: .leading, spacing: 4) {
-                                HStack(alignment: .firstTextBaseline, spacing: 4) {
-                                    Text("往")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                    Text(suggestion.destination)
-                                        .font(.system(size: 15, weight: .semibold))
-                                        .foregroundColor(.primary)
-                                }
-                                
-                                Text("由 \(suggestion.origin) 開出")
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
-                            }
-                            
-                            Spacer()
-                            
-                            Image(systemName: "chevron.right")
-                                .font(.caption)
+                            Text("往 \(suggestion.origin)")
+                                .font(.system(size: 13))
                                 .foregroundColor(.secondary)
+                                .lineLimit(1)
                         }
-                        .padding(.vertical, 4)
+                        
+                        Spacer()
+                        
+                        Image(systemName: "chevron.right")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
-                    .buttonStyle(.plain)
+                    .padding(.vertical, 4) // 原生 List 已經有 padding，呢度只需要微調
                 }
+                // 🌟 原生 List 會自動幫你加最靚嘅 Divider，唔使再自己畫！
             }
+        } header: {
+            Text("搜尋建議")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundColor(.gray)
         }
     }
 }

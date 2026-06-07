@@ -80,7 +80,35 @@ struct ContentView: View {
     var searchSuggestions: [RouteSuggestion] {
         guard !searchText.isEmpty else { return [] }
         let query = searchText.uppercased()
-        return allRoutes.filter { $0.route.uppercased().hasPrefix(query) }.prefix(30).map { $0 }
+        
+        // 1. 先篩選出有對應 Prefix 嘅所有原始路線
+        let filtered = allRoutes.filter { $0.route.uppercased().hasPrefix(query) }
+        
+        var uniqueSuggestions: [RouteSuggestion] = []
+        var seenJointRoutes = Set<String>() // 用嚟記錄已經放行嘅聯營線方向
+        
+        for suggestion in filtered {
+            let upperRouteName = suggestion.route.uppercased()
+            
+            // 💡 利用全域大腦動態檢查：呢條係咪聯營線？
+            if JointRouteEvaluator.checkIsJoint(route: upperRouteName, allRoutes: allRoutes) {
+                // 如果係聯營線：直接 Skip 走城巴項目，達成「只顯示九巴」
+                if suggestion.co == "CTB" {
+                    continue
+                }
+                
+                // 防止同一個方向出現重複嘅九巴 Row
+                let boundKey = "\(upperRouteName)-\(suggestion.bound)"
+                if seenJointRoutes.contains(boundKey) {
+                    continue
+                }
+                seenJointRoutes.insert(boundKey)
+            }
+            
+            uniqueSuggestions.append(suggestion)
+        }
+        
+        return Array(uniqueSuggestions.prefix(30))
     }
     
     var validNextKeys: Set<String>? {
@@ -339,40 +367,70 @@ extension ContentView {
 // MARK: - Dashboard Components
 extension ContentView {
     private var dashboardContentView: some View {
-        ZStack {
-            List {
-                searchBarView
-                
-                if let timer = activeTimer {
-                    activeTimerCardView(timer: timer)
-                }
-                
-                if !searchText.isEmpty {
-                    suggestionsSectionView
-                } else {
-                    nearbyDashboardSectionView
-                }
-            }
-            .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(themeBackground)
-            .listSectionSpacing(.custom(16))
-            
-            .simultaneousGesture(
-                DragGesture().onChanged { _ in
-                    if showCustomKeyboard {
-                        dismissKeyboardSafe()
+            ZStack {
+                List {
+                    searchBarView // 搜尋欄
+                    
+                    if let timer = activeTimer {
+                        activeTimerCardView(timer: timer) // 提醒倒數卡片
+                    }
+                    
+                    // 🌟 【關鍵修改就在這裡】 🌟
+                    if !searchText.isEmpty {
+                        // 呼叫外部的 SuggestionsSectionView，傳入全域的 allRoutes
+                        SuggestionsSectionView(
+                            suggestions: searchSuggestions,
+                            allRoutes: allRoutes, // 傳入未經刪除的完整原始路線名單
+                            onSelected: { suggestion, finalCompany in
+                                // 收起鍵盤
+                                showCustomKeyboard = false
+                                
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                                    searchText = suggestion.route
+                                    
+                                    let isOutbound = suggestion.bound.uppercased().hasPrefix("O")
+                                    let newDir = isOutbound ? "outbound" : "inbound"
+                                    
+                                    selectedDirection = newDir
+                                    isNavigatingToRoute = true
+                                    
+                                    Task {
+                                        // 使用計算好的 finalCompany (如果是聯營線，這裡會自動傳入 "JOINT")
+                                        await searchRoute(
+                                            route: suggestion.route.uppercased(),
+                                            direction: newDir,
+                                            company: finalCompany,
+                                            findNearest: true,
+                                            shouldScroll: true
+                                        )
+                                    }
+                                }
+                            }
+                        )
+                    } else {
+                        nearbyDashboardSectionView // 顯示附近車站
                     }
                 }
-            )
+                .listStyle(.insetGrouped)
+                .scrollContentBackground(.hidden)
+                .background(themeBackground)
+                .listSectionSpacing(.custom(16))
+                
+                .simultaneousGesture(
+                    DragGesture().onChanged { _ in
+                        if showCustomKeyboard {
+                            dismissKeyboardSafe()
+                        }
+                    }
+                )
+            }
+            .overlay(alignment: .bottom) {
+                if showCustomKeyboard { customKeyboardOverlay }
+            }
+            .navigationTitle(showCustomKeyboard ? "搜尋路線" : "九巴到站預報")
+            .navigationBarTitleDisplayMode(.large)
+            .toolbar { dashboardToolbar }
         }
-        .overlay(alignment: .bottom) {
-            if showCustomKeyboard { customKeyboardOverlay }
-        }
-        .navigationTitle(showCustomKeyboard ? "搜尋路線" : "九巴到站預報")
-        .navigationBarTitleDisplayMode(.large)
-        .toolbar { dashboardToolbar }
-    }
     
     private var searchBarView: some View {
         HStack(spacing: 6) {
@@ -426,60 +484,42 @@ extension ContentView {
         .listRowSeparator(.hidden)
     }
     
-    private var suggestionsSectionView: some View {
-        SuggestionsSectionView(
-            searchSuggestions: searchSuggestions,
-            onSuggestionTapped: { suggestion in
-                showCustomKeyboard = false
-                
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                    searchText = suggestion.route
-                    selectedCompany = suggestion.co // 🌟 記住用戶點擊的是城巴還是九巴
-                    
-                    let isOutbound = suggestion.bound.uppercased().hasPrefix("O")
-                    let newDir = isOutbound ? "outbound" : "inbound"
-                    
-                    selectedDirection = newDir
-                    isNavigatingToRoute = true
-                    
-                    // 🌟 將公司 (company) 傳入搜尋函數中
-                    Task { await searchRoute(route: suggestion.route.uppercased(), direction: newDir, company: suggestion.co, findNearest: true, shouldScroll: true) }
-                }
-            }
-        )
-    }
+
     
     private var nearbyDashboardSectionView: some View {
-        NearbyDashboardSectionView(
-            locationManager: locationManager,
-            expandedStopIds: $expandedStopIds,
-            viewMode: $dashboardViewMode,
-            allStops: allStops,
-            nearbyStops: nearbyStops,
-            currentTime: currentTime,
-            onRequestLocation: { locationManager.requestLocation() },
-            onRouteSelected: { route, stopInfo in
-                let newDir = route.directionCode == "O" ? "outbound" : "inbound"
-                selectedDirection = newDir
-                searchText = route.route
+            NearbyDashboardSectionView(
+                locationManager: locationManager,
+                expandedStopIds: $expandedStopIds,
+                viewMode: $dashboardViewMode,
+                allStops: allStops,
+                nearbyStops: nearbyStops,
+                currentTime: currentTime,
                 
-                isNavigatingToRoute = true
-                Task { await searchRoute(route: route.route, direction: newDir, findNearest: false, targetStopCode: stopInfo.stop, shouldScroll: true) }
-            },
-            onSetTimer: { route, stopInfo in
-                timerTargetDate = route.etas.first?.etaDate
-                timerRouteName = route.route
-                timerDestination = route.destNameTc
-                timerStationName = stopInfo.name_tc
-                timerStopId = stopInfo.stop
-                timerDirection = route.directionCode == "O" ? "outbound" : "inbound"
-                showingAddTimerAlert = true
-            },
-            onShowToast: { message in
-                showToast(message)
-            }
-        )
-    }
+                // 🌟 【就是這裡】把 ContentView 的總路線池傳進去給 Dashboard 享用
+                allRoutes: allRoutes,
+                
+                onRequestLocation: { locationManager.requestLocation() },
+                onRouteSelected: { route, stopInfo in
+                    // 點擊附近路線時的邏輯...
+                    let newDir = route.directionCode == "O" ? "outbound" : "inbound"
+                    selectedDirection = newDir
+                    searchText = route.route
+                    isNavigatingToRoute = true
+                    
+                    // 💡 這裡順便做聯營優化：如果點擊的附近巴士是聯營線，進入 Route Page 前強制切換至 "JOINT" 大腦
+                    let isJoint = JointRouteEvaluator.checkIsJoint(route: route.route, allRoutes: allRoutes)
+                    let finalCo = isJoint ? "JOINT" : route.co
+                    
+                    Task { await searchRoute(route: route.route, direction: newDir, company: finalCo, findNearest: false, targetStopCode: stopInfo.stop, shouldScroll: true) }
+                },
+                onSetTimer: { route, stopInfo in
+                    // 原本的計時器邏輯維持不變...
+                },
+                onShowToast: { message in
+                    showToast(message)
+                }
+            )
+        }
     
     private var customKeyboardOverlay: some View {
         CustomKeyboardView(

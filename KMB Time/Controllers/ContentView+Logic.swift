@@ -129,6 +129,9 @@ extension ContentView {
                 self.allRoutes = sortedRoutes
             }
             
+            // 🌟 【新增這行】下載完所有路線後，立刻在背景線程將聯營線快取算好！
+            JointRouteEvaluator.precomputeJointRoutes(allRoutes: sortedRoutes)
+            
         } catch {
             print("❌ 載入所有路線失敗: \(error)")
         }

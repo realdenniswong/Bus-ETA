@@ -17,6 +17,8 @@ struct NearbyDashboardSectionView: View {
     let nearbyStops: [NearbyStopModel]
     let currentTime: Date
     
+    let allRoutes: [RouteSuggestion] // 🌟 完美的原始數據大字典，用作動態交叉對照
+    
     let onRequestLocation: () -> Void
     let onRouteSelected: (NearbyRouteModel, StopInfo) -> Void
     let onSetTimer: (NearbyRouteModel, StopInfo) -> Void
@@ -168,6 +170,8 @@ struct NearbyDashboardSectionView: View {
         }
     }
     
+    // MARK: - Renderers
+    
     @ViewBuilder
     private func renderByStation() -> some View {
         ForEach(nearbyStops) { stopModel in
@@ -231,11 +235,9 @@ struct NearbyDashboardSectionView: View {
     @ViewBuilder
     private func renderFlatList() -> some View {
         Section {
-            // 🌟 1. 進行去重邏輯：只保留每一條路線 (包含方向) 距離最近嗰一個車站
             let uniqueRoutes = flatRoutes.reduce(into: [String: (route: NearbyRouteModel, stop: StopInfo, distance: CLLocationDistance)]()) { dict, item in
                 let key = "\(item.route.route)-\(item.route.directionCode)"
                 
-                // 如果 Key 未存在，或者新嘅距離比舊嘅短，就更新佢
                 if let existing = dict[key] {
                     if item.distance < existing.distance {
                         dict[key] = item
@@ -245,7 +247,6 @@ struct NearbyDashboardSectionView: View {
                 }
             }
             
-            // 🌟 2. 將 Dict 轉返做陣列並按距離排序
             let filteredRoutes = Array(uniqueRoutes.values).sorted { $0.distance < $1.distance }
             
             if filteredRoutes.isEmpty {
@@ -256,17 +257,6 @@ struct NearbyDashboardSectionView: View {
             } else {
                 ForEach(filteredRoutes, id: \.route.id) { item in
                     VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Image(systemName: "mappin.circle.fill")
-                                .font(.caption2)
-                                .foregroundColor(.red)
-                            Text("\(item.stop.name_tc) (\(formatDistance(item.distance)))")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                        .padding(.bottom, 2)
-                        
-                        // 🌟 呢度繼續用你想要顯示距離嘅 Detailed Row
                         routeRowWithDetails(route: item.route, stopInfo: item.stop)
                     }
                     .padding(.vertical, 4)
@@ -338,21 +328,21 @@ struct NearbyDashboardSectionView: View {
         }
     }
     
+    // MARK: - Row Components
+    
     @ViewBuilder
     private func routeRowWithStationNumber(route: NearbyRouteModel, stopInfo: StopInfo) -> some View {
         Button(action: { onRouteSelected(route, stopInfo) }) {
             HStack(alignment: .center, spacing: 12) {
-                // Company Tag Block
+                // 號碼牌區塊
                 VStack(spacing: 2) {
                     Text(route.route)
                         .font(.system(size: 16, weight: .bold, design: .rounded))
                         .foregroundColor(.white)
                         .frame(width: 52, height: 32)
-                        .background(route.route.contains("E") || route.route.contains("A") ? Color.orange : Color(red: 0.65, green: 0.08, blue: 0.12))
+                        // 🌟 【動態修改點 1】：使用模型交叉比對大腦，自動抓出聯營線並染成橙色！
+                        .background(JointRouteEvaluator.fetchThemeColor(route: route.route, originalCo: route.co, allRoutes: allRoutes))
                         .cornerRadius(8)
-                    Text(route.route.contains("E") || route.route.contains("A") ? "城巴" : "九巴")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(route.route.contains("E") || route.route.contains("A") ? .orange : Color(red: 0.65, green: 0.08, blue: 0.12))
                 }
                 
                 VStack(alignment: .leading, spacing: 3) {
@@ -374,7 +364,6 @@ struct NearbyDashboardSectionView: View {
         }
     }
     
-    // 1. Used in renderByStation() -> NO Distance/Name Info
     @ViewBuilder
     private func routeRow(route: NearbyRouteModel, stopInfo: StopInfo) -> some View {
         Button(action: { onRouteSelected(route, stopInfo) }) {
@@ -413,7 +402,6 @@ struct NearbyDashboardSectionView: View {
                             .foregroundColor(.primary)
                     }
                     
-                    // 🌟 This info ONLY appears in the flat list
                     HStack(spacing: 4) {
                         Image(systemName: "mappin.circle.fill").font(.caption2).foregroundColor(.secondary)
                         Text("\(stopInfo.name_tc) • \(formatDistance(self.nearbyStops.first(where: { $0.stopInfo.stop == stopInfo.stop })?.distance ?? 0))")
@@ -427,24 +415,18 @@ struct NearbyDashboardSectionView: View {
         }
     }
 
-    // Helper to keep code clean
     @ViewBuilder
     private func companyTagView(route: NearbyRouteModel) -> some View {
-        // 🌟 完全基於模型數據，唔再做 String parsing
-        let isCTB = (route.co == "CTB")
-        
         VStack(spacing: 2) {
             Text(route.route)
                 .font(.system(size: 16, weight: .bold, design: .rounded))
                 .foregroundColor(.white)
                 .frame(width: 52, height: 32)
-                // 橙色畀城巴，紅色畀九巴
-                .background(isCTB ? Color.orange : Color(red: 0.65, green: 0.08, blue: 0.12))
+                // 🌟 【動態修改點 2】：共用同一個全域大腦，讓 Flat List 的卡片填色完全同步！
+                .background(JointRouteEvaluator.fetchThemeColor(route: route.route, originalCo: route.co, allRoutes: allRoutes))
                 .cornerRadius(8)
         }
     }
-    
-    
     
     // MARK: - Local Helpers
     
@@ -513,15 +495,5 @@ struct NearbyDashboardSectionView: View {
             return String(idString)
         }
         return "N/A"
-    }
-    
-    // Add this helper inside NearbyDashboardSectionView
-    private func getCompany(for route: NearbyRouteModel) -> String {
-        // Since this is the Dashboard, and you are pulling from local data,
-        // you can verify the operator by the direction/route pattern.
-        // If your CSV data is Citybus, return "CTB", otherwise "KMB".
-        // Or, if you added a 'co' property to NearbyRouteModel, use that!
-        return route.route.contains("E") || route.route.contains("A") ? "CTB" : "KMB"
-        // ^ Note: Replace this logic with your actual source check if available.
     }
 }

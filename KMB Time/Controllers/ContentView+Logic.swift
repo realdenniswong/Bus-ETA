@@ -395,7 +395,7 @@ extension ContentView {
                 // ==========================================
                 // 🟡 城巴 (CTB) 處理邏輯
                 // ==========================================
-                else if company == "CTB" {
+                else if targetCompany == "CTB" {
                     let dirStr = currentDir == "outbound" ? "outbound" : "inbound"
                     let routeStopUrl = URL(string: "https://rt.data.gov.hk/v2/transport/citybus/route-stop/CTB/\(safeRoute)/\(dirStr)")!
                     

@@ -231,14 +231,42 @@ struct NearbyDashboardSectionView: View {
     @ViewBuilder
     private func renderFlatList() -> some View {
         Section {
-            if flatRoutes.isEmpty {
+            // 🌟 1. 進行去重邏輯：只保留每一條路線 (包含方向) 距離最近嗰一個車站
+            let uniqueRoutes = flatRoutes.reduce(into: [String: (route: NearbyRouteModel, stop: StopInfo, distance: CLLocationDistance)]()) { dict, item in
+                let key = "\(item.route.route)-\(item.route.directionCode)"
+                
+                // 如果 Key 未存在，或者新嘅距離比舊嘅短，就更新佢
+                if let existing = dict[key] {
+                    if item.distance < existing.distance {
+                        dict[key] = item
+                    }
+                } else {
+                    dict[key] = item
+                }
+            }
+            
+            // 🌟 2. 將 Dict 轉返做陣列並按距離排序
+            let filteredRoutes = Array(uniqueRoutes.values).sorted { $0.distance < $1.distance }
+            
+            if filteredRoutes.isEmpty {
                 Text("暫無服務...")
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .padding(.vertical, 4)
             } else {
-                ForEach(flatRoutes, id: \.route.id) { item in
+                ForEach(filteredRoutes, id: \.route.id) { item in
                     VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Image(systemName: "mappin.circle.fill")
+                                .font(.caption2)
+                                .foregroundColor(.red)
+                            Text("\(item.stop.name_tc) (\(formatDistance(item.distance)))")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.bottom, 2)
+                        
+                        // 🌟 呢度繼續用你想要顯示距離嘅 Detailed Row
                         routeRowWithDetails(route: item.route, stopInfo: item.stop)
                     }
                     .padding(.vertical, 4)

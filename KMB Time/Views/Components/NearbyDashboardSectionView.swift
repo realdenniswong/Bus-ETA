@@ -357,6 +357,7 @@ struct NearbyDashboardSectionView: View {
                 }
                 
                 Spacer()
+                etaCountdownView(etas: route.etas)
                 Image(systemName: "chevron.right")
                     .font(.caption)
                     .foregroundColor(.secondary)
@@ -381,6 +382,7 @@ struct NearbyDashboardSectionView: View {
                     }
                 }
                 Spacer()
+                etaCountdownView(etas: route.etas)
                 Image(systemName: "chevron.right").font(.caption).foregroundColor(.secondary)
             }
         }
@@ -410,6 +412,7 @@ struct NearbyDashboardSectionView: View {
                     }
                 }
                 Spacer()
+                etaCountdownView(etas: route.etas)
                 Image(systemName: "chevron.right").font(.caption).foregroundColor(.secondary)
             }
         }
@@ -429,6 +432,32 @@ struct NearbyDashboardSectionView: View {
     }
     
     // MARK: - Local Helpers
+    
+    private func relativeTimeText(for etas: [ETADisplayInfo]) -> (text: String, color: Color) {
+        guard let firstEta = etas.first?.etaDate else {
+            return ("沒有班次", .secondary)
+        }
+        
+        let diff = firstEta.timeIntervalSince(currentTime)
+        if diff < 60 {
+            return ("即將抵達", .red)
+        } else {
+            let minutes = Int(diff / 60)
+            return ("\(minutes) 分鐘", .primary)
+        }
+    }
+    
+    @ViewBuilder
+    private func etaCountdownView(etas: [ETADisplayInfo]) -> some View {
+        let etaInfo = relativeTimeText(for: etas)
+        Text(etaInfo.text)
+            .font(.system(size: 14, weight: .bold))
+            .foregroundColor(etaInfo.color)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(etaInfo.color.opacity(0.1))
+            .cornerRadius(6)
+    }
     
     private func toggleStopExpanded(_ stopId: String) {
         if expandedStopIds.contains(stopId) {

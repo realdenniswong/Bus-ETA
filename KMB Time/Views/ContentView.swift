@@ -233,6 +233,8 @@ extension ContentView {
                     if selectedTab == 0 {
                         if isNavigatingToRoute && !displayData.isEmpty && !showCustomKeyboard {
                             await searchRoute(route: searchText.uppercased(), direction: selectedDirection, findNearest: false, shouldScroll: false, isRefresh: true)
+                        } else if !isNavigatingToRoute && !nearbyStops.isEmpty && !showCustomKeyboard {
+                            await refreshNearbyETAs()
                         }
                     }
                 }

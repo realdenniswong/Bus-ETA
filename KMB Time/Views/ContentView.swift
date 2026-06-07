@@ -30,6 +30,7 @@ struct ContentView: View {
     
     @State var searchText = ""
     @State var selectedDirection = "outbound"
+    @State var selectedCompany = "KMB" // 🌟 NEW: 記錄目前選擇的巴士公司
     
     @State var stopDictionary: [String: String] = [:]
     @State var stopInfoDictionary: [String: StopInfo] = [:]
@@ -433,18 +434,19 @@ extension ContentView {
                 
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
                     searchText = suggestion.route
+                    selectedCompany = suggestion.co // 🌟 記住用戶點擊的是城巴還是九巴
+                    
                     let isOutbound = suggestion.bound.uppercased().hasPrefix("O")
                     let newDir = isOutbound ? "outbound" : "inbound"
                     
                     selectedDirection = newDir
                     isNavigatingToRoute = true
-                    Task { await searchRoute(route: suggestion.route.uppercased(), direction: newDir, findNearest: true, shouldScroll: true) }
+                    
+                    // 🌟 將公司 (company) 傳入搜尋函數中
+                    Task { await searchRoute(route: suggestion.route.uppercased(), direction: newDir, company: suggestion.co, findNearest: true, shouldScroll: true) }
                 }
             }
         )
-        .listRowBackground(Color.clear)
-        .listRowInsets(EdgeInsets())
-        .listRowSeparator(.hidden)
     }
     
     private var nearbyDashboardSectionView: some View {

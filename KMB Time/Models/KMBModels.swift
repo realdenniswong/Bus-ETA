@@ -64,6 +64,7 @@ struct NearbyStopModel: Identifiable {
 
 struct NearbyRouteModel: Identifiable {
     let id = UUID()
+    let co: String
     let route: String
     let directionCode: String // "O" or "I"
     let destNameTc: String
@@ -86,7 +87,7 @@ struct StopETAItem: Codable {
 }
 
 // MARK: - Route Suggestion Models
-struct AllRoutesResponse: Codable { let data: [RouteItem] }
+struct KMBRoutesResponse: Codable { let data: [RouteItem] }
 struct RouteItem: Codable {
     let route: String
     let bound: String    // "O" (Outbound) or "I" (Inbound)
@@ -94,8 +95,9 @@ struct RouteItem: Codable {
     let dest_tc: String  // Destination Station
 }
 
-struct RouteSuggestion: Hashable {
-    let co: String       // 🌟 新增："KMB" 或 "CTB"
+struct RouteSuggestion: Hashable, Identifiable { // 🌟 Add Identifiable
+    let id = UUID() // 🌟 Add a unique identifier
+    let co: String
     let route: String
     let bound: String
     let origin: String

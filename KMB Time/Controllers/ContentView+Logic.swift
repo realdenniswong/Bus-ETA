@@ -53,61 +53,84 @@ fileprivate class CTBStopResolver {
 // MARK: - Controller / Business Logic
 extension ContentView {
     
-    // MARK: - Network Functions
+    // MARK: - 載入所有路線 (供搜尋列與自動完成使用)
     func loadAllRoutes() async {
-        guard let kmbUrl = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/route/"),
-              let ctbUrl = URL(string: "https://rt.data.gov.hk/v2/transport/citybus/route/CTB") else { return }
         do {
-            async let fetchKMB = URLSession.shared.data(from: kmbUrl)
-            async let fetchCTB = URLSession.shared.data(from: ctbUrl)
-            
-            let (kmbData, _) = try await fetchKMB
-            let kmbResponse = try JSONDecoder().decode(AllRoutesResponse.self, from: kmbData)
-            
-            let (ctbData, _) = try await fetchCTB
-            let ctbResponse = try JSONDecoder().decode(CTBRouteResponse.self, from: ctbData)
-            
+            // 使用 Dictionary 來過濾重複，現在加上公司前綴防止覆蓋
             var uniqueSuggestions: [String: RouteSuggestion] = [:]
             
-            // 1. 載入九巴路線 (打底)
-            for item in kmbResponse.data {
-                let key = "\(item.route)-\(item.bound)"
-                if uniqueSuggestions[key] == nil {
-                    uniqueSuggestions[key] = RouteSuggestion(co: "KMB", route: item.route, bound: item.bound, origin: item.orig_tc, destination: item.dest_tc)
-                }
-            }
-            
-            // 2. 載入城巴路線 (比對聯營)
-            for item in ctbResponse.data {
-                // 處理去程 (O)
-                let keyO = "\(item.route)-O"
-                if uniqueSuggestions[keyO] != nil {
-                    // 已經存在於九巴字典中 -> 這是聯營線！
-                    uniqueSuggestions[keyO] = RouteSuggestion(co: "JOINT", route: item.route, bound: "O", origin: item.orig_tc, destination: item.dest_tc)
-                } else {
-                    // 九巴沒有 -> 這是城巴獨營線
-                    uniqueSuggestions[keyO] = RouteSuggestion(co: "CTB", route: item.route, bound: "O", origin: item.orig_tc, destination: item.dest_tc)
-                }
+            // ==========================================
+            // 1. 載入九巴 (KMB) 路線
+            // ==========================================
+            if let kmbUrl = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/route/") {
+                let (kmbData, _) = try await URLSession.shared.data(from: kmbUrl)
+                let kmbResponse = try JSONDecoder().decode(KMBRoutesResponse.self, from: kmbData)
                 
-                // 處理回程 (I)
-                let keyI = "\(item.route)-I"
-                if uniqueSuggestions[keyI] != nil {
-                    uniqueSuggestions[keyI] = RouteSuggestion(co: "JOINT", route: item.route, bound: "I", origin: item.dest_tc, destination: item.orig_tc)
-                } else {
-                    uniqueSuggestions[keyI] = RouteSuggestion(co: "CTB", route: item.route, bound: "I", origin: item.dest_tc, destination: item.orig_tc)
+                for item in kmbResponse.data {
+                    // 🌟 核心修復：在 Key 加上 "KMB-" 前綴
+                    let key = "KMB-\(item.route)-\(item.bound)"
+                    uniqueSuggestions[key] = RouteSuggestion(
+                        co: "KMB",
+                        route: item.route,
+                        bound: item.bound,
+                        origin: item.orig_tc,
+                        destination: item.dest_tc
+                    )
                 }
             }
             
+            // ==========================================
+            // 2. 載入城巴 (CTB) 路線
+            // ==========================================
+            if let ctbUrl = URL(string: "https://rt.data.gov.hk/v2/transport/citybus/route/ctb") {
+                let (ctbData, _) = try await URLSession.shared.data(from: ctbUrl)
+                let ctbResponse = try JSONDecoder().decode(CTBRouteResponse.self, from: ctbData)
+                
+                for item in ctbResponse.data {
+                    // 🌟 核心修復：在 Key 加上 "CTB-" 前綴，確保不會蓋掉九巴的同名路線 (如 42C, 2A)
+                    let keyO = "CTB-\(item.route)-O"
+                    uniqueSuggestions[keyO] = RouteSuggestion(
+                        co: "CTB",
+                        route: item.route,
+                        bound: "O",
+                        origin: item.orig_tc,
+                        destination: item.dest_tc
+                    )
+                    
+                    let keyI = "CTB-\(item.route)-I"
+                    uniqueSuggestions[keyI] = RouteSuggestion(
+                        co: "CTB",
+                        route: item.route,
+                        bound: "I",
+                        origin: item.dest_tc,
+                        destination: item.orig_tc
+                    )
+                }
+            }
+            
+            // ==========================================
+            // 3. 排序並推送到主執行緒更新 UI
+            // ==========================================
             let sortedRoutes = uniqueSuggestions.values.sorted {
-                if $0.route == $1.route { return $0.bound > $1.bound }
+                // 如果路線名稱相同 (例如都有 42C)
+                if $0.route == $1.route {
+                    if $0.co == $1.co {
+                        // 同公司則依照去回程排序
+                        return $0.bound > $1.bound
+                    }
+                    // 不同公司則依照公司名排序 (讓城巴九巴排在一起)
+                    return $0.co > $1.co
+                }
+                // 依照路線名稱自然排序 (1, 1A, 2, 2A...)
                 return $0.route.localizedStandardCompare($1.route) == .orderedAscending
             }
             
             await MainActor.run {
                 self.allRoutes = sortedRoutes
             }
+            
         } catch {
-            print("🐛 [DEBUG] Failed to load all routes: \(error)")
+            print("❌ 載入所有路線失敗: \(error)")
         }
     }
     
@@ -276,10 +299,11 @@ extension ContentView {
                     
                     for (_, item) in uniqueRoutes {
                         finalRouteModels.append(NearbyRouteModel(
+                            co: "KMB", // 🌟 明確指定
                             route: item.route,
                             directionCode: item.dir,
                             destNameTc: item.dest_tc,
-                            etas: [] // 🌟 完全移除 ETA 數據
+                            etas: []
                         ))
                         processedKMBRouteBounds.insert("\(item.route)-\(item.dir)")
                     }
@@ -300,38 +324,41 @@ extension ContentView {
                 let fallbackDest = currentRoutes.first(where: { $0.route == expected.route && $0.bound == expected.bound })?.destination ?? "城巴"
                 
                 finalRouteModels.append(NearbyRouteModel(
+                    co: "CTB", // 🌟 明確指定
                     route: expected.route,
                     directionCode: expected.bound,
                     destNameTc: fallbackDest,
-                    etas: [] // 🌟 完全移除 ETA 數據
+                    etas: []
                 ))
             }
             
             return finalRouteModels.sorted { $0.route.localizedStandardCompare($1.route) == .orderedAscending }
         }
     
-    func searchRoute(route: String, direction: String? = nil, findNearest: Bool = false, targetStopCode: String? = nil, shouldScroll: Bool = false, isRefresh: Bool = false) async {
-            guard !route.isEmpty else { return }
+    func searchRoute(route: String, direction: String? = nil, company: String? = nil, findNearest: Bool = false, targetStopCode: String? = nil, shouldScroll: Bool = false, isRefresh: Bool = false) async {
+        guard !route.isEmpty else { return }
+        
+        let currentDir = direction ?? self.selectedDirection
+        
+        // 🌟 2. 優先使用傳入的公司，如果沒有就找預設的 (防止你的 Favorites 崩潰)
+        let targetCompany = company ?? allRoutes.first(where: { $0.route == route })?.co ?? "KMB"
+        
+        await MainActor.run {
+            if let newDir = direction { self.selectedDirection = newDir }
+            self.selectedCompany = targetCompany // 更新全域狀態
+            if !isRefresh { isLoading = true; displayData = []; highlightedStopId = nil }
+        }
+        
+        do {
+            var results: [StopDisplayModel] = []
+            let targetDirectionCode = currentDir == "outbound" ? "O" : "I"
+            let dateFormatter = ISO8601DateFormatter()
+            let safeRoute = route.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? route
             
-            let currentDir = direction ?? self.selectedDirection
-            let company = allRoutes.first(where: { $0.route == route })?.co ?? "KMB"
-            
-            await MainActor.run {
-                if let newDir = direction { self.selectedDirection = newDir }
-                if !isRefresh { isLoading = true; displayData = []; highlightedStopId = nil }
-            }
-            
-            do {
-                var results: [StopDisplayModel] = []
-                let targetDirectionCode = currentDir == "outbound" ? "O" : "I"
-                let dateFormatter = ISO8601DateFormatter()
-                
-                let safeRoute = route.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? route
-                
-                // ==========================================
-                // 🔴 九巴 (KMB) 處理邏輯
-                // ==========================================
-                if company == "KMB" {
+            // ==========================================
+            // 🌟 3. 將下方的 if 判斷從 company 改為 targetCompany
+            // ==========================================
+            if targetCompany == "KMB" {
                     let routeStopUrl = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/route-stop/\(safeRoute)/\(currentDir)/1")!
                     let etaUrl = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/route-eta/\(safeRoute)/1")!
                     

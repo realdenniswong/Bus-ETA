@@ -239,17 +239,7 @@ struct NearbyDashboardSectionView: View {
             } else {
                 ForEach(flatRoutes, id: \.route.id) { item in
                     VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Image(systemName: "mappin.circle.fill")
-                                .font(.caption2)
-                                .foregroundColor(.red)
-                            Text("\(item.stop.name_tc) (\(formatDistance(item.distance)))")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                        .padding(.bottom, 2)
-                        
-                        routeRow(route: item.route, stopInfo: item.stop)
+                        routeRowWithDetails(route: item.route, stopInfo: item.stop)
                     }
                     .padding(.vertical, 4)
                 }
@@ -322,21 +312,20 @@ struct NearbyDashboardSectionView: View {
     
     @ViewBuilder
     private func routeRowWithStationNumber(route: NearbyRouteModel, stopInfo: StopInfo) -> some View {
-        Button(action: {
-            onRouteSelected(route, stopInfo)
-        }) {
+        Button(action: { onRouteSelected(route, stopInfo) }) {
             HStack(alignment: .center, spacing: 12) {
-                Text(route.route)
-                    .font(.system(.body, design: .rounded))
-                    .fontWeight(.bold)
-                    .foregroundColor(.white)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.5)
-                    .frame(width: 64, height: 36)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(Color(red: 0.65, green: 0.08, blue: 0.12))
-                    )
+                // Company Tag Block
+                VStack(spacing: 2) {
+                    Text(route.route)
+                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                        .foregroundColor(.white)
+                        .frame(width: 52, height: 32)
+                        .background(route.route.contains("E") || route.route.contains("A") ? Color.orange : Color(red: 0.65, green: 0.08, blue: 0.12))
+                        .cornerRadius(8)
+                    Text(route.route.contains("E") || route.route.contains("A") ? "城巴" : "九巴")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(route.route.contains("E") || route.route.contains("A") ? .orange : Color(red: 0.65, green: 0.08, blue: 0.12))
+                }
                 
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(alignment: .firstTextBaseline, spacing: 4) {
@@ -346,54 +335,45 @@ struct NearbyDashboardSectionView: View {
                         Text(route.destNameTc)
                             .font(.system(size: 15, weight: .bold))
                             .foregroundColor(.primary)
-                            .lineLimit(1)
                     }
-                    
-                    Text(extractPoleId(from: stopInfo.name_tc))
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
                 }
                 
                 Spacer()
-                
-                // 🌟 移除了 ETA 顯示 UI，只保留箭頭
                 Image(systemName: "chevron.right")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
-            .contentShape(Rectangle())
         }
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            let dirStr = route.directionCode == "O" ? "outbound" : "inbound"
-            let isFav = favoritesManager.isFavorite(route: route.route, direction: dirStr)
-            
-            Button {
-                favoritesManager.toggleFavorite(route: route.route, direction: dirStr, destName: route.destNameTc)
-                onShowToast(isFav ? "已從常用路線移除" : "已加入常用路線")
-            } label: {
-                Label(isFav ? "移除常用" : "加入常用", systemImage: isFav ? "star.slash.fill" : "star.fill")
+    }
+    
+    // 1. Used in renderByStation() -> NO Distance/Name Info
+    @ViewBuilder
+    private func routeRow(route: NearbyRouteModel, stopInfo: StopInfo) -> some View {
+        Button(action: { onRouteSelected(route, stopInfo) }) {
+            HStack(alignment: .center, spacing: 12) {
+                companyTagView(route: route)
+                
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        Text("往")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text(route.destNameTc)
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundColor(.primary)
+                    }
+                }
+                Spacer()
+                Image(systemName: "chevron.right").font(.caption).foregroundColor(.secondary)
             }
-            .tint(isFav ? .red : .orange)
         }
     }
     
     @ViewBuilder
-    private func routeRow(route: NearbyRouteModel, stopInfo: StopInfo) -> some View {
-        Button(action: {
-            onRouteSelected(route, stopInfo)
-        }) {
+    private func routeRowWithDetails(route: NearbyRouteModel, stopInfo: StopInfo) -> some View {
+        Button(action: { onRouteSelected(route, stopInfo) }) {
             HStack(alignment: .center, spacing: 12) {
-                Text(route.route)
-                    .font(.system(.body, design: .rounded))
-                    .fontWeight(.bold)
-                    .foregroundColor(.white)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.5)
-                    .frame(width: 64, height: 36)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(Color(red: 0.65, green: 0.08, blue: 0.12))
-                    )
+                companyTagView(route: route)
                 
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(alignment: .firstTextBaseline, spacing: 4) {
@@ -403,32 +383,40 @@ struct NearbyDashboardSectionView: View {
                         Text(route.destNameTc)
                             .font(.system(size: 15, weight: .bold))
                             .foregroundColor(.primary)
-                            .lineLimit(1)
+                    }
+                    
+                    // 🌟 This info ONLY appears in the flat list
+                    HStack(spacing: 4) {
+                        Image(systemName: "mappin.circle.fill").font(.caption2).foregroundColor(.secondary)
+                        Text("\(stopInfo.name_tc) • \(formatDistance(self.nearbyStops.first(where: { $0.stopInfo.stop == stopInfo.stop })?.distance ?? 0))")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
                     }
                 }
-                
                 Spacer()
-                
-                // 🌟 移除了 ETA 顯示 UI，只保留箭頭
-                Image(systemName: "chevron.right")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                Image(systemName: "chevron.right").font(.caption).foregroundColor(.secondary)
             }
-            .contentShape(Rectangle())
-        }
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            let dirStr = route.directionCode == "O" ? "outbound" : "inbound"
-            let isFav = favoritesManager.isFavorite(route: route.route, direction: dirStr)
-            
-            Button {
-                favoritesManager.toggleFavorite(route: route.route, direction: dirStr, destName: route.destNameTc)
-                onShowToast(isFav ? "已從常用路線移除" : "已加入常用路線")
-            } label: {
-                Label(isFav ? "移除常用" : "加入常用", systemImage: isFav ? "star.slash.fill" : "star.fill")
-            }
-            .tint(isFav ? .red : .orange)
         }
     }
+
+    // Helper to keep code clean
+    @ViewBuilder
+    private func companyTagView(route: NearbyRouteModel) -> some View {
+        // 🌟 完全基於模型數據，唔再做 String parsing
+        let isCTB = (route.co == "CTB")
+        
+        VStack(spacing: 2) {
+            Text(route.route)
+                .font(.system(size: 16, weight: .bold, design: .rounded))
+                .foregroundColor(.white)
+                .frame(width: 52, height: 32)
+                // 橙色畀城巴，紅色畀九巴
+                .background(isCTB ? Color.orange : Color(red: 0.65, green: 0.08, blue: 0.12))
+                .cornerRadius(8)
+        }
+    }
+    
+    
     
     // MARK: - Local Helpers
     
@@ -497,5 +485,15 @@ struct NearbyDashboardSectionView: View {
             return String(idString)
         }
         return "N/A"
+    }
+    
+    // Add this helper inside NearbyDashboardSectionView
+    private func getCompany(for route: NearbyRouteModel) -> String {
+        // Since this is the Dashboard, and you are pulling from local data,
+        // you can verify the operator by the direction/route pattern.
+        // If your CSV data is Citybus, return "CTB", otherwise "KMB".
+        // Or, if you added a 'co' property to NearbyRouteModel, use that!
+        return route.route.contains("E") || route.route.contains("A") ? "CTB" : "KMB"
+        // ^ Note: Replace this logic with your actual source check if available.
     }
 }

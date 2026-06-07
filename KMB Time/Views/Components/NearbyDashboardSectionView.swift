@@ -403,6 +403,27 @@ struct NearbyDashboardSectionView: View {
                 Image(systemName: "chevron.right").font(.caption).foregroundColor(.secondary)
             }
         }
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            let dirStr = route.directionCode == "O" ? "outbound" : "inbound"
+            let isFav = favoritesManager.isFavorite(route: route.route, direction: dirStr)
+            
+            Button {
+                favoritesManager.toggleFavorite(route: route.route, direction: dirStr, destName: route.destNameTc)
+                onShowToast(isFav ? "已從常用路線移除" : "已加入常用路線")
+            } label: {
+                Label(isFav ? "取消常用" : "加入常用", systemImage: isFav ? "star.slash" : "star.fill")
+            }
+            .tint(isFav ? .red : .orange)
+
+            if let validEtaDate = route.etas.first(where: { $0.etaDate?.timeIntervalSince(currentTime) ?? 0 > 120 })?.etaDate {
+                Button {
+                    onSetTimer(route, stopInfo)
+                } label: {
+                    Label("設定提示", systemImage: "bell.fill")
+                }
+                .tint(.blue)
+            }
+        }
     }
     
     @ViewBuilder
@@ -433,6 +454,27 @@ struct NearbyDashboardSectionView: View {
                 Image(systemName: "chevron.right").font(.caption).foregroundColor(.secondary)
             }
         }
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            let dirStr = route.directionCode == "O" ? "outbound" : "inbound"
+            let isFav = favoritesManager.isFavorite(route: route.route, direction: dirStr)
+            
+            Button {
+                favoritesManager.toggleFavorite(route: route.route, direction: dirStr, destName: route.destNameTc)
+                onShowToast(isFav ? "已從常用路線移除" : "已加入常用路線")
+            } label: {
+                Label(isFav ? "取消常用" : "加入常用", systemImage: isFav ? "star.slash" : "star.fill")
+            }
+            .tint(isFav ? .red : .orange)
+
+            if let validEtaDate = route.etas.first(where: { $0.etaDate?.timeIntervalSince(currentTime) ?? 0 > 120 })?.etaDate {
+                Button {
+                    onSetTimer(route, stopInfo)
+                } label: {
+                    Label("設定提示", systemImage: "bell.fill")
+                }
+                .tint(.blue)
+            }
+        }
     }
 
     @ViewBuilder
@@ -446,6 +488,15 @@ struct NearbyDashboardSectionView: View {
                 .background(JointRouteEvaluator.fetchThemeColor(route: route.route, originalCo: route.co, allRoutes: allRoutes))
                 .cornerRadius(8)
         }
+    }
+    
+    @ViewBuilder
+    private func timerBellView() -> some View {
+        Image(systemName: "bell.fill")
+            .font(.system(size: 14))
+            .foregroundColor(.yellow)
+            .padding(6)
+            .background(Circle().fill(Color.yellow.opacity(0.2)))
     }
     
     // MARK: - Local Helpers

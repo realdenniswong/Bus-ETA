@@ -392,6 +392,32 @@ extension ContentView {
                                         .foregroundColor(.secondary)
                                 }
                             }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                Button(role: .destructive) {
+                                    if let index = favoritesManager.favoriteRoutes.firstIndex(where: { $0.id == fav.id }) {
+                                        favoritesManager.favoriteRoutes.remove(at: index)
+                                    }
+                                } label: {
+                                    Label("刪除", systemImage: "trash")
+                                }
+
+                                if let status = favoriteStatus[fav.id],
+                                   let firstEta = status.etas.first(where: { $0.etaDate?.timeIntervalSince(Date()) ?? 0 > 120 }),
+                                   let etaDate = firstEta.etaDate {
+                                    Button {
+                                        timerTargetDate = etaDate
+                                        timerRouteName = fav.route.uppercased()
+                                        timerStationName = status.stopName
+                                        timerStopId = ""
+                                        timerDirection = fav.direction == "outbound" ? "outbound" : "inbound"
+                                        timerDestination = fav.destNameTc
+                                        showingAddTimerAlert = true
+                                    } label: {
+                                        Label("設定提示", systemImage: "bell.fill")
+                                    }
+                                    .tint(.blue)
+                                }
+                            }
                         }
                         .onDelete { indexSet in
                             favoritesManager.favoriteRoutes.remove(atOffsets: indexSet)
@@ -429,6 +455,15 @@ extension ContentView {
                 Label("常用路線", systemImage: "star.fill")
             }
         }
+        
+    @ViewBuilder
+    private func timerBellView() -> some View {
+        Image(systemName: "bell.fill")
+            .font(.system(size: 14))
+            .foregroundColor(.yellow)
+            .padding(6)
+            .background(Circle().fill(Color.yellow.opacity(0.2)))
+    }
 }
 
 // MARK: - Dashboard Components
@@ -614,7 +649,15 @@ extension ContentView {
                     Task { await searchRoute(route: route.route, direction: newDir, company: finalCo, findNearest: false, targetStopCode: stopInfo.stop, shouldScroll: true) }
                 },
                 onSetTimer: { route, stopInfo in
-                    // 原本的計時器邏輯維持不變...
+                    if let firstEta = route.etas.first(where: { $0.etaDate ?? Date.distantFuture > Date() }), let etaDate = firstEta.etaDate {
+                        timerTargetDate = etaDate
+                        timerRouteName = route.route.uppercased()
+                        timerStationName = stopInfo.name_tc
+                        timerStopId = stopInfo.stop
+                        timerDirection = route.directionCode == "O" ? "outbound" : "inbound"
+                        timerDestination = route.destNameTc
+                        showingAddTimerAlert = true
+                    }
                 },
                 onShowToast: { message in
                     showToast(message)

@@ -2,8 +2,6 @@
 //  NearbyDashboardSectionView.swift
 //  KMB Time
 //
-//  Created by Dennis Wong on 6/4/26.
-//
 
 import SwiftUI
 import CoreLocation
@@ -22,31 +20,14 @@ struct NearbyDashboardSectionView: View {
     let onRequestLocation: () -> Void
     let onRouteSelected: (NearbyRouteModel, StopInfo) -> Void
     let onSetTimer: (NearbyRouteModel, StopInfo) -> Void
-    let onShowToast: (String) -> Void // 🌟 NEW: Callback for Toast Notification
+    let onShowToast: (String) -> Void
     
     // MARK: - Sorting Helpers
     
-    private func hasNoService(route: NearbyRouteModel) -> Bool {
-        return route.etas.first?.etaDate == nil
-    }
-    
-    private func sortRank(for route: NearbyRouteModel) -> Int {
-        let noService = hasNoService(route: route)
-        let isOutbound = (route.directionCode == "O")
-        
-        if !noService && isOutbound { return 0 }
-        if !noService && !isOutbound { return 1 }
-        if noService && isOutbound { return 2 }
-        return 3
-    }
-    
     private func sortedRoutes(for routes: [NearbyRouteModel]) -> [NearbyRouteModel] {
         return routes.sorted { a, b in
-            let rankA = sortRank(for: a)
-            let rankB = sortRank(for: b)
-            
-            if rankA != rankB {
-                return rankA < rankB
+            if a.directionCode != b.directionCode {
+                return a.directionCode == "O" // 去程排前面
             }
             return a.route.localizedStandardCompare(b.route) == .orderedAscending
         }
@@ -62,17 +43,10 @@ struct NearbyDashboardSectionView: View {
         }
         
         return all.sorted(by: { a, b in
-            let aNoService = hasNoService(route: a.route)
-            let bNoService = hasNoService(route: b.route)
-            if aNoService != bNoService {
-                return !aNoService
-            }
             if a.distance != b.distance {
                 return a.distance < b.distance
             }
-            let aEta = a.route.etas.first?.etaDate ?? Date.distantFuture
-            let bEta = b.route.etas.first?.etaDate ?? Date.distantFuture
-            return aEta < bEta
+            return a.route.route.localizedStandardCompare(b.route.route) == .orderedAscending
         })
     }
     
@@ -116,10 +90,6 @@ struct NearbyDashboardSectionView: View {
         
         for i in 0..<result.count {
             result[i].outbound.sort {
-                let aNoService = hasNoService(route: $0.route)
-                let bNoService = hasNoService(route: $1.route)
-                if aNoService != bNoService { return !aNoService }
-                
                 let id1 = extractPoleId(from: $0.stopInfo.name_tc)
                 let id2 = extractPoleId(from: $1.stopInfo.name_tc)
                 if id1 == id2 {
@@ -127,12 +97,7 @@ struct NearbyDashboardSectionView: View {
                 }
                 return id1.localizedStandardCompare(id2) == .orderedAscending
             }
-            
             result[i].inbound.sort {
-                let aNoService = hasNoService(route: $0.route)
-                let bNoService = hasNoService(route: $1.route)
-                if aNoService != bNoService { return !aNoService }
-                
                 let id1 = extractPoleId(from: $0.stopInfo.name_tc)
                 let id2 = extractPoleId(from: $1.stopInfo.name_tc)
                 if id1 == id2 {
@@ -145,7 +110,6 @@ struct NearbyDashboardSectionView: View {
     }
     
     var body: some View {
-
         let status = locationManager.authorizationStatus
         
         if status == .notDetermined {
@@ -344,21 +308,10 @@ struct NearbyDashboardSectionView: View {
                             .foregroundColor(.secondary)
                             .padding(.vertical, 4)
                     } else {
-                        let activeOutbound = group.outbound.filter { !hasNoService(route: $0.route) }
-                        let activeInbound = group.inbound.filter { !hasNoService(route: $0.route) }
-                        let inactiveOutbound = group.outbound.filter { hasNoService(route: $0.route) }
-                        let inactiveInbound = group.inbound.filter { hasNoService(route: $0.route) }
-                        
-                        ForEach(activeOutbound, id: \.route.id) { item in
+                        ForEach(group.outbound, id: \.route.id) { item in
                             routeRowWithStationNumber(route: item.route, stopInfo: item.stopInfo)
                         }
-                        ForEach(activeInbound, id: \.route.id) { item in
-                            routeRowWithStationNumber(route: item.route, stopInfo: item.stopInfo)
-                        }
-                        ForEach(inactiveOutbound, id: \.route.id) { item in
-                            routeRowWithStationNumber(route: item.route, stopInfo: item.stopInfo)
-                        }
-                        ForEach(inactiveInbound, id: \.route.id) { item in
+                        ForEach(group.inbound, id: \.route.id) { item in
                             routeRowWithStationNumber(route: item.route, stopInfo: item.stopInfo)
                         }
                     }
@@ -377,8 +330,8 @@ struct NearbyDashboardSectionView: View {
                     .font(.system(.body, design: .rounded))
                     .fontWeight(.bold)
                     .foregroundColor(.white)
-                    .lineLimit(1) // Forces the text to stay on one line
-                    .minimumScaleFactor(0.5) // Allows the text to shrink up to 50% of its original size to fit
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
                     .frame(width: 64, height: 36)
                     .background(
                         RoundedRectangle(cornerRadius: 8)
@@ -403,48 +356,14 @@ struct NearbyDashboardSectionView: View {
                 
                 Spacer()
                 
-                HStack(spacing: 6) {
-                    if let firstEta = route.etas.first, let etaDate = firstEta.etaDate {
-                        let secondsLeft = etaDate.timeIntervalSince(currentTime)
-                        let minutesLeft = Int(secondsLeft / 60)
-                        
-                        if minutesLeft < -1 {
-                            Text("遲到 \(-minutesLeft) 分鐘")
-                                .font(.system(size: 15, weight: .semibold, design: .rounded))
-                                .foregroundColor(.red)
-                        } else if minutesLeft > 1 {
-                            Text("\(minutesLeft) 分鐘")
-                                .font(.system(size: 15, weight: .semibold, design: .rounded))
-                                .foregroundColor(.primary)
-                        } else {
-                            Text("即將抵達")
-                                .font(.system(size: 15, weight: .semibold, design: .rounded))
-                                .foregroundColor(Color.green)
-                        }
-                    } else {
-                        Text("暫無服務...")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                    }
-                    
-                    Image(systemName: "chevron.right")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
+                // 🌟 移除了 ETA 顯示 UI，只保留箭頭
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
             .contentShape(Rectangle())
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            if let firstEtaDate = route.etas.first?.etaDate,
-               firstEtaDate.timeIntervalSince(currentTime) > 120 {
-                Button {
-                    onSetTimer(route, stopInfo)
-                } label: {
-                    Label("設定提示", systemImage: "bell.fill")
-                }
-                .tint(.blue)
-            }
-            
             let dirStr = route.directionCode == "O" ? "outbound" : "inbound"
             let isFav = favoritesManager.isFavorite(route: route.route, direction: dirStr)
             
@@ -468,8 +387,8 @@ struct NearbyDashboardSectionView: View {
                     .font(.system(.body, design: .rounded))
                     .fontWeight(.bold)
                     .foregroundColor(.white)
-                    .lineLimit(1) // Forces the text to stay on one line
-                    .minimumScaleFactor(0.5) // Allows the text to shrink up to 50% of its original size to fit
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
                     .frame(width: 64, height: 36)
                     .background(
                         RoundedRectangle(cornerRadius: 8)
@@ -490,48 +409,14 @@ struct NearbyDashboardSectionView: View {
                 
                 Spacer()
                 
-                HStack(spacing: 6) {
-                    if let firstEta = route.etas.first, let etaDate = firstEta.etaDate {
-                        let secondsLeft = etaDate.timeIntervalSince(currentTime)
-                        let minutesLeft = Int(secondsLeft / 60)
-                        
-                        if minutesLeft < -1 {
-                            Text("遲到 \(-minutesLeft) 分鐘")
-                                .font(.system(size: 15, weight: .semibold, design: .rounded))
-                                .foregroundColor(.red)
-                        } else if minutesLeft > 1 {
-                            Text("\(minutesLeft) 分鐘")
-                                .font(.system(size: 15, weight: .semibold, design: .rounded))
-                                .foregroundColor(.primary)
-                        } else {
-                            Text("即將抵達")
-                                .font(.system(size: 15, weight: .semibold, design: .rounded))
-                                .foregroundColor(Color.green)
-                        }
-                    } else {
-                        Text("暫無服務...")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                    }
-                    
-                    Image(systemName: "chevron.right")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
+                // 🌟 移除了 ETA 顯示 UI，只保留箭頭
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
             .contentShape(Rectangle())
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            if let firstEtaDate = route.etas.first?.etaDate,
-               firstEtaDate.timeIntervalSince(currentTime) > 120 {
-                Button {
-                    onSetTimer(route, stopInfo)
-                } label: {
-                    Label("設定提示", systemImage: "bell.fill")
-                }
-                .tint(.blue)
-            }
-            
             let dirStr = route.directionCode == "O" ? "outbound" : "inbound"
             let isFav = favoritesManager.isFavorite(route: route.route, direction: dirStr)
             

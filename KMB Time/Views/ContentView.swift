@@ -74,10 +74,6 @@ struct ContentView: View {
     
     @State private var toastMessage: String? = nil // 🌟 NEW: Toast state
     
-    // 🌟 NEW: Properties for Favorites ETA
-    @State var favoriteETAs: [String: FavoriteETA] = [:]
-    @State var isRefreshingFavorites = false
-    
     @Environment(\.scenePhase) var scenePhase
     
     var searchSuggestions: [RouteSuggestion] {
@@ -204,15 +200,9 @@ extension ContentView {
                 Task {
                     if activeTimer != nil { await syncActiveTimer() }
                     
-                    // Dashboard Auto-refresh
+                    // Dashboard Auto-refresh (只限於路線詳情頁時重新載入)
                     if selectedTab == 0 {
-                        if !isNavigatingToRoute {
-                            if !nearbyStops.isEmpty {
-                                await refreshNearbyETAs()
-                            } else if let location = locationManager.location {
-                                await updateNearbyStops(userLocation: location)
-                            }
-                        } else if !displayData.isEmpty && !showCustomKeyboard {
+                        if isNavigatingToRoute && !displayData.isEmpty && !showCustomKeyboard {
                             await searchRoute(route: searchText.uppercased(), direction: selectedDirection, findNearest: false, shouldScroll: false, isRefresh: true)
                         }
                     }
@@ -278,139 +268,71 @@ extension ContentView {
     }
     
     private var favoritesTab: some View {
-        NavigationStack {
-            List {
-                if favoritesManager.favoriteRoutes.isEmpty {
-                    Text("您尚未加入任何常用路線。")
-                        .foregroundColor(.secondary)
-                        .padding()
-                        .listRowBackground(Color.clear)
-                } else {
-                    ForEach(favoritesManager.favoriteRoutes) { fav in
-                        Button(action: {
-                            selectedTab = 0
-                            
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                                searchText = fav.route
-                                selectedDirection = fav.direction
-                                isNavigatingToRoute = true
-                                Task { await searchRoute(route: fav.route, direction: fav.direction, findNearest: true, shouldScroll: true) }
-                            }
-                        }) {
-                            HStack(alignment: .center, spacing: 12) {
-                                Text(fav.route)
-                                    .font(.system(.body, design: .rounded))
-                                    .fontWeight(.bold)
-                                    .foregroundColor(.white)
-                                    .lineLimit(1) // Add this
-                                    .minimumScaleFactor(0.5) // Add this
-                                    .frame(width: 64, height: 36)
-                                    .background(RoundedRectangle(cornerRadius: 8).fill(Color(red: 0.65, green: 0.08, blue: 0.12)))
+            NavigationStack {
+                List {
+                    if favoritesManager.favoriteRoutes.isEmpty {
+                        Text("您尚未加入任何常用路線。")
+                            .foregroundColor(.secondary)
+                            .padding()
+                            .listRowBackground(Color.clear)
+                    } else {
+                        ForEach(favoritesManager.favoriteRoutes) { fav in
+                            Button(action: {
+                                selectedTab = 0
                                 
-                                VStack(alignment: .leading, spacing: 3) {
-                                    HStack(alignment: .firstTextBaseline, spacing: 4) {
-                                        Text("往")
-                                            .font(.caption)
-                                            .foregroundColor(.secondary)
-                                        Text(fav.destNameTc)
-                                            .font(.system(size: 15, weight: .bold))
-                                            .foregroundColor(.primary)
-                                            .lineLimit(1)
-                                    }
-                                    
-                                    // 🌟 NEW: Nearest Station Name for Favorite Route
-                                    if let etaInfo = favoriteETAs[fav.id] {
-                                        Text(etaInfo.stopName)
-                                            .font(.caption2)
-                                            .foregroundColor(.secondary)
-                                            .lineLimit(1)
-                                    }
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                                    searchText = fav.route
+                                    selectedDirection = fav.direction
+                                    isNavigatingToRoute = true
+                                    Task { await searchRoute(route: fav.route, direction: fav.direction, findNearest: true, shouldScroll: true) }
                                 }
-                                
-                                Spacer()
-                                
-                                // 🌟 NEW: Dynamic ETA Display
-                                HStack(spacing: 6) {
-                                    if let etaInfo = favoriteETAs[fav.id] {
-                                        if let etaDate = etaInfo.etaDate {
-                                            let secondsLeft = etaDate.timeIntervalSince(currentTime)
-                                            let minutesLeft = Int(secondsLeft / 60)
-                                            
-                                            if minutesLeft < -1 {
-                                                Text("遲到 \(-minutesLeft) 分鐘")
-                                                    .font(.system(size: 15, weight: .semibold, design: .rounded))
-                                                    .foregroundColor(.red)
-                                            } else if minutesLeft > 1 {
-                                                Text("\(minutesLeft) 分鐘")
-                                                    .font(.system(size: 15, weight: .semibold, design: .rounded))
-                                                    .foregroundColor(.primary)
-                                            } else {
-                                                Text("即將抵達")
-                                                    .font(.system(size: 15, weight: .semibold, design: .rounded))
-                                                    .foregroundColor(Color.green)
-                                            }
-                                        } else {
-                                            Text("暫無服務...")
-                                                .font(.caption2)
+                            }) {
+                                HStack(alignment: .center, spacing: 12) {
+                                    Text(fav.route)
+                                        .font(.system(.body, design: .rounded))
+                                        .fontWeight(.bold)
+                                        .foregroundColor(.white)
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.5)
+                                        .frame(width: 64, height: 36)
+                                        .background(RoundedRectangle(cornerRadius: 8).fill(Color(red: 0.65, green: 0.08, blue: 0.12)))
+                                    
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        HStack(alignment: .firstTextBaseline, spacing: 4) {
+                                            Text("往")
+                                                .font(.caption)
                                                 .foregroundColor(.secondary)
+                                            Text(fav.destNameTc)
+                                                .font(.system(size: 15, weight: .bold))
+                                                .foregroundColor(.primary)
+                                                .lineLimit(1)
                                         }
-                                    } else {
-                                        Text("載入中...")
-                                            .font(.caption2)
-                                            .foregroundColor(.secondary)
                                     }
                                     
+                                    Spacer()
+                                    
+                                    // 🌟 完全移除 ETA UI 與載入狀態
                                     Image(systemName: "chevron.right")
                                         .font(.caption)
                                         .foregroundColor(.secondary)
                                 }
                             }
                         }
-                    }
-                    .onDelete { indexSet in
-                        favoritesManager.favoriteRoutes.remove(atOffsets: indexSet)
-                    }
-                }
-            }
-            .navigationTitle("常用路線")
-            .padding(.top, 16)
-            .background(themeBackground)
-            .scrollContentBackground(.hidden)
-            // 🌟 NEW: Refresh Toolbar for Favorites
-            .toolbar {
-                ToolbarItemGroup(placement: .navigationBarTrailing) {
-                    if isRefreshingFavorites {
-                        ProgressView()
-                    } else {
-                        Button(action: {
-                            Task {
-                                await refreshFavoritesETAs()
-                            }
-                        }) {
-                            Image(systemName: "arrow.clockwise").font(.system(size: 16, weight: .medium))
+                        .onDelete { indexSet in
+                            favoritesManager.favoriteRoutes.remove(atOffsets: indexSet)
                         }
                     }
                 }
+                .navigationTitle("常用路線")
+                .padding(.top, 16)
+                .background(themeBackground)
+                .scrollContentBackground(.hidden)
+                // 🌟 移除了 .toolbar, .onReceive, .onAppear, .onChange, .refreshable 中關於 ETA 更新的代碼
             }
-            .onReceive(refreshTimer) { _ in
-                if selectedTab == 1 {
-                    Task { await refreshFavoritesETAs() }
-                }
-            }
-            .onAppear {
-                Task { await refreshFavoritesETAs() }
-            }
-            .onChange(of: favoritesManager.favoriteRoutes.count) { _ in
-                Task { await refreshFavoritesETAs() }
-            }
-            .refreshable {
-                await refreshFavoritesETAs()
+            .tabItem {
+                Label("常用路線", systemImage: "star.fill")
             }
         }
-        .tabItem {
-            Label("常用路線", systemImage: "star.fill")
-        }
-    }
 }
 
 // MARK: - Dashboard Components

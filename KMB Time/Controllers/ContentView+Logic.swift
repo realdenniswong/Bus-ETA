@@ -858,4 +858,167 @@ extension ContentView {
             }
         }
     }
+
+    // MARK: - Favorites Auto Refresh
+    func updateFavoriteETAs() async {
+        guard let userLoc = locationManager.location else { return }
+        
+        let favs = favoritesManager.favoriteRoutes
+        var results: [String: FavoriteStatusModel] = [:]
+        
+        await withTaskGroup(of: (String, FavoriteStatusModel?).self) { group in
+            for fav in favs {
+                group.addTask {
+                    let route = fav.route
+                    let direction = fav.direction
+                    let targetCompany = await MainActor.run { 
+                        if let kmbRoute = self.allRoutes.first(where: { $0.route == route }) {
+                            return kmbRoute.co
+                        } else {
+                            return "CTB"
+                        }
+                    }
+                    let safeRoute = route.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? route
+                    let targetDirCode = direction == "outbound" ? "O" : "I"
+                    let dateFormatter = ISO8601DateFormatter()
+                    
+                    var minDistance: CLLocationDistance = .infinity
+                    var bestStopId: String? = nil
+                    var bestStopName: String = "未知車站"
+                    var bestSeq: Int = 0
+                    
+                    if targetCompany == "KMB" || targetCompany == "JOINT" {
+                        if let url = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/route-stop/\(safeRoute)/\(direction)/1"),
+                           let (data, _) = try? await URLSession.shared.data(from: url),
+                           let response = try? JSONDecoder().decode(RouteStopResponse.self, from: data) {
+                            
+                            for rs in response.data {
+                                var loc: CLLocation? = nil
+                                await MainActor.run { loc = self.stopInfoDictionary[rs.stop]?.clLocation }
+                                if let finalLoc = loc {
+                                    let dist = userLoc.distance(from: finalLoc)
+                                    if dist < minDistance {
+                                        minDistance = dist
+                                        bestStopId = rs.stop
+                                        bestSeq = Int(rs.seq) ?? 0
+                                        var name = "未知車站"
+                                        await MainActor.run { name = self.stopInfoDictionary[rs.stop]?.name_tc ?? "未知車站" }
+                                        bestStopName = name
+                                    }
+                                }
+                            }
+                        }
+                        
+                        if let _ = bestStopId {
+                            if let etaUrl = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/route-eta/\(safeRoute)/1"),
+                               let (etaData, _) = try? await URLSession.shared.data(from: etaUrl),
+                               let etaResponse = try? JSONDecoder().decode(ETAResponse.self, from: etaData) {
+                                
+                                let filtered = etaResponse.data.filter { $0.dir == targetDirCode && $0.seq == bestSeq }
+                                var parsedEtas: [ETADisplayInfo] = []
+                                for item in filtered {
+                                    if let etaString = item.eta, !etaString.isEmpty, let date = dateFormatter.date(from: etaString) {
+                                        parsedEtas.append(ETADisplayInfo(etaDate: date, remark: item.rmk_tc))
+                                    }
+                                }
+                                parsedEtas.sort { ($0.etaDate ?? Date.distantFuture) < ($1.etaDate ?? Date.distantFuture) }
+                                return (fav.id, FavoriteStatusModel(etas: parsedEtas, distance: minDistance, stopName: bestStopName))
+                            }
+                        }
+                    } else if targetCompany == "CTB" {
+                        let dirStr = direction == "outbound" ? "outbound" : "inbound"
+                        if let url = URL(string: "https://rt.data.gov.hk/v2/transport/citybus/route-stop/CTB/\(safeRoute)/\(dirStr)"),
+                           let (data, _) = try? await URLSession.shared.data(from: url),
+                           let response = try? JSONDecoder().decode(CTBRouteStopResponse.self, from: data) {
+                            
+                            let distances: [(stopId: String, seq: Int, name: String, distance: CLLocationDistance)] = await withTaskGroup(of: (String, Int, String, CLLocationDistance)?.self) { innerGroup in
+                                for rs in response.data {
+                                    innerGroup.addTask {
+                                        var loc: CLLocation? = nil
+                                        var name: String = "未知車站"
+                                        await MainActor.run { 
+                                            loc = self.stopInfoDictionary[rs.stop]?.clLocation 
+                                            name = self.stopInfoDictionary[rs.stop]?.name_tc ?? "未知車站"
+                                        }
+                                        
+                                        if loc == nil {
+                                            if let stopUrl = URL(string: "https://rt.data.gov.hk/v2/transport/citybus/stop/\(rs.stop)"),
+                                               let (sData, _) = try? await URLSession.shared.data(from: stopUrl),
+                                               let stopInfo = try? JSONDecoder().decode(CTBStopResponse.self, from: sData).data {
+                                                loc = stopInfo.clLocation
+                                                name = stopInfo.name_tc
+                                                await MainActor.run {
+                                                    self.stopInfoDictionary[rs.stop] = StopInfo(stop: stopInfo.stop, name_tc: stopInfo.name_tc, lat: stopInfo.lat, long: stopInfo.long)
+                                                }
+                                            }
+                                        }
+                                        
+                                        if let finalLoc = loc {
+                                            return (rs.stop, rs.seq, name, userLoc.distance(from: finalLoc))
+                                        }
+                                        return nil
+                                    }
+                                }
+                                var innerResults: [(String, Int, String, CLLocationDistance)] = []
+                                for await result in innerGroup {
+                                    if let res = result { innerResults.append(res) }
+                                }
+                                return innerResults
+                            }
+                            
+                            if let best = distances.min(by: { $0.distance < $1.distance }) {
+                                minDistance = best.distance
+                                bestStopId = best.stopId
+                                bestSeq = best.seq
+                                bestStopName = best.name
+                            }
+                        }
+                        
+                        if let stopId = bestStopId {
+                            if let etaUrl = URL(string: "https://rt.data.gov.hk/v2/transport/citybus/eta/CTB/\(stopId)/\(safeRoute)"),
+                               let (eData, _) = try? await URLSession.shared.data(from: etaUrl),
+                               let json = try? JSONSerialization.jsonObject(with: eData) as? [String: Any],
+                               let dataArr = json["data"] as? [[String: Any]] {
+                                
+                                var parsedEtas: [ETADisplayInfo] = []
+                                for item in dataArr {
+                                    let itemDir = (item["dir"] as? String)?.uppercased() ?? ""
+                                    var itemSeq = -1
+                                    if let sInt = item["seq"] as? Int { itemSeq = sInt }
+                                    else if let sStr = item["seq"] as? String, let sParsed = Int(sStr) { itemSeq = sParsed }
+                                    
+                                    if itemDir == targetDirCode, (itemSeq == bestSeq || itemSeq == -1) {
+                                        if let itemEta = item["eta"] as? String, !itemEta.isEmpty {
+                                            var date = dateFormatter.date(from: itemEta)
+                                            if date == nil {
+                                                dateFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                                                date = dateFormatter.date(from: itemEta)
+                                                dateFormatter.formatOptions = [.withInternetDateTime]
+                                            }
+                                            if let d = date {
+                                                parsedEtas.append(ETADisplayInfo(etaDate: d, remark: item["rmk_tc"] as? String))
+                                            }
+                                        }
+                                    }
+                                }
+                                parsedEtas.sort { ($0.etaDate ?? Date.distantFuture) < ($1.etaDate ?? Date.distantFuture) }
+                                return (fav.id, FavoriteStatusModel(etas: parsedEtas, distance: minDistance, stopName: bestStopName))
+                            }
+                        }
+                    }
+                    return (fav.id, nil)
+                }
+            }
+            
+            for await result in group {
+                if let data = result.1 {
+                    results[result.0] = data
+                }
+            }
+        }
+        
+        await MainActor.run {
+            self.favoriteStatus = results
+        }
+    }
 }

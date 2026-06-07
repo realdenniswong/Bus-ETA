@@ -247,7 +247,24 @@ struct NearbyDashboardSectionView: View {
                 }
             }
             
-            let filteredRoutes = Array(uniqueRoutes.values).sorted { $0.distance < $1.distance }
+            let filteredRoutes = Array(uniqueRoutes.values).sorted { a, b in
+                let aHasService = !a.route.etas.isEmpty
+                let bHasService = !b.route.etas.isEmpty
+                
+                if aHasService != bHasService {
+                    return aHasService // In service comes first
+                }
+                
+                if a.distance != b.distance {
+                    return a.distance < b.distance
+                }
+                
+                if a.route.directionCode != b.route.directionCode {
+                    return a.route.directionCode == "I" // Inbound comes before Outbound
+                }
+                
+                return a.route.route.localizedStandardCompare(b.route.route) == .orderedAscending
+            }
             
             if filteredRoutes.isEmpty {
                 Text("暫無服務...")

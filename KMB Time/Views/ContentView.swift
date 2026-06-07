@@ -65,6 +65,34 @@ struct ContentView: View {
     @State var timerStopId = ""
     @State var timerDirection = ""
     
+    @State var favoriteStatus: [String: FavoriteStatusModel] = [:]
+    
+    var sortedFavorites: [FavoriteRoute] {
+        favoritesManager.favoriteRoutes.sorted { a, b in
+            let statusA = favoriteStatus[a.id]
+            let statusB = favoriteStatus[b.id]
+            
+            let aHasService = !(statusA?.etas.isEmpty ?? true)
+            let bHasService = !(statusB?.etas.isEmpty ?? true)
+            
+            if aHasService != bHasService {
+                return aHasService
+            }
+            
+            let distA = statusA?.distance ?? .infinity
+            let distB = statusB?.distance ?? .infinity
+            if distA != distB {
+                return distA < distB
+            }
+            
+            if a.direction != b.direction {
+                return a.direction == "inbound"
+            }
+            
+            return a.route.localizedStandardCompare(b.route) == .orderedAscending
+        }
+    }
+    
     @State var highlightedStopId: String? = nil
     @State var scrollTriggerId: UUID = UUID()
     
@@ -236,6 +264,8 @@ extension ContentView {
                         } else if !isNavigatingToRoute && !nearbyStops.isEmpty && !showCustomKeyboard {
                             await refreshNearbyETAs()
                         }
+                    } else if selectedTab == 1 {
+                        await updateFavoriteETAs()
                     }
                 }
             }
@@ -307,7 +337,7 @@ extension ContentView {
                             .padding()
                             .listRowBackground(Color.clear)
                     } else {
-                        ForEach(favoritesManager.favoriteRoutes) { fav in
+                        ForEach(sortedFavorites) { fav in
                             Button(action: {
                                 selectedTab = 0
                                 
@@ -338,11 +368,25 @@ extension ContentView {
                                                 .foregroundColor(.primary)
                                                 .lineLimit(1)
                                         }
+                                        HStack(spacing: 4) {
+                                            Image(systemName: "mappin.circle.fill").font(.caption2).foregroundColor(.secondary)
+                                            if let status = favoriteStatus[fav.id] {
+                                                Text("\(status.stopName) • \(formatDistance(status.distance))")
+                                                    .font(.caption2)
+                                                    .foregroundColor(.secondary)
+                                            } else {
+                                                Text("正在尋找最近車站...")
+                                                    .font(.caption2)
+                                                    .foregroundColor(.secondary)
+                                            }
+                                        }
                                     }
                                     
                                     Spacer()
                                     
-                                    // 🌟 完全移除 ETA UI 與載入狀態
+                                    if let status = favoriteStatus[fav.id] {
+                                        etaCountdownView(etas: status.etas)
+                                    }
                                     Image(systemName: "chevron.right")
                                         .font(.caption)
                                         .foregroundColor(.secondary)
@@ -358,7 +402,28 @@ extension ContentView {
                 .padding(.top, 16)
                 .background(themeBackground)
                 .scrollContentBackground(.hidden)
-                // 🌟 移除了 .toolbar, .onReceive, .onAppear, .onChange, .refreshable 中關於 ETA 更新的代碼
+                .refreshable {
+                    await updateFavoriteETAs()
+                }
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button(action: {
+                            Task { await updateFavoriteETAs() }
+                        }) {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                    }
+                }
+            }
+            .task {
+                if selectedTab == 1 {
+                    await updateFavoriteETAs()
+                }
+            }
+            .onChange(of: selectedTab) { newValue in
+                if newValue == 1 {
+                    Task { await updateFavoriteETAs() }
+                }
             }
             .tabItem {
                 Label("常用路線", systemImage: "star.fill")
@@ -368,6 +433,40 @@ extension ContentView {
 
 // MARK: - Dashboard Components
 extension ContentView {
+    private func relativeTimeText(for etas: [ETADisplayInfo]) -> (text: String, color: Color) {
+        guard let firstEta = etas.first?.etaDate else {
+            return ("沒有班次", .secondary)
+        }
+        
+        let diff = firstEta.timeIntervalSince(currentTime)
+        if diff < 60 {
+            return ("即將抵達", .red)
+        } else {
+            let minutes = Int(diff / 60)
+            return ("\(minutes) 分鐘", .primary)
+        }
+    }
+    
+    @ViewBuilder
+    private func etaCountdownView(etas: [ETADisplayInfo]) -> some View {
+        let etaInfo = relativeTimeText(for: etas)
+        Text(etaInfo.text)
+            .font(.system(size: 14, weight: .bold))
+            .foregroundColor(etaInfo.color)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(etaInfo.color.opacity(0.1))
+            .cornerRadius(6)
+    }
+
+    private func formatDistance(_ distance: CLLocationDistance) -> String {
+        if distance < 1000 {
+            return String(format: "%.0f 米", distance)
+        } else {
+            return String(format: "%.1f 公里", distance / 1000)
+        }
+    }
+    
     private var dashboardContentView: some View {
             ZStack {
                 List {

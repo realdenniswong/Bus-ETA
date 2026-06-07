@@ -99,6 +99,7 @@ struct CustomKeyboardView: View {
                 .shadow(color: .black.opacity(0.1), radius: 10, y: -5)
                 .ignoresSafeArea()
         )
+        .safeAreaPadding(.bottom)
     }
     
     @ViewBuilder

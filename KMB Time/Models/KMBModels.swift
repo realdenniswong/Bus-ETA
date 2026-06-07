@@ -140,3 +140,13 @@ struct CTBStopCSVItem {
     let longitude: Double
     let latitude: Double
 }
+
+struct FavoriteStatusModel: Equatable {
+    let etas: [ETADisplayInfo]
+    let distance: CLLocationDistance
+    let stopName: String
+    
+    static func == (lhs: FavoriteStatusModel, rhs: FavoriteStatusModel) -> Bool {
+        return lhs.distance == rhs.distance && lhs.stopName == rhs.stopName && lhs.etas.first?.etaDate == rhs.etas.first?.etaDate
+    }
+}

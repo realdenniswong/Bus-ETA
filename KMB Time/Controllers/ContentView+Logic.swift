@@ -8,6 +8,12 @@ import ActivityKit
 extension ContentView {
     
     // MARK: - Route Loading
+    
+    /// Loads the complete KMB route list used by search suggestions and route-detail navigation.
+    ///
+    /// The API returns one record per route direction. This method converts each record into a
+    /// `RouteSuggestion`, sorts routes naturally by route number, and publishes the final list on
+    /// the main actor for SwiftUI state updates.
     func loadAllRoutes() async {
         guard let url = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/route/") else { return }
         
@@ -40,6 +46,10 @@ extension ContentView {
         }
     }
     
+    /// Loads all KMB stops and builds fast lookup dictionaries for stop names and coordinates.
+    ///
+    /// Invalid stops with missing or zero coordinates are ignored because nearby-stop calculations
+    /// depend on real `CLLocation` values.
     func loadAllStops() async {
         guard let url = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/stop/") else { return }
         
@@ -78,12 +88,18 @@ extension ContentView {
         }
     }
     
+    /// Rebuilds the nearby dashboard from the user's current location.
+    ///
+    /// - Parameter userLocation: The latest location reported by `LocationManager`.
+    ///
+    /// This method first finds the closest physical KMB stops, then attaches ETA route rows for
+    /// each nearby stop so the dashboard can render both station and route views.
     func updateNearbyStops(userLocation: CLLocation) async {
         guard !allStops.isEmpty else { return }
         
         await MainActor.run { isSearchingNearby = true }
         
-        let sorted = allStops
+        let nearestStops = allStops
             .compactMap { stop -> NearbyStopModel? in
                 guard let stopLocation = stop.clLocation else { return nil }
                 return NearbyStopModel(stopInfo: stop, distance: userLocation.distance(from: stopLocation))
@@ -91,18 +107,22 @@ extension ContentView {
             .sorted { $0.distance < $1.distance }
             .prefix(10)
         
-        var populated: [NearbyStopModel] = []
-        for var stopModel in sorted {
-            stopModel.routes = await fetchRoutesForStop(stopId: stopModel.stopInfo.stop)
-            populated.append(stopModel)
+        var nearbyStopsWithRoutes: [NearbyStopModel] = []
+        for var nearbyStop in nearestStops {
+            nearbyStop.routes = await fetchRoutesForStop(stopId: nearbyStop.stopInfo.stop)
+            nearbyStopsWithRoutes.append(nearbyStop)
         }
         
         await MainActor.run {
-            self.nearbyStops = populated
+            self.nearbyStops = nearbyStopsWithRoutes
             self.isSearchingNearby = false
         }
     }
     
+    /// Refreshes ETA rows for the stops already displayed on the nearby dashboard.
+    ///
+    /// Use this for timer-driven refreshes so the app does not recompute nearest stops unless the
+    /// user's location changed.
     func refreshNearbyETAs() async {
         guard !nearbyStops.isEmpty else { return }
         await MainActor.run { isSearchingNearby = true }
@@ -118,6 +138,10 @@ extension ContentView {
         }
     }
     
+    /// Fetches KMB ETA rows for one stop and groups them into dashboard route cards.
+    ///
+    /// - Parameter stopId: KMB stop identifier from the KMB stop endpoint.
+    /// - Returns: Route cards sorted by route number. Each card contains up to three upcoming ETAs.
     func fetchRoutesForStop(stopId: String) async -> [NearbyRouteModel] {
         guard let url = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/stop-eta/\(stopId)") else { return [] }
         
@@ -129,16 +153,16 @@ extension ContentView {
             let response = try JSONDecoder().decode(StopETAResponse.self, from: data)
             let formatter = ISO8601DateFormatter()
             
-            let groupedItems = Dictionary(grouping: response.data.filter { $0.service_type == 1 }) { item in
-                "\(item.route)-\(item.dir)"
+            let etaItemsByRouteDirection = Dictionary(grouping: response.data.filter { $0.service_type == 1 }) { etaItem in
+                "\(etaItem.route)-\(etaItem.dir)"
             }
             
-            let routes = groupedItems.compactMap { key, items -> NearbyRouteModel? in
-                guard let firstItem = items.first else { return nil }
-                let parts = key.components(separatedBy: "-")
-                guard parts.count >= 2 else { return nil }
+            let routes = etaItemsByRouteDirection.compactMap { routeDirectionKey, etaItems -> NearbyRouteModel? in
+                guard let firstEtaItem = etaItems.first else { return nil }
+                let routeDirectionParts = routeDirectionKey.components(separatedBy: "-")
+                guard routeDirectionParts.count >= 2 else { return nil }
                 
-                let etas = items.compactMap { item -> ETADisplayInfo? in
+                let etas = etaItems.compactMap { item -> ETADisplayInfo? in
                     guard let eta = item.eta, !eta.isEmpty, let date = formatter.date(from: eta) else { return nil }
                     return ETADisplayInfo(etaDate: date, remark: item.rmk_tc)
                 }
@@ -146,9 +170,9 @@ extension ContentView {
                 
                 return NearbyRouteModel(
                     co: "KMB",
-                    route: parts[0],
-                    directionCode: parts[1],
-                    destNameTc: firstItem.dest_tc,
+                    route: routeDirectionParts[0],
+                    directionCode: routeDirectionParts[1],
+                    destNameTc: firstEtaItem.dest_tc,
                     etas: Array(etas.prefix(3))
                 )
             }
@@ -161,6 +185,17 @@ extension ContentView {
     }
     
     // MARK: - Route Search
+    
+    /// Loads the stop-by-stop timetable for one KMB route direction.
+    ///
+    /// - Parameters:
+    ///   - route: Route number, for example `1A`.
+    ///   - direction: Optional direction string accepted by the KMB API, either `outbound` or `inbound`.
+    ///   - company: Kept for existing call sites; the KMB-only app always resolves this to `KMB`.
+    ///   - findNearest: When true, highlights the nearest stop on the route after loading.
+    ///   - targetStopCode: Optional stop id to highlight, usually from the nearby dashboard.
+    ///   - shouldScroll: Whether the route-detail screen should scroll to the highlighted stop.
+    ///   - isRefresh: When true, preserves the current loading UI instead of clearing the route first.
     func searchRoute(route: String, direction: String? = nil, company: String? = nil, findNearest: Bool = false, targetStopCode: String? = nil, shouldScroll: Bool = false, isRefresh: Bool = false) async {
         guard !route.isEmpty else { return }
         
@@ -188,10 +223,10 @@ extension ContentView {
             let (routeStopData, _) = try await URLSession.shared.data(for: routeStopRequest)
             let routeStops = try JSONDecoder().decode(RouteStopResponse.self, from: routeStopData).data
             
-            var results: [StopDisplayModel] = []
+            var timetableRows: [StopDisplayModel] = []
             for routeStop in routeStops {
                 let stopId = routeStop.stop
-                let seq = Int(routeStop.seq) ?? 0
+                let stopSequence = Int(routeStop.seq) ?? 0
                 let stopName = stopInfoDictionary[stopId]?.name_tc ?? stopDictionary[stopId] ?? "未知車站"
                 
                 var etas: [ETADisplayInfo] = []
@@ -213,19 +248,19 @@ extension ContentView {
                     .sorted { ($0.etaDate ?? Date.distantFuture) < ($1.etaDate ?? Date.distantFuture) }
                 }
                 
-                results.append(StopDisplayModel(seq: seq, stopId: stopId, stopNameTc: stopName, etas: Array(etas.prefix(3))))
+                timetableRows.append(StopDisplayModel(seq: stopSequence, stopId: stopId, stopNameTc: stopName, etas: Array(etas.prefix(3))))
             }
-            results.sort { $0.seq < $1.seq }
+            timetableRows.sort { $0.seq < $1.seq }
             
-            let targetId = routeSearchTargetId(results: results, findNearest: findNearest, targetStopCode: targetStopCode)
+            let highlightStopId = highlightedStopIdForRouteSearch(rows: timetableRows, findNearest: findNearest, targetStopCode: targetStopCode)
             
             await MainActor.run {
-                self.highlightedStopId = targetId
-                if results.isEmpty {
+                self.highlightedStopId = highlightStopId
+                if timetableRows.isEmpty {
                     systemMessage = "沒有找到路線 \(route) 的 \(currentDirection == "outbound" ? "去程" : "回程") 班次數據。"
                     if !isRefresh { displayData = [] }
                 } else {
-                    displayData = results
+                    displayData = timetableRows
                 }
                 if shouldScroll { self.scrollTriggerId = UUID() }
                 if !isRefresh { isLoading = false }
@@ -241,12 +276,19 @@ extension ContentView {
         }
     }
     
-    private func routeSearchTargetId(results: [StopDisplayModel], findNearest: Bool, targetStopCode: String?) -> String? {
+    /// Chooses which timetable row should be highlighted after a route search completes.
+    ///
+    /// - Parameters:
+    ///   - rows: Timetable rows returned from the selected KMB route direction.
+    ///   - findNearest: Whether to choose the nearest row to the user's current location.
+    ///   - targetStopCode: Optional stop id requested by a dashboard or favourite navigation action.
+    /// - Returns: The `StopDisplayModel.id` for the best row to highlight, or `nil` if no match exists.
+    private func highlightedStopIdForRouteSearch(rows: [StopDisplayModel], findNearest: Bool, targetStopCode: String?) -> String? {
         if findNearest, let userLocation = locationManager.location {
-            return results.min { lhs, rhs in
-                let lhsDistance = distance(from: userLocation, to: lhs)
-                let rhsDistance = distance(from: userLocation, to: rhs)
-                return lhsDistance < rhsDistance
+            return rows.min { firstCandidate, secondCandidate in
+                let firstDistance = distanceFromLocation(userLocation, to: firstCandidate)
+                let secondDistance = distanceFromLocation(userLocation, to: secondCandidate)
+                return firstDistance < secondDistance
             }?.id
         }
         
@@ -254,7 +296,7 @@ extension ContentView {
             return highlightedStopId
         }
         
-        if let exactMatch = results.first(where: { $0.stopId == targetStopCode }) {
+        if let exactMatch = rows.first(where: { $0.stopId == targetStopCode }) {
             return exactMatch.id
         }
         
@@ -264,31 +306,42 @@ extension ContentView {
             options: .regularExpression
         ) ?? ""
         
-        if let nameMatch = results.first(where: { result in
-            let resultName = result.stopNameTc.replacingOccurrences(
+        if let nameMatch = rows.first(where: { row in
+            let rowStopName = row.stopNameTc.replacingOccurrences(
                 of: "\\s*\\([^)]+\\)\\s*$",
                 with: "",
                 options: .regularExpression
             )
-            return !targetName.isEmpty && resultName == targetName
+            return !targetName.isEmpty && rowStopName == targetName
         }) {
             return nameMatch.id
         }
         
         guard let targetLocation = stopInfoDictionary[targetStopCode]?.clLocation else { return nil }
-        return results.min { lhs, rhs in
-            let lhsDistance = distance(from: targetLocation, to: lhs)
-            let rhsDistance = distance(from: targetLocation, to: rhs)
-            return lhsDistance < rhsDistance
+        return rows.min { firstCandidate, secondCandidate in
+            let firstDistance = distanceFromLocation(targetLocation, to: firstCandidate)
+            let secondDistance = distanceFromLocation(targetLocation, to: secondCandidate)
+            return firstDistance < secondDistance
         }?.id
     }
     
-    private func distance(from location: CLLocation, to stop: StopDisplayModel) -> CLLocationDistance {
+    /// Measures how far a timetable row is from a reference location.
+    ///
+    /// - Parameters:
+    ///   - location: User or target stop location used as the distance origin.
+    ///   - stop: Timetable row whose stop location should be compared.
+    /// - Returns: The distance in meters, or `.infinity` when the stop has no known coordinates.
+    private func distanceFromLocation(_ location: CLLocation, to stop: StopDisplayModel) -> CLLocationDistance {
         let stopLocation = stop.location ?? stopInfoDictionary[stop.stopId]?.clLocation ?? allStops.first(where: { $0.stop == stop.stopId })?.clLocation
         return stopLocation.map { location.distance(from: $0) } ?? .infinity
     }
     
     // MARK: - Timers and Live Activity
+    
+    /// Refreshes the active timer with the latest KMB ETA for the tracked stop.
+    ///
+    /// If the ETA changes by more than ten seconds, the local notification and Live Activity are
+    /// updated so the reminder remains aligned with the real arrival time.
     func syncActiveTimer() async {
         guard let timer = activeTimer, !timer.stopId.isEmpty else { return }
         guard let url = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/stop-eta/\(timer.stopId)") else { return }
@@ -329,6 +382,9 @@ extension ContentView {
         }
     }
     
+    /// Pushes a new ETA state to any running Live Activity.
+    ///
+    /// - Parameter etaDate: Latest estimated arrival time for the tracked bus.
     func updateLiveActivity(etaDate: Date) {
         Task {
             for activity in Activity<BusETAAttributes>.activities {
@@ -340,6 +396,10 @@ extension ContentView {
         }
     }
     
+    /// Formats an optional date for alert copy.
+    ///
+    /// - Parameter date: Date to display in `HH:mm` format.
+    /// - Returns: A time string, or an empty string when `date` is nil.
     func formattedTime(_ date: Date?) -> String {
         guard let date else { return "" }
         let formatter = DateFormatter()
@@ -347,6 +407,12 @@ extension ContentView {
         return formatter.string(from: date)
     }
     
+    /// Schedules the single local reminder used by the active timer.
+    ///
+    /// - Parameters:
+    ///   - routeName: Route number shown in the notification body.
+    ///   - destination: Destination name shown in the notification body.
+    ///   - alertDate: Date when the notification should fire.
     func scheduleLocalNotification(routeName: String, destination: String, alertDate: Date) {
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["KMBTimeAlarm"])
         
@@ -363,6 +429,14 @@ extension ContentView {
         UNUserNotificationCenter.current().add(request) { _ in }
     }
     
+    /// Starts a Live Activity for the selected ETA reminder.
+    ///
+    /// - Parameters:
+    ///   - routeName: Route number displayed in the Live Activity.
+    ///   - destination: Destination displayed in the Live Activity.
+    ///   - stationName: Stop name displayed in the Live Activity.
+    ///   - etaDate: Estimated arrival time being tracked.
+    ///   - startTime: Time when the user created the reminder.
     func startLiveActivity(routeName: String, destination: String, stationName: String, etaDate: Date, startTime: Date) {
         if ActivityAuthorizationInfo().areActivitiesEnabled {
             do {
@@ -377,6 +451,7 @@ extension ContentView {
         }
     }
     
+    /// Ends every Live Activity created by this app.
     func endLiveActivity() {
         Task {
             for activity in Activity<BusETAAttributes>.activities {
@@ -386,6 +461,7 @@ extension ContentView {
         }
     }
     
+    /// Rehydrates `activeTimer` from an existing Live Activity after app launch or foregrounding.
     func reconnectActiveLiveActivity() {
         for activity in Activity<BusETAAttributes>.activities {
             let attributes = activity.attributes
@@ -411,6 +487,11 @@ extension ContentView {
     }
     
     // MARK: - Favorites
+    
+    /// Refreshes ETA and nearest-stop status for every saved favourite route.
+    ///
+    /// Favourites are stored by route and direction only, so this method finds the nearest matching
+    /// stop on each route before requesting ETA data.
     func updateFavoriteETAs() async {
         guard let userLocation = locationManager.location else { return }
         
@@ -428,6 +509,12 @@ extension ContentView {
         }
     }
     
+    /// Builds the displayed ETA status for one favourite route.
+    ///
+    /// - Parameters:
+    ///   - favorite: Saved route/direction pair from `FavoritesManager`.
+    ///   - userLocation: Current user location used to select the nearest stop on the route.
+    /// - Returns: Display status with nearest stop name, distance, and up to three ETAs.
     private func favoriteStatus(for favorite: FavoriteRoute, userLocation: CLLocation) async -> FavoriteStatusModel? {
         let route = favorite.route
         let direction = favorite.direction

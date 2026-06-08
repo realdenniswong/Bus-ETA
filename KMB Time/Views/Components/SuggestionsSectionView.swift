@@ -16,11 +16,11 @@ struct SuggestionsSectionView: View {
                         // 號碼牌
                         Text(suggestion.route)
                             .font(.system(.body, design: .rounded)).fontWeight(.bold)
-                            .foregroundColor(.white)
+                            .foregroundColor(KMBRouteTheme.foregroundColor(route: suggestion.route, company: suggestion.co, allRoutes: allRoutes))
                             .frame(width: 54, height: 32)
                             .background(
                                 RoundedRectangle(cornerRadius: 8)
-                                    .fill(KMBRouteTheme.color(route: suggestion.route, company: suggestion.co, allRoutes: allRoutes))
+                                    .fill(KMBRouteTheme.backgroundColor(route: suggestion.route, company: suggestion.co, allRoutes: allRoutes))
                             )
                             .fixedSize()
                         

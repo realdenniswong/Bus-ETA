@@ -91,7 +91,7 @@ extension ContentView {
     }
     
     var favoriteToolbarButton: some View {
-        let isFavorite = favoritesManager.isFavorite(route: searchText.uppercased(), direction: selectedDirection)
+        let isFavorite = favoritesManager.isFavorite(route: searchText.uppercased(), direction: selectedDirection, company: selectedCompany)
         return Button(action: toggleCurrentRouteFavorite) {
             Image(systemName: isFavorite ? "star.fill" : "star")
                 .foregroundColor(isFavorite ? .orange : .primary)
@@ -135,12 +135,12 @@ extension ContentView {
     
     /// Adds or removes the currently visible route direction from favourites.
     func toggleCurrentRouteFavorite() {
-        let isFavorite = favoritesManager.isFavorite(route: searchText.uppercased(), direction: selectedDirection)
+        let isFavorite = favoritesManager.isFavorite(route: searchText.uppercased(), direction: selectedDirection, company: selectedCompany)
         let boundPrefix = selectedDirection == "outbound" ? "O" : "I"
         let matchedRoute = allRoutes.first(where: { $0.route == searchText.uppercased() && $0.bound == boundPrefix })
         let destination = matchedRoute?.destination ?? "終點站"
         
-        favoritesManager.toggleFavorite(route: searchText.uppercased(), direction: selectedDirection, destName: destination)
+        favoritesManager.toggleFavorite(route: searchText.uppercased(), direction: selectedDirection, destName: destination, company: selectedCompany)
         showToast(isFavorite ? "已從常用路線移除" : "已加入常用路線")
     }
     

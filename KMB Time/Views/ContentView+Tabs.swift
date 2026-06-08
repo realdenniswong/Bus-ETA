@@ -130,16 +130,17 @@ extension ContentView {
     
     @ViewBuilder
     func favoriteRouteButton(_ favorite: FavoriteRoute) -> some View {
+        let company = companyCode(for: favorite)
         Button(action: { openFavoriteRoute(favorite) }) {
             HStack(alignment: .center, spacing: 12) {
                 Text(favorite.route)
                     .font(.system(.body, design: .rounded))
                     .fontWeight(.bold)
-                    .foregroundColor(.white)
+                    .foregroundColor(KMBRouteTheme.foregroundColor(route: favorite.route, company: company, allRoutes: allRoutes))
                     .lineLimit(1)
                     .minimumScaleFactor(0.5)
                     .frame(width: 64, height: 36)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Color(red: 0.65, green: 0.08, blue: 0.12)))
+                    .background(RoundedRectangle(cornerRadius: 8).fill(KMBRouteTheme.backgroundColor(route: favorite.route, company: company, allRoutes: allRoutes)))
                 
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(alignment: .firstTextBaseline, spacing: 4) {
@@ -177,6 +178,20 @@ extension ContentView {
                     .foregroundColor(.secondary)
             }
         }
+    }
+    
+    func companyCode(for favorite: FavoriteRoute) -> String {
+        if favorite.company != BusOperator.kmb.rawValue {
+            return favorite.company
+        }
+        let bound = (BusDirection(rawValue: favorite.direction) ?? .outbound).routeCode
+        let matches = allRoutes.filter { suggestion in
+            suggestion.route == favorite.route.uppercased() && suggestion.bound == bound
+        }
+        if matches.count == 1 {
+            return matches[0].co
+        }
+        return matches.first(where: { $0.co == "KMB+CTB" })?.co ?? favorite.company
     }
     
     @ViewBuilder

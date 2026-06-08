@@ -354,9 +354,9 @@ struct NearbyDashboardSectionView: View {
                 VStack(spacing: 2) {
                     Text(route.route)
                         .font(.system(size: 16, weight: .bold, design: .rounded))
-                        .foregroundColor(.white)
+                        .foregroundColor(KMBRouteTheme.foregroundColor(route: route.route, company: route.co, allRoutes: allRoutes))
                         .frame(width: 52, height: 32)
-                        .background(KMBRouteTheme.color(route: route.route, company: route.co, allRoutes: allRoutes))
+                        .background(KMBRouteTheme.backgroundColor(route: route.route, company: route.co, allRoutes: allRoutes))
                         .cornerRadius(8)
                 }
                 
@@ -403,10 +403,10 @@ struct NearbyDashboardSectionView: View {
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             let dirStr = route.directionCode == "O" ? "outbound" : "inbound"
-            let isFav = favoritesManager.isFavorite(route: route.route, direction: dirStr)
+            let isFav = favoritesManager.isFavorite(route: route.route, direction: dirStr, company: route.co)
             
             Button {
-                favoritesManager.toggleFavorite(route: route.route, direction: dirStr, destName: route.destNameTc)
+                favoritesManager.toggleFavorite(route: route.route, direction: dirStr, destName: route.destNameTc, company: route.co)
                 onShowToast(isFav ? "已從常用路線移除" : "已加入常用路線")
             } label: {
                 Label(isFav ? "取消常用" : "加入常用", systemImage: isFav ? "star.slash" : "star.fill")
@@ -454,10 +454,10 @@ struct NearbyDashboardSectionView: View {
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             let dirStr = route.directionCode == "O" ? "outbound" : "inbound"
-            let isFav = favoritesManager.isFavorite(route: route.route, direction: dirStr)
+            let isFav = favoritesManager.isFavorite(route: route.route, direction: dirStr, company: route.co)
             
             Button {
-                favoritesManager.toggleFavorite(route: route.route, direction: dirStr, destName: route.destNameTc)
+                favoritesManager.toggleFavorite(route: route.route, direction: dirStr, destName: route.destNameTc, company: route.co)
                 onShowToast(isFav ? "已從常用路線移除" : "已加入常用路線")
             } label: {
                 Label(isFav ? "取消常用" : "加入常用", systemImage: isFav ? "star.slash" : "star.fill")
@@ -480,9 +480,9 @@ struct NearbyDashboardSectionView: View {
         VStack(spacing: 2) {
             Text(route.route)
                 .font(.system(size: 16, weight: .bold, design: .rounded))
-                .foregroundColor(.white)
+                .foregroundColor(KMBRouteTheme.foregroundColor(route: route.route, company: route.co, allRoutes: allRoutes))
                 .frame(width: 52, height: 32)
-                .background(KMBRouteTheme.color(route: route.route, company: route.co, allRoutes: allRoutes))
+                .background(KMBRouteTheme.backgroundColor(route: route.route, company: route.co, allRoutes: allRoutes))
                 .cornerRadius(8)
         }
     }

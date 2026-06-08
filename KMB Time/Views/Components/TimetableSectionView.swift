@@ -11,6 +11,7 @@ struct TimetableSectionView: View {
     let displayData: [StopDisplayModel]
     let highlightedStopId: String?
     let currentTime: Date
+    let routeCompany: String
     
     let onSetTimer: (StopDisplayModel, Date) -> Void
     
@@ -50,8 +51,7 @@ struct TimetableSectionView: View {
                                         let etaInfo = etaIndex < stop.etas.count ? stop.etas[etaIndex] : nil
                                         if let etaInfo = etaInfo, let etaDate = etaInfo.etaDate {
                                             let secondsLeft = etaDate.timeIntervalSince(currentTime)
-                                            let remark = etaInfo.remark ?? ""
-                                            let formattedRemark = remark.isEmpty ? "" : " (\(remark))"
+                                            let formattedRemark = formattedRemark(for: etaInfo, in: stop.etas)
                                             let minutesLeft = Int(secondsLeft / 60)
                                             if(minutesLeft < -1){
                                                 Text("遲到 \(minutesLeft * -1) 分鐘\(formattedRemark)")
@@ -101,5 +101,36 @@ struct TimetableSectionView: View {
                 }
             }
         }
+    }
+    
+    private func formattedRemark(for etaInfo: ETADisplayInfo, in etas: [ETADisplayInfo]) -> String {
+        let parts = [companyRemark(for: etaInfo), normalizedRemark(etaInfo.remark)]
+            .compactMap { $0 }
+        guard !parts.isEmpty else { return "" }
+        return parts.map { "(\($0))" }.joined()
+    }
+    
+    private func companyRemark(for etaInfo: ETADisplayInfo) -> String? {
+        guard routeCompany == "KMB+CTB" else { return nil }
+        switch etaInfo.companyCode {
+        case BusOperator.ctb.rawValue:
+            return "城巴"
+        default:
+            return "九巴"
+        }
+    }
+    
+    private func normalizedRemark(_ remark: String?) -> String? {
+        guard let remark else { return nil }
+        let trimmedRemark = remark.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedRemark.isEmpty else { return nil }
+        if isLastBusRemark(trimmedRemark) || trimmedRemark == "城巴" || trimmedRemark == "九巴" {
+            return nil
+        }
+        return trimmedRemark
+    }
+    
+    private func isLastBusRemark(_ remark: String) -> Bool {
+        remark.contains("最後") || remark.contains("尾班") || remark.localizedCaseInsensitiveContains("last")
     }
 }

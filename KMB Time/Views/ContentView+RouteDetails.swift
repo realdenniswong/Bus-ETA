@@ -61,6 +61,7 @@ extension ContentView {
             displayData: displayData,
             highlightedStopId: highlightedStopId,
             currentTime: currentTime,
+            routeCompany: selectedCompany,
             onSetTimer: { stop, etaDate in
                 prepareRouteDetailTimerAlert(stop: stop, etaDate: etaDate)
             }

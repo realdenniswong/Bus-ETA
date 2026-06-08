@@ -290,11 +290,7 @@ private extension CTBETAProvider {
                 return nil
             }
 
-            var remarkParts = ["城巴"]
-            if let remark = item.rmk_tc, !remark.isEmpty {
-                remarkParts.append(remark)
-            }
-            return ETADisplayInfo(etaDate: etaDate, remark: remarkParts.joined(separator: " "), companyCode: operatorCode.rawValue)
+            return ETADisplayInfo(etaDate: etaDate, remark: item.rmk_tc, companyCode: operatorCode.rawValue)
         }
         .sorted { ($0.etaDate ?? Date.distantFuture) < ($1.etaDate ?? Date.distantFuture) }
     }

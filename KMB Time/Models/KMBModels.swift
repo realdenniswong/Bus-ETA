@@ -128,6 +128,7 @@ struct RouteSuggestion: Hashable, Identifiable {
 struct ActiveTimerModel: Identifiable, Equatable {
     let id = UUID()
     let routeName: String
+    let company: String
     let destination: String
     var etaDate: Date
     var targetAlertDate: Date

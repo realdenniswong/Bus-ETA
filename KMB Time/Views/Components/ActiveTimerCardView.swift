@@ -53,8 +53,8 @@ struct ActiveTimerCardView: View {
                         .font(.system(size: 24, weight: .black))
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
-                        .background(Color(red: 0.65, green: 0.08, blue: 0.12))
-                        .foregroundColor(.white)
+                        .background(KMBRouteTheme.backgroundColor(route: timer.routeName, company: timer.company, allRoutes: []))
+                        .foregroundColor(KMBRouteTheme.foregroundColor(route: timer.routeName, company: timer.company, allRoutes: []))
                         .cornerRadius(8)
                     
                     VStack(alignment: .leading, spacing: 4) {

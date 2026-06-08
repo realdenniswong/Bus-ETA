@@ -208,7 +208,7 @@ extension ContentView {
            let firstEta = status.etas.first(where: { $0.etaDate?.timeIntervalSince(Date()) ?? 0 > 120 }),
            let etaDate = firstEta.etaDate {
             Button {
-                prepareTimerAlert(route: favorite.route, destination: favorite.destNameTc, stationName: status.stopName, stopId: "", direction: favorite.direction, etaDate: etaDate)
+                prepareTimerAlert(route: favorite.route, destination: favorite.destNameTc, stationName: status.stopName, stopId: "", direction: favorite.direction, company: companyCode(for: favorite), etaDate: etaDate)
             } label: {
                 Label("設定提示", systemImage: "bell.fill")
             }

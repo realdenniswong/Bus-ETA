@@ -60,6 +60,7 @@ struct ContentView: View {
     @State var showingAddTimerAlert = false
     @State var timerTargetDate: Date? = nil
     @State var timerRouteName = ""
+    @State var timerCompany = "KMB"
     @State var timerDestination = ""
     @State var timerStopId = ""
     @State var timerDirection = ""

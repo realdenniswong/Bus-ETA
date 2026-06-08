@@ -492,10 +492,10 @@ extension ContentView {
     ///   - stationName: Stop name displayed in the Live Activity.
     ///   - etaDate: Estimated arrival time being tracked.
     ///   - startTime: Time when the user created the reminder.
-    func startLiveActivity(routeName: String, destination: String, stationName: String, etaDate: Date, startTime: Date) {
+    func startLiveActivity(routeName: String, company: String, destination: String, stationName: String, etaDate: Date, startTime: Date) {
         if ActivityAuthorizationInfo().areActivitiesEnabled {
             do {
-                let attributes = BusETAAttributes(routeName: routeName, destination: destination, stationName: stationName, startTime: startTime)
+                let attributes = BusETAAttributes(routeName: routeName, company: company, destination: destination, stationName: stationName, startTime: startTime)
                 let remaining = Int(etaDate.timeIntervalSince(Date()))
                 let state = BusETAAttributes.ContentState(etaDate: etaDate, remainingSeconds: remaining)
                 let content = ActivityContent(state: state, staleDate: etaDate.addingTimeInterval(60))
@@ -526,6 +526,7 @@ extension ContentView {
                 if self.activeTimer == nil {
                     self.activeTimer = ActiveTimerModel(
                         routeName: attributes.routeName,
+                        company: attributes.company,
                         destination: attributes.destination,
                         etaDate: state.etaDate,
                         targetAlertDate: state.etaDate.addingTimeInterval(-120),

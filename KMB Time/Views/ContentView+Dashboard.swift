@@ -126,6 +126,7 @@ extension ContentView {
                         stationName: stopInfo.name_tc,
                         stopId: stopInfo.stop,
                         direction: route.directionCode == "O" ? "outbound" : "inbound",
+                        company: route.co,
                         etaDate: etaDate
                     )
                 }
@@ -260,9 +261,10 @@ extension ContentView {
     ///   - stopId: KMB stop id used for future ETA refreshes.
     ///   - direction: KMB API direction string, either `outbound` or `inbound`.
     ///   - etaDate: ETA that the user wants to track.
-    func prepareTimerAlert(route: String, destination: String, stationName: String, stopId: String, direction: String, etaDate: Date) {
+    func prepareTimerAlert(route: String, destination: String, stationName: String, stopId: String, direction: String, company: String = BusOperator.kmb.rawValue, etaDate: Date) {
         timerTargetDate = etaDate
         timerRouteName = route.uppercased()
+        timerCompany = company
         timerStationName = stationName
         timerStopId = stopId
         timerDirection = direction

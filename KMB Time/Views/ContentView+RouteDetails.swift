@@ -130,6 +130,7 @@ extension ContentView {
             stationName: stop.stopNameTc,
             stopId: stop.stopId,
             direction: selectedDirection == "outbound" ? "outbound" : "inbound",
+            company: selectedCompany,
             etaDate: etaDate
         )
     }

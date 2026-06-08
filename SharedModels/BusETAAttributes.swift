@@ -8,7 +8,8 @@ struct BusETAAttributes: ActivityAttributes {
     }
 
     var routeName: String
+    var company: String
     var destination: String
-    var stationName: String // <--- ADD THIS LINE
+    var stationName: String
     var startTime: Date
 }

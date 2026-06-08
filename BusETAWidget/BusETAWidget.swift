@@ -73,6 +73,23 @@ fileprivate func formattedTime(_ date: Date) -> String {
     return formatter.string(from: date)
 }
 
+private enum RouteBadgeTheme {
+    static func backgroundColor(company: String) -> Color {
+        switch company {
+        case "CTB":
+            return Color(red: 247 / 255, green: 222 / 255, blue: 6 / 255)
+        case "KMB+CTB":
+            return Color(red: 0.12, green: 0.32, blue: 0.58)
+        default:
+            return Color(red: 0.65, green: 0.08, blue: 0.12)
+        }
+    }
+    
+    static func foregroundColor(company: String) -> Color {
+        company == "CTB" ? Color(red: 1 / 255, green: 93 / 255, blue: 166 / 255) : .white
+    }
+}
+
 // MARK: - The Widget Definition
 struct BusETAWidget: Widget {
     var body: some WidgetConfiguration {
@@ -80,37 +97,40 @@ struct BusETAWidget: Widget {
             // MARK: - 鎖屏 / 通知中心 Banner
             VStack(spacing: 16) {
                 
-                HStack(alignment: .center, spacing: 12) {
+                HStack(alignment: .center, spacing: 10) {
                     
                     // 1. 左邊：精緻嘅路線徽章
                     Text(context.attributes.routeName)
-                        .font(.system(size: 24, weight: .heavy, design: .rounded))
-                        .frame(minWidth: 54)
+                        .font(.system(size: 18, weight: .heavy, design: .rounded))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                        .frame(minWidth: 44)
                         .padding(.horizontal, 8)
-                        .padding(.vertical, 6)
-                        .background(Color(red: 0.8, green: 0.1, blue: 0.1))
-                        .foregroundColor(.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .frame(height: 36)
+                        .background(RouteBadgeTheme.backgroundColor(company: context.attributes.company))
+                        .foregroundColor(RouteBadgeTheme.foregroundColor(company: context.attributes.company))
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                     
                     // 2. 中間：目的地與車站名
                     VStack(alignment: .leading, spacing: 2) {
                         Text("往 \(context.attributes.destination)")
-                            .font(.system(size: 24, weight: .bold))
+                            .font(.system(size: 18, weight: .bold))
                             .foregroundColor(.primary)
                             .lineLimit(1)
                             .truncationMode(.tail)
                         
                         Text(context.attributes.stationName)
-                            .font(.system(size: 12, weight: .medium))
+                            .font(.system(size: 11, weight: .medium))
                             .foregroundColor(.secondary)
                             .lineLimit(1)
                             .truncationMode(.tail)
                     }
-                    
-                    Spacer(minLength: 8)
+                    .frame(maxWidth: .infinity, minHeight: 36, maxHeight: 36, alignment: .leading)
+                    .layoutPriority(1)
                     
                     // 3. 右邊：清晰倒數計時
-                    SmartETABlock(etaDate: context.state.etaDate, bigSize: 24, smallSize: 12)
+                    SmartETABlock(etaDate: context.state.etaDate, bigSize: 18, smallSize: 11)
+                        .frame(width: 68, height: 36, alignment: .trailing)
                 }
                 
                 // 4. 底部：自然嘅進度條
@@ -129,7 +149,11 @@ struct BusETAWidget: Widget {
                 DynamicIslandExpandedRegion(.leading) {
                     Text(context.attributes.routeName)
                         .font(.system(size: 36, weight: .black, design: .rounded))
-                        .foregroundColor(.red)
+                        .foregroundColor(RouteBadgeTheme.foregroundColor(company: context.attributes.company))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(RouteBadgeTheme.backgroundColor(company: context.attributes.company))
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                         .padding(.leading, 12)
                 }
                 
@@ -145,6 +169,7 @@ struct BusETAWidget: Widget {
                             .foregroundColor(.primary)
                             .lineLimit(1)
                             .truncationMode(.tail)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal, 12)
                         
                         ProgressView(timerInterval: context.attributes.startTime...context.state.etaDate, countsDown: false)
@@ -158,16 +183,16 @@ struct BusETAWidget: Widget {
             } compactLeading: {
                 Text(context.attributes.routeName)
                     .font(.system(size: 12, weight: .heavy, design: .rounded))
-                    .foregroundColor(.white)
+                    .foregroundColor(RouteBadgeTheme.foregroundColor(company: context.attributes.company))
                     .frame(width: 28, height: 28)
-                    .background(Color(red: 0.8, green: 0.1, blue: 0.1))
+                    .background(RouteBadgeTheme.backgroundColor(company: context.attributes.company))
                     .clipShape(Circle())
                     .frame(maxWidth: 36, alignment: .trailing)
             } compactTrailing: {
                 CompactETABlock(etaDate: context.state.etaDate)
             } minimal: {
                 Image(systemName: "bus.fill")
-                    .foregroundColor(.red)
+                    .foregroundColor(RouteBadgeTheme.backgroundColor(company: context.attributes.company))
             }
         }
     }

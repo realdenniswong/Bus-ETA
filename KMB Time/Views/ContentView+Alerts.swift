@@ -46,6 +46,7 @@ extension ContentView {
         
         startLiveActivity(
             routeName: timerRouteName,
+            company: timerCompany,
             destination: timerDestination,
             stationName: timerStationName,
             etaDate: etaDate,
@@ -56,6 +57,7 @@ extension ContentView {
         withAnimation {
             activeTimer = ActiveTimerModel(
                 routeName: timerRouteName,
+                company: timerCompany,
                 destination: timerDestination,
                 etaDate: etaDate,
                 targetAlertDate: etaDate.addingTimeInterval(-120),

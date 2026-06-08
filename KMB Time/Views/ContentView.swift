@@ -108,35 +108,7 @@ struct ContentView: View {
     var searchSuggestions: [RouteSuggestion] {
         guard !searchText.isEmpty else { return [] }
         let query = searchText.uppercased()
-        
-        // 1. 先篩選出有對應 Prefix 嘅所有原始路線
-        let filtered = allRoutes.filter { $0.route.uppercased().hasPrefix(query) }
-        
-        var uniqueSuggestions: [RouteSuggestion] = []
-        var seenJointRoutes = Set<String>() // 用嚟記錄已經放行嘅聯營線方向
-        
-        for suggestion in filtered {
-            let upperRouteName = suggestion.route.uppercased()
-            
-            // 💡 利用全域大腦動態檢查：呢條係咪聯營線？
-            if JointRouteEvaluator.checkIsJoint(route: upperRouteName, allRoutes: allRoutes) {
-                // 如果係聯營線：直接 Skip 走城巴項目，達成「只顯示九巴」
-                if suggestion.co == "CTB" {
-                    continue
-                }
-                
-                // 防止同一個方向出現重複嘅九巴 Row
-                let boundKey = "\(upperRouteName)-\(suggestion.bound)"
-                if seenJointRoutes.contains(boundKey) {
-                    continue
-                }
-                seenJointRoutes.insert(boundKey)
-            }
-            
-            uniqueSuggestions.append(suggestion)
-        }
-        
-        return Array(uniqueSuggestions.prefix(30))
+        return Array(allRoutes.filter { $0.route.uppercased().hasPrefix(query) }.prefix(30))
     }
     
     var validNextKeys: Set<String>? {
@@ -517,7 +489,7 @@ extension ContentView {
                         SuggestionsSectionView(
                             suggestions: searchSuggestions,
                             allRoutes: allRoutes, // 傳入未經刪除的完整原始路線名單
-                            onSelected: { suggestion, finalCompany in
+                            onSelected: { suggestion, _ in
                                 // 收起鍵盤
                                 showCustomKeyboard = false
                                 
@@ -531,11 +503,10 @@ extension ContentView {
                                     isNavigatingToRoute = true
                                     
                                     Task {
-                                        // 使用計算好的 finalCompany (如果是聯營線，這裡會自動傳入 "JOINT")
                                         await searchRoute(
                                             route: suggestion.route.uppercased(),
                                             direction: newDir,
-                                            company: finalCompany,
+                                            company: "KMB",
                                             findNearest: true,
                                             shouldScroll: true
                                         )
@@ -631,22 +602,16 @@ extension ContentView {
                 nearbyStops: nearbyStops,
                 currentTime: currentTime,
                 
-                // 🌟 【就是這裡】把 ContentView 的總路線池傳進去給 Dashboard 享用
                 allRoutes: allRoutes,
                 
                 onRequestLocation: { locationManager.requestLocation() },
                 onRouteSelected: { route, stopInfo in
-                    // 點擊附近路線時的邏輯...
                     let newDir = route.directionCode == "O" ? "outbound" : "inbound"
                     selectedDirection = newDir
                     searchText = route.route
                     isNavigatingToRoute = true
                     
-                    // 💡 這裡順便做聯營優化：如果點擊的附近巴士是聯營線，進入 Route Page 前強制切換至 "JOINT" 大腦
-                    let isJoint = JointRouteEvaluator.checkIsJoint(route: route.route, allRoutes: allRoutes)
-                    let finalCo = isJoint ? "JOINT" : route.co
-                    
-                    Task { await searchRoute(route: route.route, direction: newDir, company: finalCo, findNearest: false, targetStopCode: stopInfo.stop, shouldScroll: true) }
+                    Task { await searchRoute(route: route.route, direction: newDir, company: "KMB", findNearest: false, targetStopCode: stopInfo.stop, shouldScroll: true) }
                 },
                 onSetTimer: { route, stopInfo in
                     if let firstEta = route.etas.first(where: { $0.etaDate ?? Date.distantFuture > Date() }), let etaDate = firstEta.etaDate {

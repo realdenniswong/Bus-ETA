@@ -10,9 +10,7 @@ struct SuggestionsSectionView: View {
         Section {
             ForEach(suggestions, id: \.id) { suggestion in
                 Button(action: {
-                    let isJoint = JointRouteEvaluator.checkIsJoint(route: suggestion.route, allRoutes: allRoutes)
-                    let finalCompany = isJoint ? "JOINT" : suggestion.co
-                    onSelected(suggestion, finalCompany)
+                    onSelected(suggestion, "KMB")
                 }) {
                     HStack(spacing: 12) {
                         // 號碼牌
@@ -22,7 +20,7 @@ struct SuggestionsSectionView: View {
                             .frame(width: 54, height: 32)
                             .background(
                                 RoundedRectangle(cornerRadius: 8)
-                                    .fill(JointRouteEvaluator.fetchThemeColor(route: suggestion.route, originalCo: suggestion.co, allRoutes: allRoutes))
+                                    .fill(KMBRouteTheme.color(route: suggestion.route, company: suggestion.co, allRoutes: allRoutes))
                             )
                             .fixedSize()
                         

@@ -357,8 +357,7 @@ struct NearbyDashboardSectionView: View {
                         .font(.system(size: 16, weight: .bold, design: .rounded))
                         .foregroundColor(.white)
                         .frame(width: 52, height: 32)
-                        // 🌟 【動態修改點 1】：使用模型交叉比對大腦，自動抓出聯營線並染成橙色！
-                        .background(JointRouteEvaluator.fetchThemeColor(route: route.route, originalCo: route.co, allRoutes: allRoutes))
+                        .background(KMBRouteTheme.color(route: route.route, company: route.co, allRoutes: allRoutes))
                         .cornerRadius(8)
                 }
                 
@@ -485,7 +484,7 @@ struct NearbyDashboardSectionView: View {
                 .foregroundColor(.white)
                 .frame(width: 52, height: 32)
                 // 🌟 【動態修改點 2】：共用同一個全域大腦，讓 Flat List 的卡片填色完全同步！
-                .background(JointRouteEvaluator.fetchThemeColor(route: route.route, originalCo: route.co, allRoutes: allRoutes))
+                .background(KMBRouteTheme.color(route: route.route, company: route.co, allRoutes: allRoutes))
                 .cornerRadius(8)
         }
     }

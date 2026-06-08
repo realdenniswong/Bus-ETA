@@ -17,7 +17,7 @@ struct NearbyDashboardSectionView: View {
     let nearbyStops: [NearbyStopModel]
     let currentTime: Date
     
-    let allRoutes: [RouteSuggestion] // 🌟 完美的原始數據大字典，用作動態交叉對照
+    let allRoutes: [RouteSuggestion]
     
     let onRequestLocation: () -> Void
     let onRouteSelected: (NearbyRouteModel, StopInfo) -> Void
@@ -351,7 +351,6 @@ struct NearbyDashboardSectionView: View {
     private func routeRowWithStationNumber(route: NearbyRouteModel, stopInfo: StopInfo) -> some View {
         Button(action: { onRouteSelected(route, stopInfo) }) {
             HStack(alignment: .center, spacing: 12) {
-                // 號碼牌區塊
                 VStack(spacing: 2) {
                     Text(route.route)
                         .font(.system(size: 16, weight: .bold, design: .rounded))
@@ -414,7 +413,7 @@ struct NearbyDashboardSectionView: View {
             }
             .tint(isFav ? .red : .orange)
 
-            if let validEtaDate = route.etas.first(where: { $0.etaDate?.timeIntervalSince(currentTime) ?? 0 > 120 })?.etaDate {
+            if route.etas.contains(where: { $0.etaDate?.timeIntervalSince(currentTime) ?? 0 > 120 }) {
                 Button {
                     onSetTimer(route, stopInfo)
                 } label: {
@@ -465,7 +464,7 @@ struct NearbyDashboardSectionView: View {
             }
             .tint(isFav ? .red : .orange)
 
-            if let validEtaDate = route.etas.first(where: { $0.etaDate?.timeIntervalSince(currentTime) ?? 0 > 120 })?.etaDate {
+            if route.etas.contains(where: { $0.etaDate?.timeIntervalSince(currentTime) ?? 0 > 120 }) {
                 Button {
                     onSetTimer(route, stopInfo)
                 } label: {
@@ -483,7 +482,6 @@ struct NearbyDashboardSectionView: View {
                 .font(.system(size: 16, weight: .bold, design: .rounded))
                 .foregroundColor(.white)
                 .frame(width: 52, height: 32)
-                // 🌟 【動態修改點 2】：共用同一個全域大腦，讓 Flat List 的卡片填色完全同步！
                 .background(KMBRouteTheme.color(route: route.route, company: route.co, allRoutes: allRoutes))
                 .cornerRadius(8)
         }

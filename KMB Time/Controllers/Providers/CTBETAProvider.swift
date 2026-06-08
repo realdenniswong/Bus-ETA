@@ -259,7 +259,9 @@ private extension CTBETAProvider {
             return bestMatch
         }
 
-        guard let bestMatch, bestMatch.distance <= 100 else { return nil }
+        // CTB's imported CSV coordinates can differ from v2 stop API coordinates by over 200m
+        // for the same named stop, so keep this wider than normal pole matching.
+        guard let bestMatch, bestMatch.distance <= 350 else { return nil }
         return bestMatch.stopId
     }
 

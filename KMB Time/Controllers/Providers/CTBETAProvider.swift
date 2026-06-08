@@ -82,23 +82,29 @@ struct CTBETAProvider: BusETAProvider {
 
     func fetchTimetableRows(route: String, direction: BusDirection, stopNameById: [String: String]) async throws -> [StopDisplayModel] {
         let rows = try await fetchAPIRouteStops(route: route, direction: direction)
-        var displayRows: [StopDisplayModel] = []
+        return await withTaskGroup(of: StopDisplayModel.self) { group in
+            for row in rows.sorted(by: { $0.stopSequence < $1.stopSequence }) {
+                group.addTask {
+                    async let stopInfo = try? fetchStopInfo(stopId: row.stopId)
+                    async let etas = (try? fetchCTBETAs(stopId: row.stopId, route: route, direction: direction)) ?? []
+                    let resolvedStopInfo = await stopInfo
+                    let resolvedETAs = await etas
+                    return StopDisplayModel(
+                        seq: row.stopSequence,
+                        stopId: row.stopId,
+                        stopNameTc: resolvedStopInfo?.name_tc ?? stopNameById[row.stopId] ?? "未知車站",
+                        etas: Array(resolvedETAs.prefix(3)),
+                        location: resolvedStopInfo.flatMap { Self.stopLocation(from: $0) }
+                    )
+                }
+            }
 
-        for row in rows.sorted(by: { $0.stopSequence < $1.stopSequence }) {
-            let stopInfo = try? await fetchStopInfo(stopId: row.stopId)
-            let etas = (try? await fetchCTBETAs(stopId: row.stopId, route: route, direction: direction)) ?? []
-            displayRows.append(
-                StopDisplayModel(
-                    seq: row.stopSequence,
-                    stopId: row.stopId,
-                    stopNameTc: stopInfo?.name_tc ?? stopNameById[row.stopId] ?? "未知車站",
-                    etas: Array(etas.prefix(3)),
-                    location: stopInfo?.clLocation
-                )
-            )
+            var displayRows: [StopDisplayModel] = []
+            for await row in group {
+                displayRows.append(row)
+            }
+            return displayRows.sorted { $0.seq < $1.seq }
         }
-
-        return displayRows
     }
 
     func fetchFavoriteStatus(for favorite: FavoriteRoute, context: RouteStopLookupContext) async throws -> FavoriteStatusModel? {
@@ -111,7 +117,7 @@ struct CTBETAProvider: BusETAProvider {
 
         for row in rows {
             guard let stopInfo = try? await fetchStopInfo(stopId: row.stopId),
-                  let rowLocation = stopInfo.clLocation else { continue }
+                  let rowLocation = Self.stopLocation(from: stopInfo) else { continue }
             let distance = context.userLocation.distance(from: rowLocation)
             if distance < nearestDistance {
                 nearestDistance = distance
@@ -131,6 +137,47 @@ struct CTBETAProvider: BusETAProvider {
 }
 
 extension CTBETAProvider {
+    func nearbyStops(near location: CLLocation, limit: Int) async throws -> [StopInfo] {
+        routeStore.loadCSVDataIfNeeded()
+        return routeStore.nearbyStops(near: location, limit: limit)
+    }
+
+    func fetchNearbyRoutes(near location: CLLocation) async throws -> [NearbyRouteModel] {
+        _ = try await loadRouteList()
+        routeStore.loadCSVDataIfNeeded()
+        let directions = routeStore.routeDirections(near: location, radius: 120, limitStops: 3)
+        var models: [NearbyRouteModel] = []
+
+        for direction in directions {
+            let apiStopId = await matchedAPIStopId(
+                route: direction.routeName,
+                direction: direction.bound,
+                near: location
+            )
+            let etas: [ETADisplayInfo]
+            if let apiStopId {
+                etas = (try? await fetchCTBETAs(stopId: apiStopId, route: direction.routeName, direction: direction.bound)) ?? []
+            } else {
+                etas = []
+            }
+
+            models.append(
+                NearbyRouteModel(
+                    co: direction.companyCode,
+                    route: direction.routeName,
+                    directionCode: direction.bound.routeCode,
+                    destNameTc: direction.destinationName,
+                    etas: Array(etas.prefix(3))
+                )
+            )
+        }
+
+        return models.sorted {
+            if $0.route == $1.route { return $0.directionCode < $1.directionCode }
+            return $0.route.localizedStandardCompare($1.route) == .orderedAscending
+        }
+    }
+
     func isJointRoute(route: String, direction: BusDirection) -> Bool {
         routeStore.loadCSVDataIfNeeded()
         return routeStore.companyCode(route: route, direction: direction) == "KMB+CTB"
@@ -193,20 +240,37 @@ private extension CTBETAProvider {
         guard let location else { return nil }
         guard let rows = try? await fetchAPIRouteStops(route: route, direction: direction) else { return nil }
 
-        var bestStopId: String?
-        var bestDistance: CLLocationDistance = .infinity
-
-        for row in rows {
-            guard let stopInfo = try? await fetchStopInfo(stopId: row.stopId),
-                  let stopLocation = stopInfo.clLocation else { continue }
-            let distance = location.distance(from: stopLocation)
-            if distance < bestDistance {
-                bestDistance = distance
-                bestStopId = row.stopId
+        let bestMatch = await withTaskGroup(of: (stopId: String, distance: CLLocationDistance)?.self) { group in
+            for row in rows {
+                group.addTask {
+                    guard let stopInfo = try? await fetchStopInfo(stopId: row.stopId),
+                          let stopLocation = Self.stopLocation(from: stopInfo) else { return nil }
+                    return (row.stopId, location.distance(from: stopLocation))
+                }
             }
+
+            var bestMatch: (stopId: String, distance: CLLocationDistance)?
+            for await match in group {
+                guard let match else { continue }
+                if bestMatch == nil || match.distance < bestMatch!.distance {
+                    bestMatch = match
+                }
+            }
+            return bestMatch
         }
 
-        return bestDistance <= 100 ? bestStopId : nil
+        guard let bestMatch, bestMatch.distance <= 100 else { return nil }
+        return bestMatch.stopId
+    }
+
+    nonisolated static func stopLocation(from stopInfo: StopInfo) -> CLLocation? {
+        guard let latitudeText = stopInfo.lat,
+              let longitudeText = stopInfo.long,
+              let latitude = Double(latitudeText),
+              let longitude = Double(longitudeText) else {
+            return nil
+        }
+        return CLLocation(latitude: latitude, longitude: longitude)
     }
 
     func fetchCTBETAs(stopId: String, route: String, direction: BusDirection) async throws -> [ETADisplayInfo] {
@@ -358,8 +422,9 @@ private final class CTBRouteStore {
         guard !hasLoadedCSVData else { return }
         hasLoadedCSVData = true
 
-        guard let csvURL = Bundle.main.url(forResource: "ctb_routes_all_stops", withExtension: "csv"),
+        guard let csvURL = csvResourceURL(),
               let content = try? String(contentsOf: csvURL, encoding: .utf8) else {
+            print("CTB CSV resource not found in app bundle or project checkout.")
             return
         }
 
@@ -417,8 +482,56 @@ private final class CTBRouteStore {
         lock.lock()
         defer { lock.unlock() }
 
+        return enrichedDirections(csvDirectionsByStopId[stopId] ?? [])
+    }
+    
+    func nearbyStops(near location: CLLocation, limit: Int) -> [StopInfo] {
+        lock.lock()
+        defer { lock.unlock() }
+        return stops.compactMap { stopInfo -> (stopInfo: StopInfo, distance: CLLocationDistance)? in
+            guard let stopLocation = stopLocation(from: stopInfo) else { return nil }
+            return (stopInfo, location.distance(from: stopLocation))
+        }
+        .sorted { $0.distance < $1.distance }
+        .prefix(limit)
+        .map(\.stopInfo)
+    }
+    
+    func routeDirections(near location: CLLocation, radius: CLLocationDistance, limitStops: Int) -> [CTBRouteDirection] {
+        lock.lock()
+        defer { lock.unlock() }
+
+        let nearbyStopIds = stops.compactMap { stopInfo -> (stopId: String, distance: CLLocationDistance)? in
+            guard let stopLocation = stopLocation(from: stopInfo) else { return nil }
+            let distance = location.distance(from: stopLocation)
+            guard distance <= radius else { return nil }
+            return (stopInfo.stop, distance)
+        }
+        .sorted { $0.distance < $1.distance }
+        .prefix(limitStops)
+        .map(\.stopId)
+
+        var seenKeys = Set<String>()
+        let directions = nearbyStopIds.flatMap { csvDirectionsByStopId[$0] ?? [] }.filter { direction in
+            let key = "\(direction.routeName)-\(direction.bound.rawValue)-\(direction.companyCode)"
+            return seenKeys.insert(key).inserted
+        }
+        return enrichedDirections(directions)
+    }
+
+    private func stopLocation(from stopInfo: StopInfo) -> CLLocation? {
+        guard let latitudeText = stopInfo.lat,
+              let longitudeText = stopInfo.long,
+              let latitude = Double(latitudeText),
+              let longitude = Double(longitudeText) else {
+            return nil
+        }
+        return CLLocation(latitude: latitude, longitude: longitude)
+    }
+
+    private func enrichedDirections(_ directions: [CTBRouteDirection]) -> [CTBRouteDirection] {
         let routeInfoByRoute = Dictionary(routeList.map { ($0.route.uppercased(), $0) }, uniquingKeysWith: { first, _ in first })
-        return (csvDirectionsByStopId[stopId] ?? []).map { direction in
+        return directions.map { direction in
             guard let routeInfo = routeInfoByRoute[direction.routeName] else { return direction }
             return CTBRouteDirection(
                 routeName: direction.routeName,
@@ -462,6 +575,51 @@ private final class CTBRouteStore {
         return companyCodeByRouteDirection[key(route: route.uppercased(), direction: direction)]
     }
 
+    private func csvResourceURL() -> URL? {
+        if let rootURL = Bundle.main.url(forResource: "ctb_routes_all_stops", withExtension: "csv") {
+            return rootURL
+        }
+        if let groupedURL = Bundle.main.url(forResource: "ctb_routes_all_stops", withExtension: "csv", subdirectory: "KMB Time") {
+            return groupedURL
+        }
+        if let resourceURL = Bundle.main.resourceURL,
+           let enumerator = FileManager.default.enumerator(at: resourceURL, includingPropertiesForKeys: nil) {
+            for case let fileURL as URL in enumerator where fileURL.lastPathComponent == "ctb_routes_all_stops.csv" {
+                return fileURL
+            }
+        }
+
+        let sourceFileURL = URL(fileURLWithPath: #filePath)
+        let sourceRelativeURLs = [
+            sourceFileURL
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("ctb_routes_all_stops.csv"),
+            sourceFileURL
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("KMB Time/ctb_routes_all_stops.csv")
+        ]
+        for url in sourceRelativeURLs where FileManager.default.fileExists(atPath: url.path) {
+            return url
+        }
+
+        let fallbackPaths = [
+            "KMB Time/ctb_routes_all_stops.csv",
+            "KMB Time/KMB Time/ctb_routes_all_stops.csv"
+        ]
+        for path in fallbackPaths {
+            let url = URL(fileURLWithPath: path, relativeTo: URL(fileURLWithPath: FileManager.default.currentDirectoryPath))
+            if FileManager.default.fileExists(atPath: url.path) {
+                return url
+            }
+        }
+        return nil
+    }
+
     private func value(_ name: String, in record: [String], indexes: [String: Int]) -> String? {
         guard let index = indexes[name], index < record.count else { return nil }
         let trimmed = record[index].trimmingCharacters(in: .whitespacesAndNewlines)
@@ -499,11 +657,14 @@ private struct CTBRouteStopRow {
 
 private enum CSVParser {
     static func parse(_ content: String) -> [[String]] {
+        let normalizedContent = content
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
         var rows: [[String]] = []
         var row: [String] = []
         var field = ""
         var isInsideQuotes = false
-        var iterator = content.makeIterator()
+        var iterator = normalizedContent.makeIterator()
 
         while let character = iterator.next() {
             switch character {

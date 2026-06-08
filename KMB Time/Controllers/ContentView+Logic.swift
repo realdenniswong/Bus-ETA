@@ -105,10 +105,14 @@ extension ContentView {
         await MainActor.run { isSearchingNearby = true }
         
         let nearestStops = nearestStopModels(from: allStops, userLocation: userLocation, limit: 10)
+        let nearbyCTBStops = await nearestCTBStopModels(userLocation: userLocation, excluding: nearestStops)
+        let dashboardStops = (nearestStops + nearbyCTBStops)
+            .sorted { $0.distance < $1.distance }
+            .prefix(12)
         var nearbyStopsWithRoutes: [NearbyStopModel] = []
         
-        for var nearbyStop in nearestStops {
-            nearbyStop.routes = await fetchRoutesForStop(stopId: nearbyStop.stopInfo.stop)
+        for var nearbyStop in dashboardStops {
+            nearbyStop.routes = await fetchRoutesForNearbyStop(nearbyStop.stopInfo)
             nearbyStopsWithRoutes.append(nearbyStop)
         }
         
@@ -125,7 +129,7 @@ extension ContentView {
         
         var refreshedStops = nearbyStops
         for index in refreshedStops.indices {
-            refreshedStops[index].routes = await fetchRoutesForStop(stopId: refreshedStops[index].stopInfo.stop)
+            refreshedStops[index].routes = await fetchRoutesForNearbyStop(refreshedStops[index].stopInfo)
         }
         
         await MainActor.run {
@@ -134,18 +138,44 @@ extension ContentView {
         }
     }
     
-    /// Fetches provider route cards for one stop.
+    private func nearestCTBStopModels(userLocation: CLLocation, excluding existingStops: [NearbyStopModel]) async -> [NearbyStopModel] {
+        let existingStopIds = Set(existingStops.map { $0.stopInfo.stop })
+        let ctbStops = (try? await ctbETAProvider.nearbyStops(near: userLocation, limit: 8)) ?? []
+        return ctbStops.compactMap { stopInfo in
+            guard !existingStopIds.contains(stopInfo.stop),
+                  let stopLocation = location(from: stopInfo) else { return nil }
+            return NearbyStopModel(stopInfo: stopInfo, distance: userLocation.distance(from: stopLocation))
+        }
+    }
+    
+    /// Fetches provider route cards for one displayed nearby stop.
     ///
-    /// - Parameter stopId: Provider-specific stop identifier.
-    /// - Returns: Dashboard route cards, or an empty array when the request fails.
-    func fetchRoutesForStop(stopId: String) async -> [NearbyRouteModel] {
-        async let kmbRoutes = (try? kmbETAProvider.fetchNearbyRoutes(forStopId: stopId)) ?? []
-        async let ctbRoutes = (try? ctbETAProvider.fetchNearbyRoutes(forStopId: stopId)) ?? []
+    /// KMB can use the displayed stop ID directly. CTB must also use coordinates because CTB and KMB
+    /// stop identifiers do not match even when the physical bus stop is the same.
+    func fetchRoutesForNearbyStop(_ stopInfo: StopInfo) async -> [NearbyRouteModel] {
+        let stopLocation = location(from: stopInfo)
+        async let kmbRoutes = (try? kmbETAProvider.fetchNearbyRoutes(forStopId: stopInfo.stop)) ?? []
+        async let ctbRoutes: [NearbyRouteModel] = {
+            if let stopLocation {
+                return (try? await ctbETAProvider.fetchNearbyRoutes(near: stopLocation)) ?? []
+            }
+            return (try? await ctbETAProvider.fetchNearbyRoutes(forStopId: stopInfo.stop)) ?? []
+        }()
         let routes = await kmbRoutes + ctbRoutes
         return routes.sorted {
             if $0.route == $1.route { return $0.directionCode < $1.directionCode }
             return $0.route.localizedStandardCompare($1.route) == .orderedAscending
         }
+    }
+    
+    private func location(from stopInfo: StopInfo) -> CLLocation? {
+        guard let latitudeText = stopInfo.lat,
+              let longitudeText = stopInfo.long,
+              let latitude = Double(latitudeText),
+              let longitude = Double(longitudeText) else {
+            return nil
+        }
+        return CLLocation(latitude: latitude, longitude: longitude)
     }
     
     /// Builds nearest-stop models using provider stops already cached in memory.

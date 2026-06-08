@@ -48,35 +48,7 @@ struct CTBETAProvider: BusETAProvider {
 
         let targetStopInfo = routeStore.stopInfo(stopId: stopId)
         let directions = routeStore.routeDirections(servingStopId: stopId)
-        var models: [NearbyRouteModel] = []
-
-        for direction in directions {
-            let apiStopId = await matchedAPIStopId(
-                route: direction.routeName,
-                direction: direction.bound,
-                near: targetStopInfo?.clLocation
-            )
-            let etas: [ETADisplayInfo]
-            let matchedStopName: String?
-            if let apiStopId {
-                matchedStopName = (try? await fetchStopInfo(stopId: apiStopId))?.name_tc
-                etas = (try? await fetchCTBETAs(stopId: apiStopId, route: direction.routeName, direction: direction.bound)) ?? []
-            } else {
-                matchedStopName = nil
-                etas = []
-            }
-
-            models.append(
-                NearbyRouteModel(
-                    co: direction.companyCode,
-                    route: direction.routeName,
-                    directionCode: direction.bound.routeCode,
-                    destNameTc: direction.destinationName,
-                    displayStopName: direction.companyCode == BusOperator.ctb.rawValue ? matchedStopName : nil,
-                    etas: Array(etas.prefix(3))
-                )
-            )
-        }
+        let models = await nearbyRouteModels(for: directions, near: targetStopInfo?.clLocation)
 
         return models.sorted {
             if $0.route == $1.route { return $0.directionCode < $1.directionCode }
@@ -150,35 +122,7 @@ extension CTBETAProvider {
         _ = try await loadRouteList()
         routeStore.loadCSVDataIfNeeded()
         let directions = routeStore.routeDirections(near: location, radius: 120, limitStops: 3)
-        var models: [NearbyRouteModel] = []
-
-        for direction in directions {
-            let apiStopId = await matchedAPIStopId(
-                route: direction.routeName,
-                direction: direction.bound,
-                near: location
-            )
-            let etas: [ETADisplayInfo]
-            let matchedStopName: String?
-            if let apiStopId {
-                matchedStopName = (try? await fetchStopInfo(stopId: apiStopId))?.name_tc
-                etas = (try? await fetchCTBETAs(stopId: apiStopId, route: direction.routeName, direction: direction.bound)) ?? []
-            } else {
-                matchedStopName = nil
-                etas = []
-            }
-
-            models.append(
-                NearbyRouteModel(
-                    co: direction.companyCode,
-                    route: direction.routeName,
-                    directionCode: direction.bound.routeCode,
-                    destNameTc: direction.destinationName,
-                    displayStopName: direction.companyCode == BusOperator.ctb.rawValue ? matchedStopName : nil,
-                    etas: Array(etas.prefix(3))
-                )
-            )
-        }
+        let models = await nearbyRouteModels(for: directions, near: location)
 
         return models.sorted {
             if $0.route == $1.route { return $0.directionCode < $1.directionCode }
@@ -198,6 +142,48 @@ extension CTBETAProvider {
 }
 
 private extension CTBETAProvider {
+    func nearbyRouteModels(for directions: [CTBRouteDirection], near location: CLLocation?) async -> [NearbyRouteModel] {
+        await withTaskGroup(of: NearbyRouteModel.self) { group in
+            for direction in directions {
+                group.addTask {
+                    await nearbyRouteModel(for: direction, near: location)
+                }
+            }
+            
+            var models: [NearbyRouteModel] = []
+            for await model in group {
+                models.append(model)
+            }
+            return models
+        }
+    }
+    
+    func nearbyRouteModel(for direction: CTBRouteDirection, near location: CLLocation?) async -> NearbyRouteModel {
+        let apiStopId = await matchedAPIStopId(
+            route: direction.routeName,
+            direction: direction.bound,
+            near: location
+        )
+        let etas: [ETADisplayInfo]
+        let matchedStopName: String?
+        if let apiStopId {
+            matchedStopName = (try? await fetchStopInfo(stopId: apiStopId))?.name_tc
+            etas = (try? await fetchCTBETAs(stopId: apiStopId, route: direction.routeName, direction: direction.bound)) ?? []
+        } else {
+            matchedStopName = nil
+            etas = []
+        }
+        
+        return NearbyRouteModel(
+            co: direction.companyCode,
+            route: direction.routeName,
+            directionCode: direction.bound.routeCode,
+            destNameTc: direction.destinationName,
+            displayStopName: direction.companyCode == BusOperator.ctb.rawValue ? matchedStopName : nil,
+            etas: Array(etas.prefix(3))
+        )
+    }
+    
     func loadRouteList() async throws -> [CTBRouteAPIItem] {
         if let routes = routeStore.routeListIfLoaded() {
             return routes
@@ -246,6 +232,9 @@ private extension CTBETAProvider {
 
     func matchedAPIStopId(route: String, direction: BusDirection, near location: CLLocation?) async -> String? {
         guard let location else { return nil }
+        if let cachedStopId = routeStore.matchedStopId(route: route, direction: direction, near: location) {
+            return cachedStopId
+        }
         guard let rows = try? await fetchAPIRouteStops(route: route, direction: direction) else { return nil }
 
         let bestMatch = await withTaskGroup(of: (stopId: String, distance: CLLocationDistance)?.self) { group in
@@ -270,6 +259,7 @@ private extension CTBETAProvider {
         // CTB's imported CSV coordinates can differ from v2 stop API coordinates by over 200m
         // for the same named stop, so keep this wider than normal pole matching.
         guard let bestMatch, bestMatch.distance <= 350 else { return nil }
+        routeStore.updateMatchedStopId(bestMatch.stopId, route: route, direction: direction, near: location)
         return bestMatch.stopId
     }
 
@@ -402,6 +392,7 @@ private final class CTBRouteStore {
     private var companyCodeByRouteDirection: [String: String] = [:]
     private var apiRowsByRouteDirection: [String: [CTBRouteStopRow]] = [:]
     private var stopInfoById: [String: StopInfo] = [:]
+    private var matchedStopIdByRouteDirectionLocation: [String: String] = [:]
     private var hasLoadedCSVData = false
     private let lock = NSLock()
 
@@ -574,6 +565,18 @@ private final class CTBRouteStore {
         defer { lock.unlock() }
         stopInfoById[stopInfo.stop] = stopInfo
     }
+    
+    func matchedStopId(route: String, direction: BusDirection, near location: CLLocation) -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return matchedStopIdByRouteDirectionLocation[locationKey(route: route, direction: direction, location: location)]
+    }
+    
+    func updateMatchedStopId(_ stopId: String, route: String, direction: BusDirection, near location: CLLocation) {
+        lock.lock()
+        defer { lock.unlock() }
+        matchedStopIdByRouteDirectionLocation[locationKey(route: route, direction: direction, location: location)] = stopId
+    }
 
     func companyCode(route: String, direction: BusDirection) -> String? {
         lock.lock()
@@ -634,6 +637,10 @@ private final class CTBRouteStore {
 
     private func key(route: String, direction: BusDirection) -> String {
         "\(route.uppercased())-\(direction.rawValue)"
+    }
+    
+    private func locationKey(route: String, direction: BusDirection, location: CLLocation) -> String {
+        "\(key(route: route, direction: direction))-\(String(format: "%.5f", location.coordinate.latitude))-\(String(format: "%.5f", location.coordinate.longitude))"
     }
 
     private func cleanStopName(_ rawName: String) -> String {

@@ -38,8 +38,9 @@ extension ContentView {
                 clearExpiredTimerIfNeeded(referenceDate: currentTime)
             }
             .task {
-                await loadAllStops()
-                await loadAllRoutes()
+                async let stopsLoad: Void = loadAllStops()
+                async let routesLoad: Void = loadAllRoutes()
+                _ = await (stopsLoad, routesLoad)
                 reconnectActiveLiveActivity()
                 
                 if locationManager.authorizationStatus == .authorizedWhenInUse || locationManager.authorizationStatus == .authorizedAlways {

@@ -109,12 +109,7 @@ extension ContentView {
         let dashboardStops = (nearestStops + nearbyCTBStops)
             .sorted { $0.distance < $1.distance }
             .prefix(12)
-        var nearbyStopsWithRoutes: [NearbyStopModel] = []
-        
-        for var nearbyStop in dashboardStops {
-            nearbyStop.routes = await fetchRoutesForNearbyStop(nearbyStop.stopInfo)
-            nearbyStopsWithRoutes.append(nearbyStop)
-        }
+        let nearbyStopsWithRoutes = await nearbyStopsWithFetchedRoutes(Array(dashboardStops))
         
         await MainActor.run {
             self.nearbyStops = nearbyStopsWithRoutes
@@ -127,14 +122,29 @@ extension ContentView {
         guard !nearbyStops.isEmpty else { return }
         await MainActor.run { isSearchingNearby = true }
         
-        var refreshedStops = nearbyStops
-        for index in refreshedStops.indices {
-            refreshedStops[index].routes = await fetchRoutesForNearbyStop(refreshedStops[index].stopInfo)
-        }
+        let refreshedStops = await nearbyStopsWithFetchedRoutes(nearbyStops)
         
         await MainActor.run {
             self.nearbyStops = refreshedStops
             self.isSearchingNearby = false
+        }
+    }
+    
+    private func nearbyStopsWithFetchedRoutes(_ stops: [NearbyStopModel]) async -> [NearbyStopModel] {
+        await withTaskGroup(of: NearbyStopModel.self) { group in
+            for stop in stops {
+                group.addTask {
+                    var stopWithRoutes = stop
+                    stopWithRoutes.routes = await fetchRoutesForNearbyStop(stop.stopInfo)
+                    return stopWithRoutes
+                }
+            }
+            
+            var fetchedStops: [NearbyStopModel] = []
+            for await stop in group {
+                fetchedStops.append(stop)
+            }
+            return fetchedStops.sorted { $0.distance < $1.distance }
         }
     }
     

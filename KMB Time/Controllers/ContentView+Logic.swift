@@ -5,20 +5,22 @@ import UserNotifications
 
 // MARK: - Controller / Business Logic
 extension ContentView {
-    /// Current bus-data adapter used by the app.
-    ///
-    /// Swap or compose providers here when CTB or other operators are added. The view code below
-    /// should remain provider-agnostic.
-    var busETAProvider: BusETAProvider {
+    var kmbETAProvider: KMBETAProvider {
         KMBETAProvider.shared
+    }
+    
+    var ctbETAProvider: CTBETAProvider {
+        CTBETAProvider.shared
     }
     
     // MARK: - Route and Stop Loading
     
-    /// Loads route suggestions from the active bus provider.
+    /// Loads route suggestions from KMB plus the bundled CTB route list.
     func loadAllRoutes() async {
         do {
-            let routeSuggestions = try await busETAProvider.fetchRouteSuggestions()
+            async let kmbSuggestions = kmbETAProvider.fetchRouteSuggestions()
+            async let ctbSuggestions = ctbETAProvider.fetchRouteSuggestions()
+            let routeSuggestions = try await mergedRouteSuggestions(kmb: kmbSuggestions, ctb: ctbSuggestions)
             await MainActor.run {
                 self.allRoutes = routeSuggestions
             }
@@ -27,12 +29,14 @@ extension ContentView {
         }
     }
     
-    /// Loads stops from the active bus provider and builds lookup dictionaries for the UI.
+    /// Loads stops from KMB and CTB and builds lookup dictionaries for the UI.
     func loadAllStops() async {
         do {
-            let stops = try await busETAProvider.fetchStops()
-            let stopNamesById = Dictionary(uniqueKeysWithValues: stops.map { ($0.stop, $0.name_tc) })
-            let stopInfoById = Dictionary(uniqueKeysWithValues: stops.map { ($0.stop, $0) })
+            async let kmbStops = kmbETAProvider.fetchStops()
+            async let ctbStops = ctbETAProvider.fetchStops()
+            let stops = try await kmbStops + ctbStops
+            let stopNamesById = Dictionary(stops.map { ($0.stop, $0.name_tc) }, uniquingKeysWith: { first, _ in first })
+            let stopInfoById = Dictionary(stops.map { ($0.stop, $0) }, uniquingKeysWith: { first, _ in first })
             
             await MainActor.run {
                 self.allStops = stops
@@ -45,6 +49,48 @@ extension ContentView {
             }
         } catch {
             print("Failed to load stops: \(error)")
+        }
+    }
+    
+    private func mergedRouteSuggestions(kmb: [RouteSuggestion], ctb: [RouteSuggestion]) -> [RouteSuggestion] {
+        var suggestionsByRouteDirectionCompany: [String: RouteSuggestion] = [:]
+        
+        for suggestion in kmb {
+            suggestionsByRouteDirectionCompany[routeSuggestionKey(suggestion)] = suggestion
+        }
+        
+        for suggestion in ctb {
+            if suggestion.co == "KMB+CTB" {
+                suggestionsByRouteDirectionCompany.removeValue(forKey: "\(suggestion.route)-\(suggestion.bound)-\(BusOperator.kmb.rawValue)")
+            }
+            suggestionsByRouteDirectionCompany[routeSuggestionKey(suggestion)] = suggestion
+        }
+        
+        return suggestionsByRouteDirectionCompany.values.sorted {
+            if $0.route == $1.route {
+                if $0.bound == $1.bound {
+                    return companySortRank($0.co) < companySortRank($1.co)
+                }
+                return $0.bound > $1.bound
+            }
+            return $0.route.localizedStandardCompare($1.route) == .orderedAscending
+        }
+    }
+    
+    private func routeSuggestionKey(_ suggestion: RouteSuggestion) -> String {
+        "\(suggestion.route)-\(suggestion.bound)-\(suggestion.co)"
+    }
+    
+    private func companySortRank(_ company: String) -> Int {
+        switch company {
+        case "KMB+CTB":
+            return 0
+        case BusOperator.kmb.rawValue:
+            return 1
+        case BusOperator.ctb.rawValue:
+            return 2
+        default:
+            return 3
         }
     }
     
@@ -93,11 +139,12 @@ extension ContentView {
     /// - Parameter stopId: Provider-specific stop identifier.
     /// - Returns: Dashboard route cards, or an empty array when the request fails.
     func fetchRoutesForStop(stopId: String) async -> [NearbyRouteModel] {
-        do {
-            return try await busETAProvider.fetchNearbyRoutes(forStopId: stopId)
-        } catch {
-            print("Failed to fetch nearby routes for stop \(stopId): \(error)")
-            return []
+        async let kmbRoutes = (try? kmbETAProvider.fetchNearbyRoutes(forStopId: stopId)) ?? []
+        async let ctbRoutes = (try? ctbETAProvider.fetchNearbyRoutes(forStopId: stopId)) ?? []
+        let routes = await kmbRoutes + ctbRoutes
+        return routes.sorted {
+            if $0.route == $1.route { return $0.directionCode < $1.directionCode }
+            return $0.route.localizedStandardCompare($1.route) == .orderedAscending
         }
     }
     
@@ -135,12 +182,13 @@ extension ContentView {
         guard !route.isEmpty else { return }
         
         let selectedBusDirection = BusDirection(rawValue: direction ?? selectedDirection) ?? .outbound
+        let routeCompany = company ?? resolvedCompanyForSearch(route: route, direction: selectedBusDirection)
         
         await MainActor.run {
             if let direction {
                 self.selectedDirection = direction
             }
-            self.selectedCompany = busETAProvider.operatorCode.rawValue
+            self.selectedCompany = routeCompany
             if !isRefresh {
                 isLoading = true
                 displayData = []
@@ -149,10 +197,10 @@ extension ContentView {
         }
         
         do {
-            let timetableRows = try await busETAProvider.fetchTimetableRows(
+            let timetableRows = try await fetchTimetableRows(
                 route: route,
                 direction: selectedBusDirection,
-                stopNameById: stopDictionary
+                company: routeCompany
             )
             let highlightStopId = highlightedStopIdForRouteSearch(
                 rows: timetableRows,
@@ -180,6 +228,89 @@ extension ContentView {
                 }
             }
         }
+    }
+    
+    private func fetchTimetableRows(route: String, direction: BusDirection, company: String) async throws -> [StopDisplayModel] {
+        if company == BusOperator.ctb.rawValue {
+            return try await ctbETAProvider.fetchTimetableRows(route: route, direction: direction, stopNameById: stopDictionary)
+        }
+        
+        var kmbRows = try await kmbETAProvider.fetchTimetableRows(route: route, direction: direction, stopNameById: stopDictionary)
+        guard company == "KMB+CTB" || ctbETAProvider.isJointRoute(route: route, direction: direction) else {
+            return kmbRows
+        }
+        
+        let ctbRows = (try? await ctbETAProvider.fetchTimetableRows(route: route, direction: direction, stopNameById: stopDictionary)) ?? []
+        mergeCTBETAs(ctbRows, into: &kmbRows)
+        return kmbRows
+    }
+    
+    private func resolvedCompanyForSearch(route: String, direction: BusDirection) -> String {
+        if routeHasCompany(route: route, direction: direction, company: selectedCompany) {
+            return selectedCompany
+        }
+        return companyCodeForRoute(route: route, direction: direction) ?? BusOperator.kmb.rawValue
+    }
+    
+    private func companyCodeForRoute(route: String, direction: BusDirection) -> String? {
+        let matchingSuggestions = routeSuggestions(route: route, direction: direction)
+        if matchingSuggestions.count == 1 {
+            return matchingSuggestions.first?.co
+        }
+        if let jointSuggestion = matchingSuggestions.first(where: { $0.co == "KMB+CTB" }) {
+            return jointSuggestion.co
+        }
+        return ctbETAProvider.companyCode(route: route, direction: direction)
+    }
+    
+    private func routeHasCompany(route: String, direction: BusDirection, company: String) -> Bool {
+        routeSuggestions(route: route, direction: direction).contains { $0.co == company }
+    }
+    
+    private func routeSuggestions(route: String, direction: BusDirection) -> [RouteSuggestion] {
+        let normalizedRoute = route.uppercased()
+        let bound = direction.routeCode
+        return allRoutes.filter { $0.route == normalizedRoute && $0.bound == bound }
+    }
+    
+    private func providerForRoute(route: String, direction: BusDirection, stopId: String? = nil) -> BusETAProvider {
+        if let stopId, stopInfoDictionary[stopId] == nil {
+            return ctbETAProvider
+        }
+        return companyCodeForRoute(route: route, direction: direction) == BusOperator.ctb.rawValue ? ctbETAProvider : kmbETAProvider
+    }
+    
+    private func mergeCTBETAs(_ ctbRows: [StopDisplayModel], into kmbRows: inout [StopDisplayModel]) {
+        let ctbRowsByName = Dictionary(grouping: ctbRows) { normalizedStopName($0.stopNameTc) }
+        
+        for index in kmbRows.indices {
+            let kmbName = normalizedStopName(kmbRows[index].stopNameTc)
+            let kmbLocation = stopInfoDictionary[kmbRows[index].stopId]?.clLocation
+            let matchedCTBRow = ctbRowsByName[kmbName]?.first ?? nearestCTBRow(to: kmbLocation, from: ctbRows)
+            guard let matchedCTBRow, !matchedCTBRow.etas.isEmpty else { continue }
+            let mergedETAs = (kmbRows[index].etas + matchedCTBRow.etas)
+                .sorted { ($0.etaDate ?? Date.distantFuture) < ($1.etaDate ?? Date.distantFuture) }
+            kmbRows[index] = StopDisplayModel(
+                seq: kmbRows[index].seq,
+                stopId: kmbRows[index].stopId,
+                stopNameTc: kmbRows[index].stopNameTc,
+                etas: Array(mergedETAs.prefix(3)),
+                location: kmbRows[index].location
+            )
+        }
+    }
+    
+    private func nearestCTBRow(to location: CLLocation?, from rows: [StopDisplayModel]) -> StopDisplayModel? {
+        guard let location else { return nil }
+        let candidate = rows.min { first, second in
+            let firstDistance = first.location.map { location.distance(from: $0) } ?? .infinity
+            let secondDistance = second.location.map { location.distance(from: $0) } ?? .infinity
+            return firstDistance < secondDistance
+        }
+        guard let candidate, let candidateLocation = candidate.location, location.distance(from: candidateLocation) <= 80 else {
+            return nil
+        }
+        return candidate
     }
     
     /// Chooses which timetable row should be highlighted after a route search completes.
@@ -252,7 +383,8 @@ extension ContentView {
         let timerDirection = BusDirection(rawValue: timer.direction) ?? .outbound
         
         do {
-            let etas = try await busETAProvider.fetchTimerETAs(route: timer.routeName, direction: timerDirection, stopId: timer.stopId)
+            let provider = providerForRoute(route: timer.routeName, direction: timerDirection, stopId: timer.stopId)
+            let etas = try await provider.fetchTimerETAs(route: timer.routeName, direction: timerDirection, stopId: timer.stopId)
             guard let newEtaDate = etas.first?.etaDate else { return }
             
             let difference = abs(newEtaDate.timeIntervalSince(timer.etaDate))
@@ -391,7 +523,9 @@ extension ContentView {
         
         for favorite in favorites {
             do {
-                if let status = try await busETAProvider.fetchFavoriteStatus(for: favorite, context: context) {
+                let direction = BusDirection(rawValue: favorite.direction) ?? .outbound
+                let provider = providerForRoute(route: favorite.route, direction: direction)
+                if let status = try await provider.fetchFavoriteStatus(for: favorite, context: context) {
                     statuses[favorite.id] = status
                 }
             } catch {

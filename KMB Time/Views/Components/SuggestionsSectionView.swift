@@ -10,7 +10,7 @@ struct SuggestionsSectionView: View {
         Section {
             ForEach(suggestions, id: \.id) { suggestion in
                 Button(action: {
-                    onSelected(suggestion, "KMB")
+                    onSelected(suggestion, suggestion.co)
                 }) {
                     HStack(spacing: 12) {
                         // 號碼牌
@@ -39,6 +39,15 @@ struct SuggestionsSectionView: View {
                         
                         Spacer()
                         
+                        Text(companyDisplayName(suggestion.co))
+                            .font(.caption2)
+                            .fontWeight(.bold)
+                            .foregroundColor(KMBRouteTheme.color(route: suggestion.route, company: suggestion.co, allRoutes: allRoutes))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(KMBRouteTheme.color(route: suggestion.route, company: suggestion.co, allRoutes: allRoutes).opacity(0.12))
+                            .cornerRadius(5)
+                        
                         Image(systemName: "chevron.right")
                             .font(.caption)
                             .foregroundColor(.secondary)
@@ -51,6 +60,17 @@ struct SuggestionsSectionView: View {
             Text("搜尋建議")
                 .font(.system(size: 14, weight: .bold))
                 .foregroundColor(.gray)
+        }
+    }
+    
+    private func companyDisplayName(_ company: String) -> String {
+        switch company {
+        case "KMB+CTB":
+            return "聯營"
+        case BusOperator.ctb.rawValue:
+            return "城巴"
+        default:
+            return "九巴"
         }
     }
 }

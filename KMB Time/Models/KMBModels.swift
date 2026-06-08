@@ -83,6 +83,7 @@ struct ETADisplayInfo: Identifiable, Hashable {
     let id = UUID()
     let etaDate: Date?
     let remark: String?
+    var companyCode: String = "KMB"
 }
 
 /// One stop row in the route-detail timetable.

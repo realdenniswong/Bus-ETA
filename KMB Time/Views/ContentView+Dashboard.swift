@@ -220,7 +220,7 @@ extension ContentView {
                 await searchRoute(
                     route: suggestion.route.uppercased(),
                     direction: newDirection,
-                    company: "KMB",
+                    company: suggestion.co,
                     findNearest: true,
                     shouldScroll: true
                 )
@@ -243,7 +243,7 @@ extension ContentView {
             await searchRoute(
                 route: route.route,
                 direction: newDirection,
-                company: "KMB",
+                company: route.co,
                 findNearest: false,
                 targetStopCode: stopInfo.stop,
                 shouldScroll: true

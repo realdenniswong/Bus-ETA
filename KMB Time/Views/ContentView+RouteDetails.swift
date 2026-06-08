@@ -14,12 +14,28 @@ extension ContentView {
                 
                 routeDetailOverlay
             }
-            .navigationTitle(searchText.isEmpty ? "路線資料" : searchText.uppercased())
+            .navigationTitle(routeDetailNavigationTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { routeDetailToolbar }
             .onChange(of: scrollTriggerId) { _ in
                 scrollToHighlightedStop(using: routeProxy)
             }
+        }
+    }
+    
+    var routeDetailNavigationTitle: String {
+        guard !searchText.isEmpty else { return "路線資料" }
+        return "\(searchText.uppercased()) · \(routeDetailCompanyName)"
+    }
+    
+    var routeDetailCompanyName: String {
+        switch selectedCompany {
+        case "KMB+CTB":
+            return "聯營"
+        case BusOperator.ctb.rawValue:
+            return "城巴"
+        default:
+            return "九巴"
         }
     }
     
@@ -32,7 +48,7 @@ extension ContentView {
         .padding(.top, 12)
         .onChange(of: selectedDirection) { newValue in
             if !searchText.isEmpty {
-                Task { await searchRoute(route: searchText.uppercased(), direction: newValue, findNearest: true, shouldScroll: true) }
+                Task { await searchRoute(route: searchText.uppercased(), direction: newValue, company: selectedCompany, findNearest: true, shouldScroll: true) }
             }
         }
         .listRowBackground(Color.clear)
@@ -89,7 +105,7 @@ extension ContentView {
         } else {
             Button(action: {
                 Task {
-                    await searchRoute(route: searchText.uppercased(), direction: selectedDirection, findNearest: false, shouldScroll: false, isRefresh: true)
+                    await searchRoute(route: searchText.uppercased(), direction: selectedDirection, company: selectedCompany, findNearest: false, shouldScroll: false, isRefresh: true)
                 }
             }) {
                 Image(systemName: "arrow.clockwise")

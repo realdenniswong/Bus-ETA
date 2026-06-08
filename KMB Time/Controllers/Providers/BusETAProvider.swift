@@ -6,6 +6,7 @@ import Foundation
 /// Add a new case here only when the app is ready to display and persist that operator.
 enum BusOperator: String, Codable, CaseIterable, Identifiable {
     case kmb = "KMB"
+    case ctb = "CTB"
     
     var id: String { rawValue }
     
@@ -13,6 +14,8 @@ enum BusOperator: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .kmb:
             return "九巴"
+        case .ctb:
+            return "城巴"
         }
     }
 }

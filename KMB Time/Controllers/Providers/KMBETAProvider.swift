@@ -179,7 +179,7 @@ private extension KMBETAProvider {
                   let etaDate = formatter.date(from: etaText) else {
                 return nil
             }
-            return ETADisplayInfo(etaDate: etaDate, remark: item.rmk_tc)
+            return ETADisplayInfo(etaDate: etaDate, remark: item.rmk_tc, companyCode: operatorCode.rawValue)
         }
         .sorted { ($0.etaDate ?? Date.distantFuture) < ($1.etaDate ?? Date.distantFuture) }
     }

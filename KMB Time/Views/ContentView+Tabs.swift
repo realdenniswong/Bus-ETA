@@ -79,40 +79,29 @@ extension ContentView {
     
     var favoritesTab: some View {
         NavigationStack {
-            List {
-                if favoritesManager.favoriteRoutes.isEmpty {
-                    Text("您尚未加入任何常用路線。")
-                        .foregroundColor(.secondary)
-                        .padding()
-                        .listRowBackground(Color.clear)
-                } else {
-                    ForEach(sortedFavorites) { favorite in
-                        favoriteRouteButton(favorite)
-                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                favoriteSwipeActions(favorite)
-                            }
-                    }
-                    .onDelete { indexSet in
-                        favoritesManager.favoriteRoutes.remove(atOffsets: indexSet)
-                    }
+            FavoritesView(
+                favoritesManager: favoritesManager,
+                favoriteStatus: favoriteStatus,
+                allRoutes: allRoutes,
+                currentTime: currentTime,
+                onOpenFavorite: { favorite in
+                    openFavoriteRoute(favorite)
+                },
+                onSetTimer: { favorite, status, etaDate, company in
+                    prepareTimerAlert(
+                        route: favorite.route,
+                        destination: favorite.destNameTc,
+                        stationName: status.stopName,
+                        stopId: "",
+                        direction: favorite.direction,
+                        company: company,
+                        etaDate: etaDate
+                    )
+                },
+                onRefresh: {
+                    await updateFavoriteETAs()
                 }
-            }
-            .navigationTitle("常用路線")
-            .padding(.top, 16)
-            .background(themeBackground)
-            .scrollContentBackground(.hidden)
-            .refreshable {
-                await updateFavoriteETAs()
-            }
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: {
-                        Task { await updateFavoriteETAs() }
-                    }) {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                }
-            }
+            )
         }
         .task {
             if selectedTab == 1 {
@@ -126,94 +115,6 @@ extension ContentView {
         }
         .tabItem {
             Label("常用路線", systemImage: "star.fill")
-        }
-    }
-    
-    @ViewBuilder
-    func favoriteRouteButton(_ favorite: FavoriteRoute) -> some View {
-        let company = companyCode(for: favorite)
-        Button(action: { openFavoriteRoute(favorite) }) {
-            HStack(alignment: .center, spacing: 12) {
-                Text(favorite.route)
-                    .font(.system(.body, design: .rounded))
-                    .fontWeight(.bold)
-                    .foregroundColor(KMBRouteTheme.foregroundColor(route: favorite.route, company: company, allRoutes: allRoutes))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.5)
-                    .frame(width: 64, height: 36)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(KMBRouteTheme.backgroundColor(route: favorite.route, company: company, allRoutes: allRoutes)))
-                
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(alignment: .firstTextBaseline, spacing: 4) {
-                        Text("往")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Text(favorite.destNameTc)
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundColor(.primary)
-                            .lineLimit(1)
-                    }
-                    HStack(spacing: 4) {
-                        Image(systemName: "mappin.circle.fill")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                        if let status = favoriteStatus[favorite.id] {
-                            Text("\(status.stopName) • \(formatDistance(status.distance))")
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                        } else {
-                            Text("正在尋找最近車站...")
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                }
-                
-                Spacer()
-                
-                if let status = favoriteStatus[favorite.id] {
-                    etaCountdownView(etas: status.etas)
-                }
-                Image(systemName: "chevron.right")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-        }
-    }
-    
-    func companyCode(for favorite: FavoriteRoute) -> String {
-        if favorite.company != BusOperator.kmb.rawValue {
-            return favorite.company
-        }
-        let bound = (BusDirection(rawValue: favorite.direction) ?? .outbound).routeCode
-        let matches = allRoutes.filter { suggestion in
-            suggestion.route == favorite.route.uppercased() && suggestion.bound == bound
-        }
-        if matches.count == 1 {
-            return matches[0].co
-        }
-        return matches.first(where: { $0.co == "KMB+CTB" })?.co ?? favorite.company
-    }
-    
-    @ViewBuilder
-    func favoriteSwipeActions(_ favorite: FavoriteRoute) -> some View {
-        Button(role: .destructive) {
-            if let index = favoritesManager.favoriteRoutes.firstIndex(where: { $0.id == favorite.id }) {
-                favoritesManager.favoriteRoutes.remove(at: index)
-            }
-        } label: {
-            Label("刪除", systemImage: "trash")
-        }
-        
-        if let status = favoriteStatus[favorite.id],
-           let firstEta = status.etas.first(where: { $0.etaDate?.timeIntervalSince(Date()) ?? 0 > 120 }),
-           let etaDate = firstEta.etaDate {
-            Button {
-                prepareTimerAlert(route: favorite.route, destination: favorite.destNameTc, stationName: status.stopName, stopId: "", direction: favorite.direction, company: companyCode(for: favorite), etaDate: etaDate)
-            } label: {
-                Label("設定提示", systemImage: "bell.fill")
-            }
-            .tint(.blue)
         }
     }
     

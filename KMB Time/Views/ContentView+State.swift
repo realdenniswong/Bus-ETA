@@ -2,32 +2,6 @@ import SwiftUI
 import CoreLocation
 
 extension ContentView {
-    /// Favourite routes sorted for display: active service first, then nearest stop, direction, and route number.
-    var sortedFavorites: [FavoriteRoute] {
-        favoritesManager.favoriteRoutes.sorted { first, second in
-            let firstStatus = favoriteStatus[first.id]
-            let secondStatus = favoriteStatus[second.id]
-            
-            let firstHasService = !(firstStatus?.etas.isEmpty ?? true)
-            let secondHasService = !(secondStatus?.etas.isEmpty ?? true)
-            if firstHasService != secondHasService {
-                return firstHasService
-            }
-            
-            let firstDistance = firstStatus?.distance ?? .infinity
-            let secondDistance = secondStatus?.distance ?? .infinity
-            if firstDistance != secondDistance {
-                return firstDistance < secondDistance
-            }
-            
-            if first.direction != second.direction {
-                return first.direction == "inbound"
-            }
-            
-            return first.route.localizedStandardCompare(second.route) == .orderedAscending
-        }
-    }
-    
     /// Route suggestions matching the current custom-keyboard search text.
     var searchSuggestions: [RouteSuggestion] {
         guard !searchText.isEmpty else { return [] }
@@ -105,38 +79,6 @@ extension ContentView {
             .transition(.move(edge: .top).combined(with: .opacity))
             .padding(.top, 16)
             .zIndex(1)
-    }
-    
-    /// Converts ETA data into the compact text and color used by favourite route rows.
-    ///
-    /// - Parameter etas: Upcoming ETAs for one route row.
-    /// - Returns: Display text plus the semantic color for that text.
-    func relativeTimeText(for etas: [ETADisplayInfo]) -> (text: String, color: Color) {
-        guard let firstEta = etas.first?.etaDate else {
-            return ("沒有班次", .secondary)
-        }
-        
-        let diff = firstEta.timeIntervalSince(currentTime)
-        if diff < 60 {
-            return ("即將抵達", .red)
-        }
-        
-        return ("\(Int(diff / 60)) 分鐘", .primary)
-    }
-    
-    /// Builds the compact ETA badge shown on favourite rows.
-    ///
-    /// - Parameter etas: Upcoming ETAs for one favourite route.
-    /// - Returns: A badge view containing the first ETA's relative time.
-    func etaCountdownView(etas: [ETADisplayInfo]) -> some View {
-        let etaInfo = relativeTimeText(for: etas)
-        return Text(etaInfo.text)
-            .font(.system(size: 14, weight: .bold))
-            .foregroundColor(etaInfo.color)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(etaInfo.color.opacity(0.1))
-            .cornerRadius(6)
     }
     
     /// Formats a distance for nearby stop and favourite route rows.

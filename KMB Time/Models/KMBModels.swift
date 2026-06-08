@@ -111,6 +111,7 @@ struct NearbyRouteModel: Identifiable {
     let route: String
     let directionCode: String
     let destNameTc: String
+    var displayStopName: String? = nil
     let etas: [ETADisplayInfo]
 }
 

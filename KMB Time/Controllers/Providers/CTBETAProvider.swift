@@ -57,9 +57,12 @@ struct CTBETAProvider: BusETAProvider {
                 near: targetStopInfo?.clLocation
             )
             let etas: [ETADisplayInfo]
+            let matchedStopName: String?
             if let apiStopId {
+                matchedStopName = (try? await fetchStopInfo(stopId: apiStopId))?.name_tc
                 etas = (try? await fetchCTBETAs(stopId: apiStopId, route: direction.routeName, direction: direction.bound)) ?? []
             } else {
+                matchedStopName = nil
                 etas = []
             }
 
@@ -69,6 +72,7 @@ struct CTBETAProvider: BusETAProvider {
                     route: direction.routeName,
                     directionCode: direction.bound.routeCode,
                     destNameTc: direction.destinationName,
+                    displayStopName: direction.companyCode == BusOperator.ctb.rawValue ? matchedStopName : nil,
                     etas: Array(etas.prefix(3))
                 )
             )
@@ -155,9 +159,12 @@ extension CTBETAProvider {
                 near: location
             )
             let etas: [ETADisplayInfo]
+            let matchedStopName: String?
             if let apiStopId {
+                matchedStopName = (try? await fetchStopInfo(stopId: apiStopId))?.name_tc
                 etas = (try? await fetchCTBETAs(stopId: apiStopId, route: direction.routeName, direction: direction.bound)) ?? []
             } else {
+                matchedStopName = nil
                 etas = []
             }
 
@@ -167,6 +174,7 @@ extension CTBETAProvider {
                     route: direction.routeName,
                     directionCode: direction.bound.routeCode,
                     destNameTc: direction.destinationName,
+                    displayStopName: direction.companyCode == BusOperator.ctb.rawValue ? matchedStopName : nil,
                     etas: Array(etas.prefix(3))
                 )
             )

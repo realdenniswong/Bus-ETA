@@ -239,7 +239,11 @@ struct NearbyDashboardSectionView: View {
                 let key = "\(item.route.route)-\(item.route.directionCode)"
                 
                 if let existing = dict[key] {
-                    if item.distance < existing.distance {
+                    if item.route.co == "KMB+CTB", existing.route.co == BusOperator.kmb.rawValue {
+                        dict[key] = (route: item.route, stop: existing.stop, distance: min(item.distance, existing.distance))
+                    } else if existing.route.co == "KMB+CTB", item.route.co == BusOperator.kmb.rawValue {
+                        dict[key] = (route: existing.route, stop: item.stop, distance: min(item.distance, existing.distance))
+                    } else if item.distance < existing.distance {
                         dict[key] = item
                     }
                 } else {
@@ -368,10 +372,12 @@ struct NearbyDashboardSectionView: View {
                         Text(route.destNameTc)
                             .font(.system(size: 15, weight: .bold))
                             .foregroundColor(.primary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 
-                Spacer()
                 etaCountdownView(etas: route.etas)
                 Image(systemName: "chevron.right")
                     .font(.caption)
@@ -394,9 +400,11 @@ struct NearbyDashboardSectionView: View {
                         Text(route.destNameTc)
                             .font(.system(size: 15, weight: .bold))
                             .foregroundColor(.primary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
                     }
                 }
-                Spacer()
+                .frame(maxWidth: .infinity, alignment: .leading)
                 etaCountdownView(etas: route.etas)
                 Image(systemName: "chevron.right").font(.caption).foregroundColor(.secondary)
             }
@@ -438,16 +446,18 @@ struct NearbyDashboardSectionView: View {
                         Text(route.destNameTc)
                             .font(.system(size: 15, weight: .bold))
                             .foregroundColor(.primary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
                     }
                     
                     HStack(spacing: 4) {
                         Image(systemName: "mappin.circle.fill").font(.caption2).foregroundColor(.secondary)
-                        Text("\(stopInfo.name_tc) • \(formatDistance(self.nearbyStops.first(where: { $0.stopInfo.stop == stopInfo.stop })?.distance ?? 0))")
+                        Text("\(route.displayStopName ?? stopInfo.name_tc) • \(formatDistance(self.nearbyStops.first(where: { $0.stopInfo.stop == stopInfo.stop })?.distance ?? 0))")
                             .font(.caption2)
                             .foregroundColor(.secondary)
                     }
                 }
-                Spacer()
+                .frame(maxWidth: .infinity, alignment: .leading)
                 etaCountdownView(etas: route.etas)
                 Image(systemName: "chevron.right").font(.caption).foregroundColor(.secondary)
             }

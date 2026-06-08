@@ -10,10 +10,33 @@ import Combine
 
 // The model for a saved route
 struct FavoriteRoute: Identifiable, Codable {
-    var id: String { "\(route)-\(direction)" }
+    var id: String { "\(route)-\(direction)-\(company)" }
     let route: String
     let direction: String // "outbound" or "inbound"
     let destNameTc: String
+    let company: String
+    
+    enum CodingKeys: String, CodingKey {
+        case route
+        case direction
+        case destNameTc
+        case company
+    }
+    
+    init(route: String, direction: String, destNameTc: String, company: String = BusOperator.kmb.rawValue) {
+        self.route = route
+        self.direction = direction
+        self.destNameTc = destNameTc
+        self.company = company
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        route = try container.decode(String.self, forKey: .route)
+        direction = try container.decode(String.self, forKey: .direction)
+        destNameTc = try container.decode(String.self, forKey: .destNameTc)
+        company = try container.decodeIfPresent(String.self, forKey: .company) ?? BusOperator.kmb.rawValue
+    }
 }
 
 // The manager that talks to UserDefaults
@@ -42,17 +65,20 @@ class FavoritesManager: ObservableObject {
     }
     
     // Add if it doesn't exist, remove if it does
-    func toggleFavorite(route: String, direction: String, destName: String) {
-        let favId = "\(route)-\(direction)"
+    func toggleFavorite(route: String, direction: String, destName: String, company: String = BusOperator.kmb.rawValue) {
+        let favId = "\(route)-\(direction)-\(company)"
         if let index = favoriteRoutes.firstIndex(where: { $0.id == favId }) {
             favoriteRoutes.remove(at: index)
         } else {
-            favoriteRoutes.append(FavoriteRoute(route: route, direction: direction, destNameTc: destName))
+            favoriteRoutes.append(FavoriteRoute(route: route, direction: direction, destNameTc: destName, company: company))
         }
     }
     
     // Check if a route is currently favorited
-    func isFavorite(route: String, direction: String) -> Bool {
-        favoriteRoutes.contains(where: { $0.id == "\(route)-\(direction)" })
+    func isFavorite(route: String, direction: String, company: String? = nil) -> Bool {
+        if let company {
+            return favoriteRoutes.contains(where: { $0.id == "\(route)-\(direction)-\(company)" })
+        }
+        return favoriteRoutes.contains(where: { $0.route == route && $0.direction == direction })
     }
 }

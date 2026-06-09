@@ -4,9 +4,6 @@ struct DashboardView: View {
     @ObservedObject var locationManager: LocationManager
     @Binding var searchText: String
     @Binding var showCustomKeyboard: Bool
-    @Binding var expandedStopIds: Set<String>
-    @Binding var dashboardViewMode: DashboardViewMode
-    
     let activeTimer: ActiveTimerModel?
     let currentTime: Date
     let allStops: [StopInfo]
@@ -130,8 +127,6 @@ struct DashboardView: View {
     private var nearbyDashboardSectionView: some View {
         NearbyDashboardSectionView(
             locationManager: locationManager,
-            expandedStopIds: $expandedStopIds,
-            viewMode: $dashboardViewMode,
             allStops: allStops,
             nearbyStops: nearbyStops,
             currentTime: currentTime,
@@ -168,35 +163,7 @@ struct DashboardView: View {
                             .font(.system(size: 16, weight: .medium))
                     }
                 }
-                
-                if !nearbyStops.isEmpty {
-                    dashboardViewModeMenu
-                }
             }
-        }
-    }
-    
-    private var dashboardViewModeMenu: some View {
-        Menu {
-            Picker("顯示模式", selection: $dashboardViewMode) {
-                Label("按巴士站", systemImage: "mappin.and.ellipse").tag(DashboardViewMode.byStation)
-                Label("按車站名稱", systemImage: "building.2.crop.circle").tag(DashboardViewMode.byStationName)
-                Label("全部路線", systemImage: "list.bullet").tag(DashboardViewMode.allBuses)
-            }
-        } label: {
-            Image(systemName: dashboardModeIconName)
-                .font(.system(size: 16, weight: .medium))
-        }
-    }
-    
-    private var dashboardModeIconName: String {
-        switch dashboardViewMode {
-        case .byStation:
-            return "rectangle.grid.1x2"
-        case .byStationName:
-            return "building.2.crop.circle"
-        case .allBuses:
-            return "list.bullet"
         }
     }
     

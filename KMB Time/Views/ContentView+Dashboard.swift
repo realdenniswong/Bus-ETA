@@ -7,8 +7,6 @@ extension ContentView {
             locationManager: locationManager,
             searchText: $searchText,
             showCustomKeyboard: $showCustomKeyboard,
-            expandedStopIds: $expandedStopIds,
-            dashboardViewMode: $dashboardViewMode,
             activeTimer: activeTimer,
             currentTime: currentTime,
             allStops: allStops,
@@ -86,7 +84,7 @@ extension ContentView {
     func openNearbyDashboardRoute(_ route: NearbyRouteModel, stopInfo: StopInfo) {
         let detailDirectionCode = route.detailDirectionCode ?? route.directionCode
         let newDirection = detailDirectionCode == "O" ? "outbound" : "inbound"
-        let targetStopCode = route.displayStopId ?? stopInfo.stop
+        let targetStopCode = route.co == "KMB+CTB" ? stopInfo.stop : (route.displayStopId ?? stopInfo.stop)
         selectedDirection = newDirection
         searchText = route.route
         isNavigatingToRoute = true
@@ -110,8 +108,8 @@ extension ContentView {
         prepareTimerAlert(
             route: route.route.uppercased(),
             destination: route.destNameTc,
-            stationName: route.displayStopName ?? stopInfo.name_tc,
-            stopId: route.displayStopId ?? stopInfo.stop,
+            stationName: route.co == "KMB+CTB" ? stopInfo.name_tc : (route.displayStopName ?? stopInfo.name_tc),
+            stopId: route.co == "KMB+CTB" ? stopInfo.stop : (route.displayStopId ?? stopInfo.stop),
             direction: route.directionCode == "O" ? "outbound" : "inbound",
             company: route.co,
             etaDate: etaDate

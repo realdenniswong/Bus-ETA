@@ -10,9 +10,6 @@ struct NearbyDashboardSectionView: View {
     @EnvironmentObject var favoritesManager: FavoritesManager
     
     @ObservedObject var locationManager: LocationManager
-    @Binding var expandedStopIds: Set<String>
-    @Binding var viewMode: DashboardViewMode
-    
     let allStops: [StopInfo]
     let nearbyStops: [NearbyStopModel]
     let currentTime: Date
@@ -52,63 +49,8 @@ struct NearbyDashboardSectionView: View {
         })
     }
     
-    struct StationNameGroup: Identifiable {
-        var id: String { stationName }
-        let stationName: String
-        var minDistance: CLLocationDistance
-        var outbound: [(route: NearbyRouteModel, stopInfo: StopInfo)]
-        var inbound: [(route: NearbyRouteModel, stopInfo: StopInfo)]
-    }
-    
     private var visibleNearbyStops: [NearbyStopModel] {
         nearbyStops.filter { shouldDisplayStop($0) }
-    }
-    
-    var groupedByStationName: [StationNameGroup] {
-        var dict: [String: StationNameGroup] = [:]
-        
-        for stopModel in visibleNearbyStops {
-            let rawName = stopModel.stopInfo.name_tc
-            let cleanName = normalizedStationName(rawName)
-            let dist = stopModel.distance
-            
-            if dict[cleanName] == nil {
-                dict[cleanName] = StationNameGroup(stationName: cleanName, minDistance: dist, outbound: [], inbound: [])
-            }
-            
-            dict[cleanName]!.minDistance = min(dict[cleanName]!.minDistance, dist)
-            
-            for route in stopModel.routes {
-                if route.directionCode == "O" {
-                    dict[cleanName]!.outbound.append((route: route, stopInfo: stopModel.stopInfo))
-                } else {
-                    dict[cleanName]!.inbound.append((route: route, stopInfo: stopModel.stopInfo))
-                }
-            }
-        }
-        
-        var result = Array(dict.values)
-        result.sort { $0.minDistance < $1.minDistance }
-        
-        for i in 0..<result.count {
-            result[i].outbound.sort {
-                let id1 = extractPoleId(from: $0.stopInfo.name_tc)
-                let id2 = extractPoleId(from: $1.stopInfo.name_tc)
-                if id1 == id2 {
-                    return $0.route.route.localizedStandardCompare($1.route.route) == .orderedAscending
-                }
-                return id1.localizedStandardCompare(id2) == .orderedAscending
-            }
-            result[i].inbound.sort {
-                let id1 = extractPoleId(from: $0.stopInfo.name_tc)
-                let id2 = extractPoleId(from: $1.stopInfo.name_tc)
-                if id1 == id2 {
-                    return $0.route.route.localizedStandardCompare($1.route.route) == .orderedAscending
-                }
-                return id1.localizedStandardCompare(id2) == .orderedAscending
-            }
-        }
-        return result
     }
     
     var body: some View {
@@ -159,78 +101,12 @@ struct NearbyDashboardSectionView: View {
                 .padding(.vertical, 40)
                 .listRowBackground(Color.clear)
             } else {
-                if viewMode == .byStation {
-                    renderByStation()
-                } else if viewMode == .byStationName {
-                    renderByStationName()
-                } else {
-                    renderFlatList()
-                }
+                renderFlatList()
             }
         }
     }
     
     // MARK: - Renderers
-    
-    @ViewBuilder
-    private func renderByStation() -> some View {
-        ForEach(visibleNearbyStops) { stopModel in
-            let isExpanded = expandedStopIds.contains(stopModel.stopInfo.stop)
-            
-            Section {
-                Button(action: {
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
-                        toggleStopExpanded(stopModel.stopInfo.stop)
-                    }
-                }) {
-                    HStack(alignment: .center) {
-                        Image(systemName: "mappin.and.ellipse")
-                            .foregroundColor(.red)
-                            .font(.headline)
-                        
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(stopModel.stopInfo.name_tc)
-                                .font(.headline)
-                                .fontWeight(.semibold)
-                                .foregroundColor(.primary)
-                                .multilineTextAlignment(.leading)
-                        }
-                        
-                        Spacer()
-                        
-                        HStack(spacing: 12) {
-                            Text(formatDistance(stopModel.distance))
-                                .font(.caption2)
-                                .fontWeight(.bold)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(Color.blue.opacity(0.12))
-                                .foregroundColor(.blue)
-                                .cornerRadius(6)
-                            
-                            Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                                .font(.system(size: 14, weight: .bold))
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                    .padding(.vertical, 4)
-                }
-                
-                if isExpanded {
-                    if stopModel.routes.isEmpty {
-                        Text("暫無服務...")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .padding(.vertical, 4)
-                    } else {
-                        ForEach(sortedRoutes(for: stopModel.routes)) { route in
-                            routeRow(route: route, stopInfo: stopModel.stopInfo)
-                        }
-                    }
-                }
-            }
-        }
-    }
     
     @ViewBuilder
     private func renderFlatList() -> some View {
@@ -325,153 +201,7 @@ struct NearbyDashboardSectionView: View {
         )
     }
     
-    @ViewBuilder
-    private func renderByStationName() -> some View {
-        ForEach(groupedByStationName) { group in
-            let isExpanded = expandedStopIds.contains(group.stationName)
-            
-            Section {
-                Button(action: {
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
-                        toggleStopExpanded(group.stationName)
-                    }
-                }) {
-                    HStack(alignment: .center) {
-                        Image(systemName: "building.2.crop.circle")
-                            .foregroundColor(.red)
-                            .font(.headline)
-                        
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(group.stationName)
-                                .font(.headline)
-                                .fontWeight(.semibold)
-                                .foregroundColor(.primary)
-                                .multilineTextAlignment(.leading)
-                        }
-                        
-                        Spacer()
-                        
-                        HStack(spacing: 12) {
-                            Text(formatDistance(group.minDistance))
-                                .font(.caption2)
-                                .fontWeight(.bold)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(Color.blue.opacity(0.12))
-                                .foregroundColor(.blue)
-                                .cornerRadius(6)
-                            
-                            Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                                .font(.system(size: 14, weight: .bold))
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                    .padding(.vertical, 4)
-                }
-                
-                if isExpanded {
-                    if group.outbound.isEmpty && group.inbound.isEmpty {
-                        Text("暫無服務...")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .padding(.vertical, 4)
-                    } else {
-                        ForEach(group.outbound, id: \.route.id) { item in
-                            routeRowWithStationNumber(route: item.route, stopInfo: item.stopInfo)
-                        }
-                        ForEach(group.inbound, id: \.route.id) { item in
-                            routeRowWithStationNumber(route: item.route, stopInfo: item.stopInfo)
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
     // MARK: - Row Components
-    
-    @ViewBuilder
-    private func routeRowWithStationNumber(route: NearbyRouteModel, stopInfo: StopInfo) -> some View {
-        let resolvedStopInfo = resolvedStopInfo(for: route, fallback: stopInfo)
-        Button(action: { onRouteSelected(route, resolvedStopInfo) }) {
-            HStack(alignment: .center, spacing: 12) {
-                VStack(spacing: 2) {
-                    Text(route.route)
-                        .font(.system(size: 16, weight: .bold, design: .rounded))
-                        .foregroundColor(KMBRouteTheme.foregroundColor(route: route.route, company: route.co, allRoutes: allRoutes))
-                        .frame(width: 52, height: 32)
-                        .background(KMBRouteTheme.backgroundColor(route: route.route, company: route.co, allRoutes: allRoutes))
-                        .cornerRadius(8)
-                }
-                
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(alignment: .firstTextBaseline, spacing: 4) {
-                        Text("往")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Text(route.destNameTc)
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundColor(.primary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                
-                etaCountdownView(etas: route.etas)
-                Image(systemName: "chevron.right")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-        }
-    }
-    
-    @ViewBuilder
-    private func routeRow(route: NearbyRouteModel, stopInfo: StopInfo) -> some View {
-        let resolvedStopInfo = resolvedStopInfo(for: route, fallback: stopInfo)
-        Button(action: { onRouteSelected(route, resolvedStopInfo) }) {
-            HStack(alignment: .center, spacing: 12) {
-                companyTagView(route: route)
-                
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(alignment: .firstTextBaseline, spacing: 4) {
-                        Text("往")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Text(route.destNameTc)
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundColor(.primary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                etaCountdownView(etas: route.etas)
-                Image(systemName: "chevron.right").font(.caption).foregroundColor(.secondary)
-            }
-        }
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            let dirStr = route.directionCode == "O" ? "outbound" : "inbound"
-            let isFav = favoritesManager.isFavorite(route: route.route, direction: dirStr, company: route.co)
-            
-            Button {
-                favoritesManager.toggleFavorite(route: route.route, direction: dirStr, destName: route.destNameTc, company: route.co)
-                onShowToast(isFav ? "已從常用路線移除" : "已加入常用路線")
-            } label: {
-                Label(isFav ? "取消常用" : "加入常用", systemImage: isFav ? "star.slash" : "star.fill")
-            }
-            .tint(isFav ? .red : .orange)
-
-            if route.etas.contains(where: { $0.etaDate?.timeIntervalSince(currentTime) ?? 0 > 120 }) {
-                Button {
-                    onSetTimer(route, resolvedStopInfo)
-                } label: {
-                    Label("設定提示", systemImage: "bell.fill")
-                }
-                .tint(.blue)
-            }
-        }
-    }
     
     @ViewBuilder
     private func routeRowWithDetails(route: NearbyRouteModel, stopInfo: StopInfo) -> some View {
@@ -494,7 +224,7 @@ struct NearbyDashboardSectionView: View {
                     
                     HStack(spacing: 4) {
                         Image(systemName: "mappin.circle.fill").font(.caption2).foregroundColor(.secondary)
-                        Text("\(resolvedStopInfo.name_tc) • \(formatDistance(self.nearbyStops.first(where: { $0.stopInfo.stop == resolvedStopInfo.stop })?.distance ?? 0))")
+                        Text("\(resolvedStopInfo.name_tc) • \(formatDistance(distance(for: resolvedStopInfo)))")
                             .font(.caption2)
                             .foregroundColor(.secondary)
                     }
@@ -539,15 +269,6 @@ struct NearbyDashboardSectionView: View {
         }
     }
     
-    @ViewBuilder
-    private func timerBellView() -> some View {
-        Image(systemName: "bell.fill")
-            .font(.system(size: 14))
-            .foregroundColor(.yellow)
-            .padding(6)
-            .background(Circle().fill(Color.yellow.opacity(0.2)))
-    }
-    
     // MARK: - Local Helpers
     
     private func shouldDisplayStop(_ stopModel: NearbyStopModel) -> Bool {
@@ -580,16 +301,16 @@ struct NearbyDashboardSectionView: View {
             .cornerRadius(6)
     }
     
-    private func toggleStopExpanded(_ stopId: String) {
-        if expandedStopIds.contains(stopId) {
-            expandedStopIds.remove(stopId)
-        } else {
-            expandedStopIds.insert(stopId)
-        }
-    }
-    
     private func resolvedStopInfo(for route: NearbyRouteModel, fallback: StopInfo) -> StopInfo {
+        if route.co == "KMB+CTB", let kmbStop = nearbyKMBStopForJointRoute(route, fallback: fallback) {
+            return kmbStop
+        }
+        
         guard let displayStopId = route.displayStopId else { return fallback }
+        let preferredOperator = operatorCode(for: route, fallback: fallback.operatorCode)
+        if let stopModel = nearbyStops.first(where: { $0.stopInfo.stop == displayStopId && $0.stopInfo.operatorCode == preferredOperator }) {
+            return stopModel.stopInfo
+        }
         if let stopModel = nearbyStops.first(where: { $0.stopInfo.stop == displayStopId }) {
             return stopModel.stopInfo
         }
@@ -597,8 +318,64 @@ struct NearbyDashboardSectionView: View {
             stop: displayStopId,
             name_tc: route.displayStopName ?? fallback.name_tc,
             lat: fallback.lat,
-            long: fallback.long
+            long: fallback.long,
+            operatorCode: preferredOperator
         )
+    }
+    
+    private func distance(for stopInfo: StopInfo) -> CLLocationDistance {
+        nearbyStops.first { $0.stopInfo.identityKey == stopInfo.identityKey }?.distance
+            ?? nearbyStops.first { $0.stopInfo.stop == stopInfo.stop }?.distance
+            ?? 0
+    }
+    
+    private func nearbyKMBStopForJointRoute(_ route: NearbyRouteModel, fallback: StopInfo) -> StopInfo? {
+        if fallback.operatorCode == .kmb {
+            return fallback
+        }
+        
+        guard let fallbackLocation = fallback.clLocation else { return nil }
+        let kmbCandidates = nearbyStops.filter { $0.stopInfo.operatorCode == .kmb }
+        let routeServingStops = kmbCandidates.filter { stopModel in
+            guard let stopLocation = stopModel.stopInfo.clLocation,
+                  fallbackLocation.distance(from: stopLocation) <= 150 else {
+                return false
+            }
+            return stopModel.routes.contains { candidate in
+                candidate.route.uppercased() == route.route.uppercased() &&
+                candidate.directionCode == route.directionCode &&
+                (candidate.co == "KMB+CTB" || candidate.co == BusOperator.kmb.rawValue)
+            }
+        }
+        if let routeServingStop = routeServingStops.min(by: { first, second in
+            let firstDistance = first.stopInfo.clLocation.map { fallbackLocation.distance(from: $0) } ?? .infinity
+            let secondDistance = second.stopInfo.clLocation.map { fallbackLocation.distance(from: $0) } ?? .infinity
+            return firstDistance < secondDistance
+        }) {
+            return routeServingStop.stopInfo
+        }
+        let nearestStop = kmbCandidates.min { first, second in
+            let firstDistance = first.stopInfo.clLocation.map { fallbackLocation.distance(from: $0) } ?? .infinity
+            let secondDistance = second.stopInfo.clLocation.map { fallbackLocation.distance(from: $0) } ?? .infinity
+            return firstDistance < secondDistance
+        }
+        guard let nearestStop,
+              let nearestLocation = nearestStop.stopInfo.clLocation,
+              fallbackLocation.distance(from: nearestLocation) <= 150 else {
+            return nil
+        }
+        return nearestStop.stopInfo
+    }
+    
+    private func operatorCode(for route: NearbyRouteModel, fallback: BusOperator?) -> BusOperator? {
+        switch route.co {
+        case BusOperator.kmb.rawValue:
+            return .kmb
+        case BusOperator.ctb.rawValue:
+            return .ctb
+        default:
+            return fallback
+        }
     }
     
     private func normalizedStationName(_ stopName: String) -> String {
@@ -660,16 +437,5 @@ struct NearbyDashboardSectionView: View {
         .cornerRadius(14)
         .listRowBackground(Color.clear)
         .listRowInsets(EdgeInsets())
-    }
-    
-    private func extractPoleId(from rawName: String) -> String {
-        guard let match = rawName.range(
-            of: "\\(([A-Z]{1,4}\\d{1,4}|[A-Z]\\d{1,5}|\\d{1,5})\\)\\s*$",
-            options: .regularExpression
-        ) else {
-            return "N/A"
-        }
-        return String(rawName[match])
-            .trimmingCharacters(in: CharacterSet(charactersIn: "() "))
     }
 }

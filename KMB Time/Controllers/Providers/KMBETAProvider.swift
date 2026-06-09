@@ -33,14 +33,16 @@ struct KMBETAProvider: BusETAProvider {
     /// Fetches KMB stops, keeping only stops with valid coordinates.
     func fetchStops() async throws -> [StopInfo] {
         let response: StopResponse = try await fetch(path: "stop/")
-        return response.data.filter { stop in
+        return response.data.compactMap { stop in
             guard let latitudeText = stop.lat,
                   let longitudeText = stop.long,
                   let latitude = Double(latitudeText),
-                  let longitude = Double(longitudeText) else {
-                return false
+                  let longitude = Double(longitudeText),
+                  latitude != 0.0,
+                  longitude != 0.0 else {
+                return nil
             }
-            return latitude != 0.0 && longitude != 0.0
+            return stop.tagged(with: operatorCode)
         }
     }
     

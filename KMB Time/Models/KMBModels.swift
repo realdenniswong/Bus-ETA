@@ -64,9 +64,43 @@ struct StopInfo: Codable {
     let name_tc: String
     let lat: String?
     let long: String?
+    let operatorCode: BusOperator?
+    
+    init(stop: String, name_tc: String, lat: String?, long: String?, operatorCode: BusOperator? = nil) {
+        self.stop = stop
+        self.name_tc = name_tc
+        self.lat = lat
+        self.long = long
+        self.operatorCode = operatorCode
+    }
+    
+    private enum CodingKeys: String, CodingKey {
+        case stop
+        case name_tc
+        case lat
+        case long
+        case operatorCode
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        stop = try container.decode(String.self, forKey: .stop)
+        name_tc = try container.decode(String.self, forKey: .name_tc)
+        lat = try container.decodeIfPresent(String.self, forKey: .lat)
+        long = try container.decodeIfPresent(String.self, forKey: .long)
+        operatorCode = try container.decodeIfPresent(BusOperator.self, forKey: .operatorCode)
+    }
 }
 
 extension StopInfo {
+    var identityKey: String {
+        "\(operatorCode?.rawValue ?? "UNKNOWN")-\(stop)"
+    }
+    
+    func tagged(with operatorCode: BusOperator) -> StopInfo {
+        StopInfo(stop: stop, name_tc: name_tc, lat: lat, long: long, operatorCode: operatorCode)
+    }
+    
     /// Stop location parsed from provider latitude/longitude strings.
     var clLocation: CLLocation? {
         guard let lat, let long,

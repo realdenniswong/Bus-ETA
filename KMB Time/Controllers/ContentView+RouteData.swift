@@ -34,7 +34,9 @@ extension ContentView {
             async let ctbStops = ctbETAProvider.fetchStops()
             let stops = try await kmbStops + ctbStops
             let stopNamesById = Dictionary(stops.map { ($0.stop, $0.name_tc) }, uniquingKeysWith: { first, _ in first })
-            let stopInfoById = Dictionary(stops.map { ($0.stop, $0) }, uniquingKeysWith: { first, _ in first })
+            let identityStopInfo = stops.map { ($0.identityKey, $0) }
+            let plainStopInfo = stops.map { ($0.stop, $0) }
+            let stopInfoById = Dictionary(identityStopInfo + plainStopInfo, uniquingKeysWith: { first, _ in first })
             
             await MainActor.run {
                 self.allStops = stops

@@ -13,17 +13,8 @@ extension ContentView {
         }
         guard shouldStartUpdate else { return }
         
-        let nearestStops = nearestStopModels(from: allStops, userLocation: userLocation, limit: 10)
-        let nearbyCTBStops = await nearestCTBStopModels(userLocation: userLocation, excluding: nearestStops)
-        let dashboardStops = Array((nearestStops + nearbyCTBStops)
-            .sorted { $0.distance < $1.distance }
-            .prefix(12))
-        let nearbyStopsWithRoutes: [NearbyStopModel]
-        if dashboardViewMode == .allBuses {
-            nearbyStopsWithRoutes = await nearbyStopsForAllBusesMode(dashboardStops)
-        } else {
-            nearbyStopsWithRoutes = await nearbyStopsForExpandedGroups(dashboardStops)
-        }
+        let dashboardStops = nearbyStopModels(from: allStops, userLocation: userLocation, radius: 300)
+        let nearbyStopsWithRoutes = await nearbyStopsForAllBusesMode(dashboardStops)
         
         await MainActor.run {
             self.nearbyStops = nearbyStopsWithRoutes
@@ -37,12 +28,7 @@ extension ContentView {
         guard !nearbyStops.isEmpty else { return }
         await MainActor.run { isSearchingNearby = true }
         
-        let refreshedStops: [NearbyStopModel]
-        if dashboardViewMode == .allBuses {
-            refreshedStops = await nearbyStopsForAllBusesMode(nearbyStops)
-        } else {
-            refreshedStops = await nearbyStopsForExpandedGroups(nearbyStops, forceRefresh: true)
-        }
+        let refreshedStops = await nearbyStopsForAllBusesMode(nearbyStops)
         
         await MainActor.run {
             self.nearbyStops = refreshedStops
@@ -69,8 +55,8 @@ extension ContentView {
             }
         }
         
-        let fetchedStopIds = Set(fetchedStops.map { $0.stopInfo.stop })
-        let unfetchedStops = stops.filter { !fetchedStopIds.contains($0.stopInfo.stop) }
+        let fetchedStopIds = Set(fetchedStops.map { $0.stopInfo.identityKey })
+        let unfetchedStops = stops.filter { !fetchedStopIds.contains($0.stopInfo.identityKey) }
         return (fetchedStops + unfetchedStops.map { stop in
             var stopWithoutRoutes = stop
             stopWithoutRoutes.routes = []
@@ -79,39 +65,24 @@ extension ContentView {
         .sorted { $0.distance < $1.distance }
     }
     
-    private func nearbyStopsForExpandedGroups(_ stops: [NearbyStopModel], forceRefresh: Bool = false) async -> [NearbyStopModel] {
-        var fetchedStops: [NearbyStopModel] = []
-        for stop in stops.sorted(by: { $0.distance < $1.distance }) {
-            var stopWithRoutes = stop
-            if shouldFetchRoutesForGroupedStop(stop.stopInfo) {
-                stopWithRoutes.routes = await fetchRoutesForNearbyStop(stop.stopInfo, forceRefresh: forceRefresh)
-                stopWithRoutes.hasFetchedRoutes = true
-            } else {
-                stopWithRoutes.routes = cachedRoutes(from: stop.routes)
-            }
-            fetchedStops.append(stopWithRoutes)
-        }
-        return fetchedStops
-    }
-    
-    private func nearestCTBStopModels(userLocation: CLLocation, excluding existingStops: [NearbyStopModel]) async -> [NearbyStopModel] {
-        let existingStopIds = Set(existingStops.map { $0.stopInfo.stop })
-        let ctbStops = (try? await ctbETAProvider.nearbyStops(near: userLocation, limit: 8)) ?? []
-        return ctbStops.compactMap { stopInfo in
-            guard !existingStopIds.contains(stopInfo.stop),
-                  let stopLocation = location(from: stopInfo) else { return nil }
-            return NearbyStopModel(stopInfo: stopInfo, distance: userLocation.distance(from: stopLocation))
-        }
-    }
-    
     /// Fetches provider route cards for one displayed nearby stop.
     func fetchRoutesForNearbyStop(_ stopInfo: StopInfo, forceRefresh: Bool = false) async -> [NearbyRouteModel] {
-        async let kmbRoutes = (try? kmbETAProvider.fetchNearbyRoutes(forStopId: stopInfo.stop)) ?? []
-        async let jointRoutes = (try? jointRouteETAProvider.fetchNearbyRoutes(for: stopInfo)) ?? []
-        async let ctbRoutes = (try? ctbETAProvider.fetchNearbyRoutes(forStopId: stopInfo.stop)) ?? []
-        let routes = dashboardRoutes(kmbRoutes: await kmbRoutes, ctbRoutes: await ctbRoutes, jointRoutes: await jointRoutes)
+        let routes: [NearbyRouteModel]
+        switch stopInfo.operatorCode {
+        case .kmb:
+            async let kmbRoutes = (try? kmbETAProvider.fetchNearbyRoutes(forStopId: stopInfo.stop)) ?? []
+            async let jointRoutes = (try? jointRouteETAProvider.fetchNearbyRoutes(for: stopInfo)) ?? []
+            routes = dashboardRoutes(kmbRoutes: await kmbRoutes, ctbRoutes: [], jointRoutes: await jointRoutes)
+        case .ctb:
+            routes = (try? await ctbETAProvider.fetchNearbyRoutes(forStopId: stopInfo.stop)) ?? []
+        case nil:
+            async let kmbRoutes = (try? kmbETAProvider.fetchNearbyRoutes(forStopId: stopInfo.stop)) ?? []
+            async let jointRoutes = (try? jointRouteETAProvider.fetchNearbyRoutes(for: stopInfo)) ?? []
+            async let ctbRoutes = (try? ctbETAProvider.fetchNearbyRoutes(forStopId: stopInfo.stop)) ?? []
+            routes = dashboardRoutes(kmbRoutes: await kmbRoutes, ctbRoutes: await ctbRoutes, jointRoutes: await jointRoutes)
+        }
         return routes
-            .map { cachedRoute($0, stopId: stopInfo.stop, forceRefresh: forceRefresh) }
+            .map { cachedRoute($0, stopId: stopInfo.identityKey, forceRefresh: forceRefresh) }
             .sorted {
                 if $0.route == $1.route { return $0.directionCode < $1.directionCode }
                 return $0.route.localizedStandardCompare($1.route) == .orderedAscending
@@ -124,21 +95,6 @@ extension ContentView {
         }
         let ctbOnlyRoutes = ctbRoutes.filter { $0.co != "KMB+CTB" }
         return kmbOnlyRoutes + jointRoutes + ctbOnlyRoutes
-    }
-    
-    private func shouldFetchRoutesForGroupedStop(_ stopInfo: StopInfo) -> Bool {
-        switch dashboardViewMode {
-        case .byStation:
-            return expandedStopIds.contains(stopInfo.stop)
-        case .byStationName:
-            return expandedStopIds.contains(normalizedStationName(stopInfo.name_tc))
-        case .allBuses:
-            return true
-        }
-    }
-    
-    private func cachedRoutes(from routes: [NearbyRouteModel]) -> [NearbyRouteModel] {
-        routes.map { cachedRoute($0, stopId: routeCacheStopId(for: $0)) }
     }
     
     private func cachedRoute(_ route: NearbyRouteModel, stopId: String, forceRefresh: Bool = false) -> NearbyRouteModel {
@@ -178,12 +134,6 @@ extension ContentView {
         "\(route.co)-\(route.route.uppercased())-\(route.directionCode)"
     }
     
-    private func routeCacheStopId(for route: NearbyRouteModel) -> String {
-        nearbyStops.first { stop in
-            stop.routes.contains { $0.id == route.id }
-        }?.stopInfo.stop ?? ""
-    }
-    
     private func normalizedStationName(_ stopName: String) -> String {
         let withoutPoleId = stopName.replacingOccurrences(
             of: "\\s*\\(([A-Z]{1,4}\\d{1,4}|[A-Z]\\d{1,5}|\\d{1,5})\\)\\s*$",
@@ -207,14 +157,14 @@ extension ContentView {
         return CLLocation(latitude: latitude, longitude: longitude)
     }
     
-    private func nearestStopModels(from stops: [StopInfo], userLocation: CLLocation, limit: Int) -> [NearbyStopModel] {
+    private func nearbyStopModels(from stops: [StopInfo], userLocation: CLLocation, radius: CLLocationDistance) -> [NearbyStopModel] {
         stops
             .compactMap { stop -> NearbyStopModel? in
                 guard let stopLocation = stop.clLocation else { return nil }
-                return NearbyStopModel(stopInfo: stop, distance: userLocation.distance(from: stopLocation))
+                let distance = userLocation.distance(from: stopLocation)
+                guard distance <= radius else { return nil }
+                return NearbyStopModel(stopInfo: stop, distance: distance)
             }
             .sorted { $0.distance < $1.distance }
-            .prefix(limit)
-            .map { $0 }
     }
 }

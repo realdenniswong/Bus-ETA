@@ -252,7 +252,7 @@ private extension CTBETAProvider {
             return nil
         }
 
-        let stopInfo = StopInfo(stop: stop, name_tc: name, lat: latitude, long: longitude)
+        let stopInfo = StopInfo(stop: stop, name_tc: name, lat: latitude, long: longitude, operatorCode: operatorCode)
         routeStore.updateStopInfo(stopInfo)
         return stopInfo
     }
@@ -525,7 +525,7 @@ private final class CTBRouteStore {
 
             let routeCode = routeName.uppercased()
             let cleanStopName = cleanStopName(stopName)
-            let stopInfo = StopInfo(stop: stopId, name_tc: cleanStopName, lat: latitude, long: longitude)
+            let stopInfo = StopInfo(stop: stopId, name_tc: cleanStopName, lat: latitude, long: longitude, operatorCode: .ctb)
             let csvRouteRow = CTBCSVRouteRow(
                 routeName: routeCode,
                 direction: direction,

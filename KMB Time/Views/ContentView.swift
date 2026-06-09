@@ -16,12 +16,6 @@ struct FavoriteETA {
     let etaDate: Date?
 }
 
-enum DashboardViewMode {
-    case byStation
-    case byStationName
-    case allBuses
-}
-
 struct ContentView: View {
     // MARK: - Tab and Search State
     @State var selectedTab = 0
@@ -46,11 +40,9 @@ struct ContentView: View {
     // MARK: - Nearby Dashboard State
     @State var allStops: [StopInfo] = []
     @State var nearbyStops: [NearbyStopModel] = []
-    @State var expandedStopIds: Set<String> = []
     @State var dashboardETAByKey: [String: (updatedAt: Date, etas: [ETADisplayInfo])] = [:]
     @State var isSearchingNearby = false
     @State var isUpdatingNearby = false
-    @State var dashboardViewMode: DashboardViewMode = .allBuses
     
     // MARK: - Refresh and Clock State
     let refreshTimer = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
@@ -135,19 +127,6 @@ struct ContentView: View {
                 .onChange(of: locationManager.location) { _, newValue in
                     if let location = newValue, !locationManager.isBackgroundTracking {
                         Task { await updateNearbyStops(userLocation: location) }
-                    }
-                }
-                .onChange(of: expandedStopIds) { _, _ in
-                    guard dashboardViewMode != .allBuses else { return }
-                    Task { await refreshNearbyETAs() }
-                }
-                .onChange(of: dashboardViewMode) { _, newValue in
-                    Task {
-                        if newValue == .allBuses, let location = locationManager.location {
-                            await updateNearbyStops(userLocation: location)
-                        } else {
-                            await refreshNearbyETAs()
-                        }
                     }
                 }
                 .onChange(of: locationManager.backgroundHeartbeat) { _, _ in

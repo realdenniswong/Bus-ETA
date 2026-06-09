@@ -112,7 +112,9 @@ struct NearbyRouteModel: Identifiable {
     let directionCode: String
     let destNameTc: String
     var displayStopName: String? = nil
+    var displayStopId: String? = nil
     let etas: [ETADisplayInfo]
+    var detailDirectionCode: String? = nil
 }
 
 /// One route direction shown in search suggestions.

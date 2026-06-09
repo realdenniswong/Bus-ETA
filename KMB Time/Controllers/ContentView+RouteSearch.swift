@@ -56,10 +56,14 @@ extension ContentView {
     }
     
     func providerForRoute(route: String, direction: BusDirection, stopId: String? = nil) -> BusETAProvider {
+        let companyCode = companyCodeForRoute(route: route, direction: direction)
+        if companyCode == "KMB+CTB" {
+            return kmbETAProvider
+        }
         if let stopId, stopInfoDictionary[stopId] == nil {
             return ctbETAProvider
         }
-        return companyCodeForRoute(route: route, direction: direction) == BusOperator.ctb.rawValue ? ctbETAProvider : kmbETAProvider
+        return companyCode == BusOperator.ctb.rawValue ? ctbETAProvider : kmbETAProvider
     }
     
     private func fetchTimetableRows(route: String, direction: BusDirection, company: String) async throws -> [StopDisplayModel] {
@@ -67,14 +71,7 @@ extension ContentView {
             return try await ctbETAProvider.fetchTimetableRows(route: route, direction: direction, stopNameById: stopDictionary)
         }
         
-        var kmbRows = try await kmbETAProvider.fetchTimetableRows(route: route, direction: direction, stopNameById: stopDictionary)
-        guard company == "KMB+CTB" || ctbETAProvider.isJointRoute(route: route, direction: direction) else {
-            return kmbRows
-        }
-        
-        let ctbRows = (try? await ctbETAProvider.fetchTimetableRows(route: route, direction: direction, stopNameById: stopDictionary)) ?? []
-        mergeCTBETAs(ctbRows, into: &kmbRows)
-        return kmbRows
+        return try await kmbETAProvider.fetchTimetableRows(route: route, direction: direction, stopNameById: stopDictionary)
     }
     
     private func resolvedCompanyForSearch(route: String, direction: BusDirection) -> String {

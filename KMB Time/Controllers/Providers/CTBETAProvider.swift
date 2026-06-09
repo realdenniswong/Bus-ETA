@@ -162,6 +162,7 @@ private extension CTBETAProvider {
         let apiStopId = await matchedAPIStopId(
             route: direction.routeName,
             direction: direction.bound,
+            preferredStopId: direction.sourceStopId,
             near: location
         )
         let etas: [ETADisplayInfo]
@@ -180,6 +181,7 @@ private extension CTBETAProvider {
             directionCode: direction.bound.routeCode,
             destNameTc: direction.destinationName,
             displayStopName: direction.companyCode == BusOperator.ctb.rawValue ? matchedStopName : nil,
+            displayStopId: apiStopId,
             etas: Array(etas.prefix(3))
         )
     }
@@ -255,12 +257,16 @@ private extension CTBETAProvider {
         return stopInfo
     }
 
-    func matchedAPIStopId(route: String, direction: BusDirection, near location: CLLocation?) async -> String? {
+    func matchedAPIStopId(route: String, direction: BusDirection, preferredStopId: String?, near location: CLLocation?) async -> String? {
         guard let location else { return nil }
+        guard let rows = try? await fetchAPIRouteStops(route: route, direction: direction) else { return nil }
+        if let preferredStopId,
+           rows.contains(where: { $0.stopId == preferredStopId }) {
+            return preferredStopId
+        }
         if let cachedStopId = routeStore.matchedStopId(route: route, direction: direction, near: location) {
             return cachedStopId
         }
-        guard let rows = try? await fetchAPIRouteStops(route: route, direction: direction) else { return nil }
 
         let bestMatch = await withTaskGroup(of: (stopId: String, distance: CLLocationDistance)?.self) { group in
             for row in rows {
@@ -500,11 +506,15 @@ private final class CTBRouteStore {
         var directionsByStopId: [String: [CTBRouteDirection]] = [:]
         var stopInfoById: [String: StopInfo] = stopInfoById
         var csvStopsById: [String: StopInfo] = [:]
+        var csvRouteRows: [CTBCSVRouteRow] = []
+        var terminalsByRouteDirection: [String: (origin: CTBCSVRouteRow, destination: CTBCSVRouteRow)] = [:]
 
         for record in records.dropFirst(headerIndex + 1) {
             guard let routeName = value("ROUTE_NAMEC", in: record, indexes: indexes),
                   let routeSequence = value("ROUTE_SEQ", in: record, indexes: indexes),
                   let direction = BusDirection(routeSequence: routeSequence),
+                  let stopSequenceText = value("STOP_SEQ", in: record, indexes: indexes),
+                  let stopSequence = Int(stopSequenceText),
                   let stopId = value("STOP_ID", in: record, indexes: indexes),
                   let stopName = value("STOP_NAMEC", in: record, indexes: indexes),
                   let longitude = value("Longitude", in: record, indexes: indexes),
@@ -516,18 +526,42 @@ private final class CTBRouteStore {
             let routeCode = routeName.uppercased()
             let cleanStopName = cleanStopName(stopName)
             let stopInfo = StopInfo(stop: stopId, name_tc: cleanStopName, lat: latitude, long: longitude)
-            csvStopsById[stopId] = stopInfo
-            stopInfoById[stopId] = stopInfo
-            companyCodeByRouteDirection[key(route: routeCode, direction: direction)] = companyCode
-
-            let directionModel = CTBRouteDirection(
+            let csvRouteRow = CTBCSVRouteRow(
                 routeName: routeCode,
-                bound: direction,
-                originName: direction == .outbound ? "起點站" : "終點站",
-                destinationName: direction == .outbound ? "終點站" : "起點站",
+                direction: direction,
+                stopSequence: stopSequence,
+                stopId: stopId,
+                stopName: cleanStopName,
                 companyCode: companyCode
             )
-            directionsByStopId[stopId, default: []].append(directionModel)
+            let routeDirectionKey = key(route: routeCode, direction: direction)
+            
+            csvStopsById[stopId] = stopInfo
+            stopInfoById[stopId] = stopInfo
+            companyCodeByRouteDirection[routeDirectionKey] = companyCode
+            csvRouteRows.append(csvRouteRow)
+            
+            if let terminals = terminalsByRouteDirection[routeDirectionKey] {
+                terminalsByRouteDirection[routeDirectionKey] = (
+                    origin: stopSequence < terminals.origin.stopSequence ? csvRouteRow : terminals.origin,
+                    destination: stopSequence > terminals.destination.stopSequence ? csvRouteRow : terminals.destination
+                )
+            } else {
+                terminalsByRouteDirection[routeDirectionKey] = (origin: csvRouteRow, destination: csvRouteRow)
+            }
+        }
+        
+        for row in csvRouteRows {
+            let terminals = terminalsByRouteDirection[key(route: row.routeName, direction: row.direction)]
+            let directionModel = CTBRouteDirection(
+                routeName: row.routeName,
+                bound: row.direction,
+                sourceStopId: row.stopId,
+                originName: terminals?.origin.stopName ?? "起點站",
+                destinationName: terminals?.destination.stopName ?? "終點站",
+                companyCode: row.companyCode
+            )
+            directionsByStopId[row.stopId, default: []].append(directionModel)
         }
 
         self.stops = Array(csvStopsById.values)
@@ -592,17 +626,7 @@ private final class CTBRouteStore {
     }
 
     private func enrichedDirections(_ directions: [CTBRouteDirection]) -> [CTBRouteDirection] {
-        let routeInfoByRoute = Dictionary(routeList.map { ($0.route.uppercased(), $0) }, uniquingKeysWith: { first, _ in first })
-        return directions.map { direction in
-            guard let routeInfo = routeInfoByRoute[direction.routeName] else { return direction }
-            return CTBRouteDirection(
-                routeName: direction.routeName,
-                bound: direction.bound,
-                originName: direction.bound == .outbound ? routeInfo.orig_tc : routeInfo.dest_tc,
-                destinationName: direction.bound == .outbound ? routeInfo.dest_tc : routeInfo.orig_tc,
-                companyCode: direction.companyCode
-            )
-        }
+        directions
     }
 
     func apiRouteStops(route: String, direction: BusDirection) -> [CTBRouteStopRow]? {
@@ -777,8 +801,18 @@ private final class CTBRouteStore {
 private struct CTBRouteDirection: Hashable {
     let routeName: String
     let bound: BusDirection
+    let sourceStopId: String
     let originName: String
     let destinationName: String
+    let companyCode: String
+}
+
+private struct CTBCSVRouteRow {
+    let routeName: String
+    let direction: BusDirection
+    let stopSequence: Int
+    let stopId: String
+    let stopName: String
     let companyCode: String
 }
 

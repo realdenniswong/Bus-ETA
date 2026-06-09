@@ -236,26 +236,36 @@ struct NearbyDashboardSectionView: View {
     private func renderFlatList() -> some View {
         Section {
             let uniqueRoutes = flatRoutes.reduce(into: [String: (route: NearbyRouteModel, stop: StopInfo, distance: CLLocationDistance)]()) { dict, item in
-                let key = "\(item.route.route)-\(item.route.directionCode)"
+                let key = dashboardRouteDisplayKey(item.route)
                 
                 if let existing = dict[key] {
                     if item.route.co == "KMB+CTB", existing.route.co == BusOperator.kmb.rawValue {
+                        let mergedRoute = mergedJointRoute(jointRoute: item.route, kmbRoute: existing.route)
                         dict[key] = (
-                            route: mergedJointRoute(jointRoute: item.route, kmbRoute: existing.route),
-                            stop: existing.stop,
+                            route: mergedRoute,
+                            stop: resolvedStopInfo(for: mergedRoute, fallback: existing.stop),
                             distance: min(item.distance, existing.distance)
                         )
                     } else if existing.route.co == "KMB+CTB", item.route.co == BusOperator.kmb.rawValue {
+                        let mergedRoute = mergedJointRoute(jointRoute: existing.route, kmbRoute: item.route)
                         dict[key] = (
-                            route: mergedJointRoute(jointRoute: existing.route, kmbRoute: item.route),
-                            stop: item.stop,
+                            route: mergedRoute,
+                            stop: resolvedStopInfo(for: mergedRoute, fallback: item.stop),
                             distance: min(item.distance, existing.distance)
                         )
                     } else if item.distance < existing.distance {
-                        dict[key] = item
+                        dict[key] = (
+                            route: item.route,
+                            stop: resolvedStopInfo(for: item.route, fallback: item.stop),
+                            distance: item.distance
+                        )
                     }
                 } else {
-                    dict[key] = item
+                    dict[key] = (
+                        route: item.route,
+                        stop: resolvedStopInfo(for: item.route, fallback: item.stop),
+                        distance: item.distance
+                    )
                 }
             }
             
@@ -294,16 +304,24 @@ struct NearbyDashboardSectionView: View {
         }
     }
     
+    private func dashboardRouteDisplayKey(_ route: NearbyRouteModel) -> String {
+        let normalizedRoute = route.route.uppercased()
+        if route.co == "KMB+CTB" {
+            return "\(normalizedRoute)-\(normalizedStationName(route.destNameTc))-joint"
+        }
+        return "\(normalizedRoute)-\(route.directionCode)-\(route.co)"
+    }
+    
     private func mergedJointRoute(jointRoute: NearbyRouteModel, kmbRoute: NearbyRouteModel) -> NearbyRouteModel {
-        let mergedETAs = (jointRoute.etas + kmbRoute.etas)
-            .sorted { ($0.etaDate ?? Date.distantFuture) < ($1.etaDate ?? Date.distantFuture) }
-        return NearbyRouteModel(
+        NearbyRouteModel(
             co: "KMB+CTB",
             route: jointRoute.route,
             directionCode: jointRoute.directionCode,
             destNameTc: jointRoute.destNameTc,
-            displayStopName: nil,
-            etas: Array(mergedETAs.prefix(3))
+            displayStopName: kmbRoute.displayStopName,
+            displayStopId: kmbRoute.displayStopId,
+            etas: kmbRoute.etas,
+            detailDirectionCode: kmbRoute.directionCode
         )
     }
     
@@ -374,7 +392,8 @@ struct NearbyDashboardSectionView: View {
     
     @ViewBuilder
     private func routeRowWithStationNumber(route: NearbyRouteModel, stopInfo: StopInfo) -> some View {
-        Button(action: { onRouteSelected(route, stopInfo) }) {
+        let resolvedStopInfo = resolvedStopInfo(for: route, fallback: stopInfo)
+        Button(action: { onRouteSelected(route, resolvedStopInfo) }) {
             HStack(alignment: .center, spacing: 12) {
                 VStack(spacing: 2) {
                     Text(route.route)
@@ -409,7 +428,8 @@ struct NearbyDashboardSectionView: View {
     
     @ViewBuilder
     private func routeRow(route: NearbyRouteModel, stopInfo: StopInfo) -> some View {
-        Button(action: { onRouteSelected(route, stopInfo) }) {
+        let resolvedStopInfo = resolvedStopInfo(for: route, fallback: stopInfo)
+        Button(action: { onRouteSelected(route, resolvedStopInfo) }) {
             HStack(alignment: .center, spacing: 12) {
                 companyTagView(route: route)
                 
@@ -444,7 +464,7 @@ struct NearbyDashboardSectionView: View {
 
             if route.etas.contains(where: { $0.etaDate?.timeIntervalSince(currentTime) ?? 0 > 120 }) {
                 Button {
-                    onSetTimer(route, stopInfo)
+                    onSetTimer(route, resolvedStopInfo)
                 } label: {
                     Label("設定提示", systemImage: "bell.fill")
                 }
@@ -455,7 +475,8 @@ struct NearbyDashboardSectionView: View {
     
     @ViewBuilder
     private func routeRowWithDetails(route: NearbyRouteModel, stopInfo: StopInfo) -> some View {
-        Button(action: { onRouteSelected(route, stopInfo) }) {
+        let resolvedStopInfo = resolvedStopInfo(for: route, fallback: stopInfo)
+        Button(action: { onRouteSelected(route, resolvedStopInfo) }) {
             HStack(alignment: .center, spacing: 12) {
                 companyTagView(route: route)
                 
@@ -473,7 +494,7 @@ struct NearbyDashboardSectionView: View {
                     
                     HStack(spacing: 4) {
                         Image(systemName: "mappin.circle.fill").font(.caption2).foregroundColor(.secondary)
-                        Text("\(route.displayStopName ?? stopInfo.name_tc) • \(formatDistance(self.nearbyStops.first(where: { $0.stopInfo.stop == stopInfo.stop })?.distance ?? 0))")
+                        Text("\(resolvedStopInfo.name_tc) • \(formatDistance(self.nearbyStops.first(where: { $0.stopInfo.stop == resolvedStopInfo.stop })?.distance ?? 0))")
                             .font(.caption2)
                             .foregroundColor(.secondary)
                     }
@@ -497,7 +518,7 @@ struct NearbyDashboardSectionView: View {
 
             if route.etas.contains(where: { $0.etaDate?.timeIntervalSince(currentTime) ?? 0 > 120 }) {
                 Button {
-                    onSetTimer(route, stopInfo)
+                    onSetTimer(route, resolvedStopInfo)
                 } label: {
                     Label("設定提示", systemImage: "bell.fill")
                 }
@@ -561,6 +582,27 @@ struct NearbyDashboardSectionView: View {
         } else {
             expandedStopIds.insert(stopId)
         }
+    }
+    
+    private func resolvedStopInfo(for route: NearbyRouteModel, fallback: StopInfo) -> StopInfo {
+        guard let displayStopId = route.displayStopId else { return fallback }
+        if let stopModel = nearbyStops.first(where: { $0.stopInfo.stop == displayStopId }) {
+            return stopModel.stopInfo
+        }
+        return StopInfo(
+            stop: displayStopId,
+            name_tc: route.displayStopName ?? fallback.name_tc,
+            lat: fallback.lat,
+            long: fallback.long
+        )
+    }
+    
+    private func normalizedStationName(_ stopName: String) -> String {
+        stopName.replacingOccurrences(
+            of: "\\s*\\([^)]+\\)\\s*$",
+            with: "",
+            options: .regularExpression
+        )
     }
     
     private func formatDistance(_ distance: CLLocationDistance) -> String {

@@ -84,7 +84,9 @@ extension ContentView {
     ///   - route: Route row selected from the nearby dashboard.
     ///   - stopInfo: Dashboard stop used as the target highlight in the timetable.
     func openNearbyDashboardRoute(_ route: NearbyRouteModel, stopInfo: StopInfo) {
-        let newDirection = route.directionCode == "O" ? "outbound" : "inbound"
+        let detailDirectionCode = route.detailDirectionCode ?? route.directionCode
+        let newDirection = detailDirectionCode == "O" ? "outbound" : "inbound"
+        let targetStopCode = route.displayStopId ?? stopInfo.stop
         selectedDirection = newDirection
         searchText = route.route
         isNavigatingToRoute = true
@@ -95,7 +97,7 @@ extension ContentView {
                 direction: newDirection,
                 company: route.co,
                 findNearest: false,
-                targetStopCode: stopInfo.stop,
+                targetStopCode: targetStopCode,
                 shouldScroll: true
             )
         }
@@ -108,8 +110,8 @@ extension ContentView {
         prepareTimerAlert(
             route: route.route.uppercased(),
             destination: route.destNameTc,
-            stationName: stopInfo.name_tc,
-            stopId: stopInfo.stop,
+            stationName: route.displayStopName ?? stopInfo.name_tc,
+            stopId: route.displayStopId ?? stopInfo.stop,
             direction: route.directionCode == "O" ? "outbound" : "inbound",
             company: route.co,
             etaDate: etaDate

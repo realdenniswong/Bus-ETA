@@ -11,8 +11,7 @@ extension ContentView {
         
         for favorite in favorites {
             do {
-                let direction = BusDirection(rawValue: favorite.direction) ?? .outbound
-                let provider = providerForRoute(route: favorite.route, direction: direction)
+                let provider = providerForCompany(favorite.company)
                 if let status = try await provider.fetchFavoriteStatus(for: favorite, context: context) {
                     statuses[favorite.id] = status
                 }

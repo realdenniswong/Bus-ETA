@@ -106,13 +106,14 @@ extension ContentView {
     func fetchRoutesForNearbyStop(_ stopInfo: StopInfo, forceRefresh: Bool = false) async -> [NearbyRouteModel] {
         let stopLocation = location(from: stopInfo)
         async let kmbRoutes = (try? kmbETAProvider.fetchNearbyRoutes(forStopId: stopInfo.stop)) ?? []
+        async let jointRoutes = (try? jointRouteETAProvider.fetchNearbyRoutes(for: stopInfo)) ?? []
         async let ctbRoutes: [NearbyRouteModel] = {
             if let stopLocation {
                 return (try? await ctbETAProvider.fetchNearbyRoutes(near: stopLocation)) ?? []
             }
             return (try? await ctbETAProvider.fetchNearbyRoutes(forStopId: stopInfo.stop)) ?? []
         }()
-        let routes = dashboardRoutes(kmbRoutes: await kmbRoutes, ctbRoutes: await ctbRoutes)
+        let routes = dashboardRoutes(kmbRoutes: await kmbRoutes, ctbRoutes: await ctbRoutes, jointRoutes: await jointRoutes)
         return routes
             .map { cachedRoute($0, stopId: stopInfo.stop, forceRefresh: forceRefresh) }
             .sorted {
@@ -121,75 +122,12 @@ extension ContentView {
             }
     }
     
-    private func dashboardRoutes(kmbRoutes: [NearbyRouteModel], ctbRoutes: [NearbyRouteModel]) -> [NearbyRouteModel] {
-        let relabeledKMBRoutes = kmbRoutes.map { route in
-            let direction = BusDirection(routeCode: route.directionCode)
-            guard ctbETAProvider.isJointRoute(route: route.route, direction: direction) else {
-                return route
-            }
-            return jointRouteUsingKMBETA(route)
+    private func dashboardRoutes(kmbRoutes: [NearbyRouteModel], ctbRoutes: [NearbyRouteModel], jointRoutes: [NearbyRouteModel]) -> [NearbyRouteModel] {
+        let kmbOnlyRoutes = kmbRoutes.filter { route in
+            !ctbETAProvider.isJointRoute(route: route.route, direction: BusDirection(routeCode: route.directionCode))
         }
         let ctbOnlyRoutes = ctbRoutes.filter { $0.co != "KMB+CTB" }
-        return relabeledKMBRoutes + ctbOnlyRoutes
-    }
-    
-    private func jointRouteUsingKMBETA(_ route: NearbyRouteModel) -> NearbyRouteModel {
-        NearbyRouteModel(
-            co: "KMB+CTB",
-            route: route.route,
-            directionCode: route.directionCode,
-            destNameTc: route.destNameTc,
-            displayStopName: route.displayStopName,
-            displayStopId: route.displayStopId,
-            etas: route.etas,
-            detailDirectionCode: route.detailDirectionCode ?? route.directionCode
-        )
-    }
-    
-    private func mergeJointNearbyRoutes(_ routes: [NearbyRouteModel]) -> [NearbyRouteModel] {
-        var unmatchedRoutes: [NearbyRouteModel] = []
-        let kmbRoutes = routes.filter { $0.co == BusOperator.kmb.rawValue }
-        let jointRoutes = routes.filter { $0.co == "KMB+CTB" }
-        var mergedJointIds = Set<UUID>()
-        var mergedKMBIds = Set<UUID>()
-        
-        for jointRoute in jointRoutes {
-            guard let kmbRoute = kmbRoutes.first(where: { candidate in
-                !mergedKMBIds.contains(candidate.id) &&
-                candidate.route.uppercased() == jointRoute.route.uppercased() &&
-                normalizedStationName(candidate.destNameTc) == normalizedStationName(jointRoute.destNameTc)
-            }) ?? kmbRoutes.first(where: { candidate in
-                !mergedKMBIds.contains(candidate.id) &&
-                candidate.route.uppercased() == jointRoute.route.uppercased() &&
-                candidate.directionCode == jointRoute.directionCode
-            }) else {
-                unmatchedRoutes.append(routeWithETAs(jointRoute, etas: []))
-                continue
-            }
-            
-            unmatchedRoutes.append(mergedJointRoute(jointRoute: jointRoute, kmbRoute: kmbRoute))
-            mergedJointIds.insert(jointRoute.id)
-            mergedKMBIds.insert(kmbRoute.id)
-        }
-        
-        unmatchedRoutes.append(contentsOf: routes.filter { route in
-            !mergedJointIds.contains(route.id) && !mergedKMBIds.contains(route.id) && route.co != "KMB+CTB"
-        })
-        
-        return unmatchedRoutes
-    }
-    
-    private func mergedJointRoute(jointRoute: NearbyRouteModel, kmbRoute: NearbyRouteModel) -> NearbyRouteModel {
-        NearbyRouteModel(
-            co: "KMB+CTB",
-            route: jointRoute.route,
-            directionCode: jointRoute.directionCode,
-            destNameTc: jointRoute.destNameTc,
-            displayStopName: kmbRoute.displayStopName,
-            displayStopId: kmbRoute.displayStopId,
-            etas: kmbRoute.etas,
-            detailDirectionCode: kmbRoute.directionCode
-        )
+        return kmbOnlyRoutes + jointRoutes + ctbOnlyRoutes
     }
     
     private func shouldFetchRoutesForGroupedStop(_ stopInfo: StopInfo) -> Bool {

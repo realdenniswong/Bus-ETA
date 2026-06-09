@@ -55,23 +55,30 @@ extension ContentView {
         }
     }
     
-    func providerForRoute(route: String, direction: BusDirection, stopId: String? = nil) -> BusETAProvider {
-        let companyCode = companyCodeForRoute(route: route, direction: direction)
-        if companyCode == "KMB+CTB" {
+    func providerForCompany(_ company: String) -> BusETAProvider {
+        switch company {
+        case "KMB+CTB":
+            return jointRouteETAProvider
+        case BusOperator.ctb.rawValue:
+            return ctbETAProvider
+        default:
             return kmbETAProvider
         }
-        if let stopId, stopInfoDictionary[stopId] == nil {
-            return ctbETAProvider
-        }
-        return companyCode == BusOperator.ctb.rawValue ? ctbETAProvider : kmbETAProvider
+    }
+    
+    func providerForRoute(route: String, direction: BusDirection) -> BusETAProvider {
+        providerForCompany(companyCodeForRoute(route: route, direction: direction) ?? BusOperator.kmb.rawValue)
     }
     
     private func fetchTimetableRows(route: String, direction: BusDirection, company: String) async throws -> [StopDisplayModel] {
-        if company == BusOperator.ctb.rawValue {
+        switch company {
+        case BusOperator.ctb.rawValue:
             return try await ctbETAProvider.fetchTimetableRows(route: route, direction: direction, stopNameById: stopDictionary)
+        case "KMB+CTB":
+            return try await jointRouteETAProvider.fetchTimetableRows(route: route, direction: direction, stopNameById: stopDictionary)
+        default:
+            return try await kmbETAProvider.fetchTimetableRows(route: route, direction: direction, stopNameById: stopDictionary)
         }
-        
-        return try await kmbETAProvider.fetchTimetableRows(route: route, direction: direction, stopNameById: stopDictionary)
     }
     
     private func resolvedCompanyForSearch(route: String, direction: BusDirection) -> String {
@@ -100,39 +107,6 @@ extension ContentView {
         let normalizedRoute = route.uppercased()
         let bound = direction.routeCode
         return allRoutes.filter { $0.route == normalizedRoute && $0.bound == bound }
-    }
-    
-    private func mergeCTBETAs(_ ctbRows: [StopDisplayModel], into kmbRows: inout [StopDisplayModel]) {
-        let ctbRowsByName = Dictionary(grouping: ctbRows) { normalizedStopName($0.stopNameTc) }
-        
-        for index in kmbRows.indices {
-            let kmbName = normalizedStopName(kmbRows[index].stopNameTc)
-            let kmbLocation = stopInfoDictionary[kmbRows[index].stopId]?.clLocation
-            let matchedCTBRow = ctbRowsByName[kmbName]?.first ?? nearestCTBRow(to: kmbLocation, from: ctbRows)
-            guard let matchedCTBRow, !matchedCTBRow.etas.isEmpty else { continue }
-            let mergedETAs = (kmbRows[index].etas + matchedCTBRow.etas)
-                .sorted { ($0.etaDate ?? Date.distantFuture) < ($1.etaDate ?? Date.distantFuture) }
-            kmbRows[index] = StopDisplayModel(
-                seq: kmbRows[index].seq,
-                stopId: kmbRows[index].stopId,
-                stopNameTc: kmbRows[index].stopNameTc,
-                etas: Array(mergedETAs.prefix(3)),
-                location: kmbRows[index].location
-            )
-        }
-    }
-    
-    private func nearestCTBRow(to location: CLLocation?, from rows: [StopDisplayModel]) -> StopDisplayModel? {
-        guard let location else { return nil }
-        let candidate = rows.min { first, second in
-            let firstDistance = first.location.map { location.distance(from: $0) } ?? .infinity
-            let secondDistance = second.location.map { location.distance(from: $0) } ?? .infinity
-            return firstDistance < secondDistance
-        }
-        guard let candidate, let candidateLocation = candidate.location, location.distance(from: candidateLocation) <= 80 else {
-            return nil
-        }
-        return candidate
     }
     
     private func highlightedStopIdForRouteSearch(rows: [StopDisplayModel], findNearest: Bool, targetStopCode: String?) -> String? {

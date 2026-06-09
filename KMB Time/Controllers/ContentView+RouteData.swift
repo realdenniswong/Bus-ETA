@@ -9,6 +9,10 @@ extension ContentView {
         CTBETAProvider.shared
     }
     
+    var jointRouteETAProvider: JointRouteETAProvider {
+        JointRouteETAProvider.shared
+    }
+    
     /// Loads route suggestions from KMB plus the bundled CTB route list.
     func loadAllRoutes() async {
         do {

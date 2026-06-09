@@ -9,7 +9,7 @@ extension ContentView {
         let timerDirection = BusDirection(rawValue: timer.direction) ?? .outbound
         
         do {
-            let provider = providerForRoute(route: timer.routeName, direction: timerDirection, stopId: timer.stopId)
+            let provider = providerForCompany(timer.company)
             let etas = try await provider.fetchTimerETAs(route: timer.routeName, direction: timerDirection, stopId: timer.stopId)
             guard let newEtaDate = etas.first?.etaDate else { return }
             

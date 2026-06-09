@@ -240,9 +240,17 @@ struct NearbyDashboardSectionView: View {
                 
                 if let existing = dict[key] {
                     if item.route.co == "KMB+CTB", existing.route.co == BusOperator.kmb.rawValue {
-                        dict[key] = (route: item.route, stop: existing.stop, distance: min(item.distance, existing.distance))
+                        dict[key] = (
+                            route: mergedJointRoute(jointRoute: item.route, kmbRoute: existing.route),
+                            stop: existing.stop,
+                            distance: min(item.distance, existing.distance)
+                        )
                     } else if existing.route.co == "KMB+CTB", item.route.co == BusOperator.kmb.rawValue {
-                        dict[key] = (route: existing.route, stop: item.stop, distance: min(item.distance, existing.distance))
+                        dict[key] = (
+                            route: mergedJointRoute(jointRoute: existing.route, kmbRoute: item.route),
+                            stop: item.stop,
+                            distance: min(item.distance, existing.distance)
+                        )
                     } else if item.distance < existing.distance {
                         dict[key] = item
                     }
@@ -284,6 +292,19 @@ struct NearbyDashboardSectionView: View {
                 }
             }
         }
+    }
+    
+    private func mergedJointRoute(jointRoute: NearbyRouteModel, kmbRoute: NearbyRouteModel) -> NearbyRouteModel {
+        let mergedETAs = (jointRoute.etas + kmbRoute.etas)
+            .sorted { ($0.etaDate ?? Date.distantFuture) < ($1.etaDate ?? Date.distantFuture) }
+        return NearbyRouteModel(
+            co: "KMB+CTB",
+            route: jointRoute.route,
+            directionCode: jointRoute.directionCode,
+            destNameTc: jointRoute.destNameTc,
+            displayStopName: nil,
+            etas: Array(mergedETAs.prefix(3))
+        )
     }
     
     @ViewBuilder

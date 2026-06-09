@@ -86,7 +86,77 @@ struct ContentView: View {
     
     var body: some View {
         TabView(selection: $selectedTab) {
-            mainDashboardTab
+            NavigationStack {
+                ScrollViewReader { dashboardProxy in
+                    dashboardContentView
+                        .onChange(of: dashboardScrollTarget) { _, target in
+                            if let targetId = target {
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                                    withAnimation(.spring()) {
+                                        dashboardProxy.scrollTo(targetId, anchor: .top)
+                                    }
+                                }
+                                dashboardScrollTarget = nil
+                            }
+                        }
+                }
+                .navigationDestination(isPresented: $isNavigatingToRoute) {
+                    routeDetailView
+                }
+                .onChange(of: isNavigatingToRoute) { _, isNavigating in
+                    if !isNavigating {
+                        clearRouteDetailState()
+                        
+                        if let location = locationManager.location {
+                            Task { await updateNearbyStops(userLocation: location) }
+                        }
+                    }
+                }
+                .onReceive(refreshTimer) { _ in
+                    Task { await refreshVisibleData() }
+                }
+                .onReceive(clockTimer) { _ in
+                    currentTime = Date()
+                    clearExpiredTimerIfNeeded(referenceDate: currentTime)
+                }
+                .task {
+                    async let stopsLoad: Void = loadAllStops()
+                    async let routesLoad: Void = loadAllRoutes()
+                    _ = await (stopsLoad, routesLoad)
+                    reconnectActiveLiveActivity()
+                    
+                    if locationManager.authorizationStatus == .authorizedWhenInUse || locationManager.authorizationStatus == .authorizedAlways {
+                        locationManager.requestLocation()
+                    }
+                    UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+                }
+                .onChange(of: locationManager.location) { _, newValue in
+                    if let location = newValue, !locationManager.isBackgroundTracking {
+                        Task { await updateNearbyStops(userLocation: location) }
+                    }
+                }
+                .onChange(of: locationManager.backgroundHeartbeat) { _, _ in
+                    clearExpiredTimerIfNeeded(referenceDate: Date())
+                }
+                .onChange(of: scenePhase) { _, newPhase in
+                    if newPhase == .active {
+                        reconnectActiveLiveActivity()
+                        locationManager.requestLocation()
+                        if !isNavigatingToRoute {
+                            Task {
+                                if let location = locationManager.location {
+                                    await updateNearbyStops(userLocation: location)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .toolbar(showCustomKeyboard ? .hidden : .visible, for: .tabBar)
+            .animation(.easeInOut(duration: 0.2), value: showCustomKeyboard)
+            .tabItem {
+                Label("到站預報", systemImage: "bus.fill")
+            }
                 .tag(0)
             favoritesTab
                 .tag(1)

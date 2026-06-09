@@ -1,7 +1,7 @@
 import CoreLocation
 import SwiftUI
 
-struct FavoritesView: View {
+struct FavouritesView: View {
     @ObservedObject var favoritesManager: FavoritesManager
     let favoriteStatus: [String: FavoriteStatusModel]
     let allRoutes: [RouteSuggestion]

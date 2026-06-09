@@ -1,5 +1,4 @@
 import SwiftUI
-import CoreLocation
 
 extension ContentView {
     /// Route suggestions matching the current custom-keyboard search text.
@@ -27,19 +26,6 @@ extension ContentView {
             }
         }
         return nextKeys
-    }
-    
-    /// Common grouped background used by dashboard, favourites, and route-detail lists.
-    var themeBackground: some View {
-        Color(.systemGroupedBackground)
-            .ignoresSafeArea()
-    }
-    
-    /// Hides the custom route keyboard without clearing the user's current search text.
-    func dismissKeyboardSafe() {
-        withAnimation(.spring()) {
-            showCustomKeyboard = false
-        }
     }
     
     /// Shows a short success/status toast at the top of the app.
@@ -79,16 +65,5 @@ extension ContentView {
             .transition(.move(edge: .top).combined(with: .opacity))
             .padding(.top, 16)
             .zIndex(1)
-    }
-    
-    /// Formats a distance for nearby stop and favourite route rows.
-    ///
-    /// - Parameter distance: Distance in meters.
-    /// - Returns: Meters for short distances, kilometres for longer distances.
-    func formatDistance(_ distance: CLLocationDistance) -> String {
-        if distance < 1000 {
-            return String(format: "%.0f 米", distance)
-        }
-        return String(format: "%.1f 公里", distance / 1000)
     }
 }

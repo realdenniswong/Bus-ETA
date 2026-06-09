@@ -48,6 +48,7 @@ struct ContentView: View {
     @State var nearbyStops: [NearbyStopModel] = []
     @State var expandedStopIds: Set<String> = []
     @State var isSearchingNearby = false
+    @State var isUpdatingNearby = false
     @State var dashboardViewMode: DashboardViewMode = .allBuses
     
     // MARK: - Refresh and Clock State

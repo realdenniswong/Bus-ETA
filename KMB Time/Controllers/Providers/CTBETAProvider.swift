@@ -189,8 +189,21 @@ private extension CTBETAProvider {
             return routes
         }
 
-        let response: CTBRouteResponse = try await fetch(path: "route/CTB")
-        return routeStore.updateRouteList(response.data)
+        let task = routeStore.routeListTaskOrCreate {
+            Task {
+                let response: CTBRouteResponse = try await fetch(path: "route/CTB")
+                return response.data
+            }
+        }
+
+        do {
+            let routes = try await task.value
+            routeStore.clearRouteListTask()
+            return routeStore.updateRouteList(routes)
+        } catch {
+            routeStore.clearRouteListTask()
+            throw error
+        }
     }
 
     func fetchAPIRouteStops(route: String, direction: BusDirection) async throws -> [CTBRouteStopRow] {
@@ -199,16 +212,28 @@ private extension CTBETAProvider {
         }
 
         let safeRoute = route.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? route
-        let response: CTBRouteStopResponse = try await fetch(path: "route-stop/CTB/\(safeRoute)/\(direction.apiRouteStopPathComponent)")
-        let rows = response.data.map {
-            CTBRouteStopRow(
-                routeName: $0.route.uppercased(),
-                direction: BusDirection(routeCode: $0.dir),
-                stopSequence: $0.seq.intValue,
-                stopId: $0.stop
-            )
+        let task = routeStore.apiRouteStopsTaskOrCreate(route: route, direction: direction) {
+            Task {
+                let response: CTBRouteStopResponse = try await fetch(path: "route-stop/CTB/\(safeRoute)/\(direction.apiRouteStopPathComponent)")
+                return response.data.map {
+                    CTBRouteStopRow(
+                        routeName: $0.route.uppercased(),
+                        direction: BusDirection(routeCode: $0.dir),
+                        stopSequence: $0.seq.intValue,
+                        stopId: $0.stop
+                    )
+                }
+            }
         }
-        return routeStore.updateAPIRouteStops(rows, route: route, direction: direction)
+
+        do {
+            let rows = try await task.value
+            routeStore.clearAPIRouteStopsTask(route: route, direction: direction)
+            return routeStore.updateAPIRouteStops(rows, route: route, direction: direction)
+        } catch {
+            routeStore.clearAPIRouteStopsTask(route: route, direction: direction)
+            throw error
+        }
     }
 
     func fetchStopInfo(stopId: String) async throws -> StopInfo? {
@@ -274,23 +299,41 @@ private extension CTBETAProvider {
     }
 
     func fetchCTBETAs(stopId: String, route: String, direction: BusDirection) async throws -> [ETADisplayInfo] {
+        if let cachedETAs = routeStore.cachedETAs(stopId: stopId, route: route, direction: direction) {
+            return cachedETAs
+        }
+
         let safeStopId = stopId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? stopId
         let safeRoute = route.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? route
-        let response: CTBETAResponse = try await fetch(path: "eta/CTB/\(safeStopId)/\(safeRoute)", reloadIgnoringCache: true)
-        let formatter = ISO8601DateFormatter()
+        let task = routeStore.etaTaskOrCreate(stopId: stopId, route: route, direction: direction) {
+            Task {
+                let response: CTBETAResponse = try await fetch(path: "eta/CTB/\(safeStopId)/\(safeRoute)", reloadIgnoringCache: true)
+                let formatter = ISO8601DateFormatter()
 
-        return response.data.compactMap { item -> ETADisplayInfo? in
-            if item.route.uppercased() != route.uppercased() { return nil }
-            if let itemDirection = item.dir, itemDirection != direction.routeCode { return nil }
-            guard let etaText = item.eta,
-                  !etaText.isEmpty,
-                  let etaDate = formatter.date(from: etaText) else {
-                return nil
+                return response.data.compactMap { item -> ETADisplayInfo? in
+                    if item.route.uppercased() != route.uppercased() { return nil }
+                    if let itemDirection = item.dir, itemDirection != direction.routeCode { return nil }
+                    guard let etaText = item.eta,
+                          !etaText.isEmpty,
+                          let etaDate = formatter.date(from: etaText) else {
+                        return nil
+                    }
+
+                    return ETADisplayInfo(etaDate: etaDate, remark: item.rmk_tc, companyCode: operatorCode.rawValue)
+                }
+                .sorted { ($0.etaDate ?? Date.distantFuture) < ($1.etaDate ?? Date.distantFuture) }
             }
-
-            return ETADisplayInfo(etaDate: etaDate, remark: item.rmk_tc, companyCode: operatorCode.rawValue)
         }
-        .sorted { ($0.etaDate ?? Date.distantFuture) < ($1.etaDate ?? Date.distantFuture) }
+
+        do {
+            let etas = try await task.value
+            routeStore.clearETATask(stopId: stopId, route: route, direction: direction)
+            routeStore.updateETACache(etas, stopId: stopId, route: route, direction: direction)
+            return etas
+        } catch {
+            routeStore.clearETATask(stopId: stopId, route: route, direction: direction)
+            throw error
+        }
     }
 
     func fetch<Response: Decodable>(path: String, reloadIgnoringCache: Bool = false) async throws -> Response {
@@ -393,7 +436,12 @@ private final class CTBRouteStore {
     private var apiRowsByRouteDirection: [String: [CTBRouteStopRow]] = [:]
     private var stopInfoById: [String: StopInfo] = [:]
     private var matchedStopIdByRouteDirectionLocation: [String: String] = [:]
+    private var routeListTask: Task<[CTBRouteAPIItem], Error>?
+    private var apiRowsTasksByRouteDirection: [String: Task<[CTBRouteStopRow], Error>] = [:]
+    private var etaTasksByStopRouteDirection: [String: Task<[ETADisplayInfo], Error>] = [:]
+    private var etaCacheByStopRouteDirection: [String: (updatedAt: Date, etas: [ETADisplayInfo])] = [:]
     private var hasLoadedCSVData = false
+    private let etaCacheLifetime: TimeInterval = 12
     private let lock = NSLock()
 
     private init() { }
@@ -411,6 +459,23 @@ private final class CTBRouteStore {
             CTBRouteAPIItem(co: $0.co, route: $0.route.uppercased(), orig_tc: $0.orig_tc, dest_tc: $0.dest_tc)
         }
         return routeList
+    }
+
+    func routeListTaskOrCreate(_ createTask: () -> Task<[CTBRouteAPIItem], Error>) -> Task<[CTBRouteAPIItem], Error> {
+        lock.lock()
+        defer { lock.unlock() }
+        if let routeListTask {
+            return routeListTask
+        }
+        let task = createTask()
+        routeListTask = task
+        return task
+    }
+
+    func clearRouteListTask() {
+        lock.lock()
+        defer { lock.unlock() }
+        routeListTask = nil
     }
 
     func loadCSVDataIfNeeded() {
@@ -554,6 +619,58 @@ private final class CTBRouteStore {
         return sortedRows
     }
 
+    func apiRouteStopsTaskOrCreate(route: String, direction: BusDirection, createTask: () -> Task<[CTBRouteStopRow], Error>) -> Task<[CTBRouteStopRow], Error> {
+        lock.lock()
+        defer { lock.unlock() }
+        let taskKey = key(route: route, direction: direction)
+        if let task = apiRowsTasksByRouteDirection[taskKey] {
+            return task
+        }
+        let task = createTask()
+        apiRowsTasksByRouteDirection[taskKey] = task
+        return task
+    }
+
+    func clearAPIRouteStopsTask(route: String, direction: BusDirection) {
+        lock.lock()
+        defer { lock.unlock() }
+        apiRowsTasksByRouteDirection[key(route: route, direction: direction)] = nil
+    }
+
+    func cachedETAs(stopId: String, route: String, direction: BusDirection) -> [ETADisplayInfo]? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let cacheEntry = etaCacheByStopRouteDirection[etaKey(stopId: stopId, route: route, direction: direction)],
+              Date().timeIntervalSince(cacheEntry.updatedAt) <= etaCacheLifetime else {
+            return nil
+        }
+        return cacheEntry.etas
+    }
+
+    func updateETACache(_ etas: [ETADisplayInfo], stopId: String, route: String, direction: BusDirection) {
+        lock.lock()
+        defer { lock.unlock() }
+        etaCacheByStopRouteDirection[etaKey(stopId: stopId, route: route, direction: direction)] = (Date(), etas)
+    }
+
+    func etaTaskOrCreate(stopId: String, route: String, direction: BusDirection, createTask: () -> Task<[ETADisplayInfo], Error>) -> Task<[ETADisplayInfo], Error> {
+        lock.lock()
+        defer { lock.unlock() }
+        let taskKey = etaKey(stopId: stopId, route: route, direction: direction)
+        if let task = etaTasksByStopRouteDirection[taskKey] {
+            return task
+        }
+        let task = createTask()
+        etaTasksByStopRouteDirection[taskKey] = task
+        return task
+    }
+
+    func clearETATask(stopId: String, route: String, direction: BusDirection) {
+        lock.lock()
+        defer { lock.unlock() }
+        etaTasksByStopRouteDirection[etaKey(stopId: stopId, route: route, direction: direction)] = nil
+    }
+
     func stopInfo(stopId: String) -> StopInfo? {
         lock.lock()
         defer { lock.unlock() }
@@ -637,6 +754,10 @@ private final class CTBRouteStore {
 
     private func key(route: String, direction: BusDirection) -> String {
         "\(route.uppercased())-\(direction.rawValue)"
+    }
+    
+    private func etaKey(stopId: String, route: String, direction: BusDirection) -> String {
+        "\(stopId)-\(route.uppercased())-\(direction.rawValue)"
     }
     
     private func locationKey(route: String, direction: BusDirection, location: CLLocation) -> String {

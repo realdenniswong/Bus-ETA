@@ -5,7 +5,13 @@ extension ContentView {
     func updateNearbyStops(userLocation: CLLocation) async {
         guard !allStops.isEmpty else { return }
         
-        await MainActor.run { isSearchingNearby = true }
+        let shouldStartUpdate = await MainActor.run {
+            guard !isUpdatingNearby else { return false }
+            isUpdatingNearby = true
+            isSearchingNearby = true
+            return true
+        }
+        guard shouldStartUpdate else { return }
         
         let nearestStops = nearestStopModels(from: allStops, userLocation: userLocation, limit: 10)
         let nearbyCTBStops = await nearestCTBStopModels(userLocation: userLocation, excluding: nearestStops)
@@ -17,6 +23,7 @@ extension ContentView {
         await MainActor.run {
             self.nearbyStops = nearbyStopsWithRoutes
             self.isSearchingNearby = false
+            self.isUpdatingNearby = false
         }
     }
     

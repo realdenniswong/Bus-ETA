@@ -1,15 +1,23 @@
 {
-  "fill" : {
-    "solid" : "extended-srgb:0.00000,0.53333,1.00000,1.00000"
-  },
+  "fill" : "system-dark",
   "groups" : [
     {
       "layers" : [
         {
-          "blend-mode" : "normal",
+          "blend-mode" : "plus-lighter",
+          "fill" : "none",
           "glass" : true,
+          "hidden" : false,
           "image-name" : "gemini-svg 2.svg",
-          "name" : "gemini-svg 2"
+          "name" : "gemini-svg 2",
+          "opacity" : 1,
+          "position" : {
+            "scale" : 1.2,
+            "translation-in-points" : [
+              0,
+              0
+            ]
+          }
         }
       ],
       "shadow" : {

@@ -38,7 +38,7 @@ struct NearbyDashboardSectionView: View {
     var flatRoutes: [(route: NearbyRouteModel, stop: StopInfo, distance: CLLocationDistance)] {
         var all: [(route: NearbyRouteModel, stop: StopInfo, distance: CLLocationDistance)] = []
         
-        for stopModel in nearbyStops {
+        for stopModel in visibleNearbyStops {
             for route in stopModel.routes {
                 all.append((route: route, stop: stopModel.stopInfo, distance: stopModel.distance))
             }
@@ -60,16 +60,16 @@ struct NearbyDashboardSectionView: View {
         var inbound: [(route: NearbyRouteModel, stopInfo: StopInfo)]
     }
     
+    private var visibleNearbyStops: [NearbyStopModel] {
+        nearbyStops.filter { shouldDisplayStop($0) }
+    }
+    
     var groupedByStationName: [StationNameGroup] {
         var dict: [String: StationNameGroup] = [:]
         
-        for stopModel in nearbyStops {
+        for stopModel in visibleNearbyStops {
             let rawName = stopModel.stopInfo.name_tc
-            let cleanName = rawName.replacingOccurrences(
-                of: "\\s*\\([^)]+\\)\\s*$",
-                with: "",
-                options: .regularExpression
-            )
+            let cleanName = normalizedStationName(rawName)
             let dist = stopModel.distance
             
             if dict[cleanName] == nil {
@@ -174,7 +174,7 @@ struct NearbyDashboardSectionView: View {
     
     @ViewBuilder
     private func renderByStation() -> some View {
-        ForEach(nearbyStops) { stopModel in
+        ForEach(visibleNearbyStops) { stopModel in
             let isExpanded = expandedStopIds.contains(stopModel.stopInfo.stop)
             
             Section {
@@ -550,6 +550,10 @@ struct NearbyDashboardSectionView: View {
     
     // MARK: - Local Helpers
     
+    private func shouldDisplayStop(_ stopModel: NearbyStopModel) -> Bool {
+        !(stopModel.hasFetchedRoutes && stopModel.routes.isEmpty)
+    }
+    
     private func relativeTimeText(for etas: [ETADisplayInfo]) -> (text: String, color: Color) {
         guard let firstEta = etas.first?.etaDate else {
             return ("沒有班次", .secondary)
@@ -598,11 +602,16 @@ struct NearbyDashboardSectionView: View {
     }
     
     private func normalizedStationName(_ stopName: String) -> String {
-        stopName.replacingOccurrences(
-            of: "\\s*\\([^)]+\\)\\s*$",
+        let withoutPoleId = stopName.replacingOccurrences(
+            of: "\\s*\\(([A-Z]{1,4}\\d{1,4}|[A-Z]\\d{1,5}|\\d{1,5})\\)\\s*$",
             with: "",
             options: .regularExpression
         )
+        let baseName = withoutPoleId
+            .split(whereSeparator: { $0 == "，" || $0 == "," })
+            .first
+            .map(String.init) ?? withoutPoleId
+        return baseName.trimmingCharacters(in: .whitespacesAndNewlines)
     }
     
     private func formatDistance(_ distance: CLLocationDistance) -> String {
@@ -654,13 +663,13 @@ struct NearbyDashboardSectionView: View {
     }
     
     private func extractPoleId(from rawName: String) -> String {
-        if let lastOpen = rawName.lastIndex(of: "("),
-           let lastClose = rawName.lastIndex(of: ")"),
-           lastOpen < lastClose {
-            
-            let idString = rawName[rawName.index(after: lastOpen)..<lastClose]
-            return String(idString)
+        guard let match = rawName.range(
+            of: "\\(([A-Z]{1,4}\\d{1,4}|[A-Z]\\d{1,5}|\\d{1,5})\\)\\s*$",
+            options: .regularExpression
+        ) else {
+            return "N/A"
         }
-        return "N/A"
+        return String(rawName[match])
+            .trimmingCharacters(in: CharacterSet(charactersIn: "() "))
     }
 }

@@ -102,6 +102,7 @@ struct NearbyStopModel: Identifiable {
     let stopInfo: StopInfo
     let distance: CLLocationDistance
     var routes: [NearbyRouteModel] = []
+    var hasFetchedRoutes = false
 }
 
 /// One route card shown in the nearby dashboard.

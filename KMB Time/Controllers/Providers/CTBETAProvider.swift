@@ -7,7 +7,7 @@ import Foundation
 /// - `route/CTB` for search suggestions.
 /// - `route-stop/CTB/{route}/{outbound|inbound}` for route detail rows.
 /// - `stop/{stopId}` and `eta/CTB/{stopId}/{route}` for stop names, coordinates, and live ETAs.
-/// - The bundled CSV only for nearby-stop discovery and KMB+CTB joint-route tagging.
+/// - The bundled full bus-route CSV for nearby-stop discovery and KMB+CTB joint-route tagging.
 struct CTBETAProvider: BusETAProvider {
     static let shared = CTBETAProvider()
 
@@ -492,7 +492,7 @@ private final class CTBRouteStore {
 
         guard let csvURL = csvResourceURL(),
               let content = try? String(contentsOf: csvURL, encoding: .utf8) else {
-            print("CTB CSV resource not found in app bundle or project checkout.")
+            print("Bus route CSV resource not found in app bundle or project checkout.")
             return
         }
 
@@ -536,9 +536,11 @@ private final class CTBRouteStore {
             )
             let routeDirectionKey = key(route: routeCode, direction: direction)
             
+            companyCodeByRouteDirection[routeDirectionKey] = companyCode
+            guard companyCode != BusOperator.kmb.rawValue else { continue }
+            
             csvStopsById[stopId] = stopInfo
             stopInfoById[stopId] = stopInfo
-            companyCodeByRouteDirection[routeDirectionKey] = companyCode
             csvRouteRows.append(csvRouteRow)
             
             if let terminals = terminalsByRouteDirection[routeDirectionKey] {
@@ -726,41 +728,55 @@ private final class CTBRouteStore {
     }
 
     private func csvResourceURL() -> URL? {
-        if let rootURL = Bundle.main.url(forResource: "ctb_routes_all_stops", withExtension: "csv") {
-            return rootURL
+        let resourceNames = ["bus_routes_all_stops", "ctb_routes_all_stops"]
+        
+        for resourceName in resourceNames {
+            if let rootURL = Bundle.main.url(forResource: resourceName, withExtension: "csv") {
+                return rootURL
+            }
+            if let groupedURL = Bundle.main.url(forResource: resourceName, withExtension: "csv", subdirectory: "KMB Time") {
+                return groupedURL
+            }
         }
-        if let groupedURL = Bundle.main.url(forResource: "ctb_routes_all_stops", withExtension: "csv", subdirectory: "KMB Time") {
-            return groupedURL
-        }
-        if let resourceURL = Bundle.main.resourceURL,
-           let enumerator = FileManager.default.enumerator(at: resourceURL, includingPropertiesForKeys: nil) {
-            for case let fileURL as URL in enumerator where fileURL.lastPathComponent == "ctb_routes_all_stops.csv" {
-                return fileURL
+        
+        if let resourceURL = Bundle.main.resourceURL {
+            for resourceName in resourceNames {
+                guard let enumerator = FileManager.default.enumerator(at: resourceURL, includingPropertiesForKeys: nil) else { continue }
+                let fileName = "\(resourceName).csv"
+                for case let fileURL as URL in enumerator where fileURL.lastPathComponent == fileName {
+                    return fileURL
+                }
             }
         }
 
         let sourceFileURL = URL(fileURLWithPath: #filePath)
-        let sourceRelativeURLs = [
+        let sourceRoots = [
+            sourceFileURL
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .deletingLastPathComponent(),
             sourceFileURL
                 .deletingLastPathComponent()
                 .deletingLastPathComponent()
                 .deletingLastPathComponent()
-                .appendingPathComponent("ctb_routes_all_stops.csv"),
-            sourceFileURL
                 .deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .appendingPathComponent("KMB Time/ctb_routes_all_stops.csv")
+                .appendingPathComponent("KMB Time")
         ]
-        for url in sourceRelativeURLs where FileManager.default.fileExists(atPath: url.path) {
-            return url
+        for resourceName in resourceNames {
+            for sourceRoot in sourceRoots {
+                let url = sourceRoot.appendingPathComponent("\(resourceName).csv")
+                if FileManager.default.fileExists(atPath: url.path) {
+                    return url
+                }
+            }
         }
 
-        let fallbackPaths = [
-            "KMB Time/ctb_routes_all_stops.csv",
-            "KMB Time/KMB Time/ctb_routes_all_stops.csv"
-        ]
+        let fallbackPaths = resourceNames.flatMap { resourceName in
+            [
+                "KMB Time/\(resourceName).csv",
+                "KMB Time/KMB Time/\(resourceName).csv"
+            ]
+        }
         for path in fallbackPaths {
             let url = URL(fileURLWithPath: path, relativeTo: URL(fileURLWithPath: FileManager.default.currentDirectoryPath))
             if FileManager.default.fileExists(atPath: url.path) {

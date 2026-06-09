@@ -58,6 +58,7 @@ extension ContentView {
         for stop in stops.sorted(by: { $0.distance < $1.distance }) {
             var stopWithRoutes = stop
             stopWithRoutes.routes = await fetchRoutesForNearbyStop(stop.stopInfo)
+            stopWithRoutes.hasFetchedRoutes = true
             fetchedStops.append(stopWithRoutes)
             
             for route in stopWithRoutes.routes {
@@ -84,6 +85,7 @@ extension ContentView {
             var stopWithRoutes = stop
             if shouldFetchRoutesForGroupedStop(stop.stopInfo) {
                 stopWithRoutes.routes = await fetchRoutesForNearbyStop(stop.stopInfo, forceRefresh: forceRefresh)
+                stopWithRoutes.hasFetchedRoutes = true
             } else {
                 stopWithRoutes.routes = cachedRoutes(from: stop.routes)
             }
@@ -104,15 +106,9 @@ extension ContentView {
     
     /// Fetches provider route cards for one displayed nearby stop.
     func fetchRoutesForNearbyStop(_ stopInfo: StopInfo, forceRefresh: Bool = false) async -> [NearbyRouteModel] {
-        let stopLocation = location(from: stopInfo)
         async let kmbRoutes = (try? kmbETAProvider.fetchNearbyRoutes(forStopId: stopInfo.stop)) ?? []
         async let jointRoutes = (try? jointRouteETAProvider.fetchNearbyRoutes(for: stopInfo)) ?? []
-        async let ctbRoutes: [NearbyRouteModel] = {
-            if let stopLocation {
-                return (try? await ctbETAProvider.fetchNearbyRoutes(near: stopLocation)) ?? []
-            }
-            return (try? await ctbETAProvider.fetchNearbyRoutes(forStopId: stopInfo.stop)) ?? []
-        }()
+        async let ctbRoutes = (try? ctbETAProvider.fetchNearbyRoutes(forStopId: stopInfo.stop)) ?? []
         let routes = dashboardRoutes(kmbRoutes: await kmbRoutes, ctbRoutes: await ctbRoutes, jointRoutes: await jointRoutes)
         return routes
             .map { cachedRoute($0, stopId: stopInfo.stop, forceRefresh: forceRefresh) }
@@ -189,11 +185,16 @@ extension ContentView {
     }
     
     private func normalizedStationName(_ stopName: String) -> String {
-        stopName.replacingOccurrences(
-            of: "\\s*\\([^)]+\\)\\s*$",
+        let withoutPoleId = stopName.replacingOccurrences(
+            of: "\\s*\\(([A-Z]{1,4}\\d{1,4}|[A-Z]\\d{1,5}|\\d{1,5})\\)\\s*$",
             with: "",
             options: .regularExpression
         )
+        let baseName = withoutPoleId
+            .split(whereSeparator: { $0 == "，" || $0 == "," })
+            .first
+            .map(String.init) ?? withoutPoleId
+        return baseName.trimmingCharacters(in: .whitespacesAndNewlines)
     }
     
     private func location(from stopInfo: StopInfo) -> CLLocation? {

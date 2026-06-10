@@ -52,7 +52,6 @@ struct SuggestionsSectionView: View {
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
-                    .padding(.vertical, 4) // 原生 List 已經有 padding，呢度只需要微調
                 }
                 // 🌟 原生 List 會自動幫你加最靚嘅 Divider，唔使再自己畫！
             }
@@ -61,7 +60,7 @@ struct SuggestionsSectionView: View {
                 .font(.system(size: 14, weight: .bold))
                 .foregroundColor(.gray)
         }
-        .alignedListSectionMargins(horizontal: 20)
+        .alignedListSectionMargins(horizontal: 16)
     }
     
     private func companyDisplayName(_ company: String) -> String {

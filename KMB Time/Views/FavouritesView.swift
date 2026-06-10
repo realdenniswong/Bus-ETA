@@ -29,7 +29,7 @@ struct FavouritesView: View {
                         favoritesManager.favoriteRoutes.remove(atOffsets: indexSet)
                     }
                 }
-                .alignedListSectionMargins(horizontal: 20)
+                .alignedListSectionMargins(horizontal: 16)
             }
         }
         .navigationTitle("常用路線")
@@ -86,7 +86,7 @@ struct FavouritesView: View {
                     .foregroundColor(KMBRouteTheme.foregroundColor(route: favorite.route, company: company, allRoutes: allRoutes))
                     .lineLimit(1)
                     .minimumScaleFactor(0.5)
-                    .frame(width: 64, height: 36)
+                    .frame(width: 64, height: 52)
                     .background(RoundedRectangle(cornerRadius: 8).fill(KMBRouteTheme.backgroundColor(route: favorite.route, company: company, allRoutes: allRoutes)))
                 
                 VStack(alignment: .leading, spacing: 3) {
@@ -100,16 +100,22 @@ struct FavouritesView: View {
                             .lineLimit(1)
                             .truncationMode(.tail)
                     }
-                    HStack(spacing: 4) {
+                    HStack(alignment: .top, spacing: 4) {
                         Image(systemName: "mappin.circle.fill")
                             .font(.caption2)
                             .foregroundColor(.secondary)
                         if let status = favoriteStatus[favorite.id] {
-                            Text("\(status.stopName) • \(formatDistance(status.distance))")
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(status.stopName)
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                Text(formatDistance(status.distance))
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                            }
                         } else {
                             Text("正在尋找最近車站...")
                                 .font(.caption2)

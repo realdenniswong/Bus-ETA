@@ -75,10 +75,8 @@ struct CustomKeyboardView: View {
                             Text("搜尋")
                                 .font(.system(size: 16, weight: .bold))
                                 .frame(width: searchWidth, height: keyHeight)
-                                .background(Color.blue)
-                                .cornerRadius(6)
-                                .shadow(color: Color.black.opacity(0.3), radius: 0, x: 0, y: 1)
                                 .foregroundColor(.white)
+                                .keyboardKeySurface(cornerRadius: 10, tint: Color(red: 0.0, green: 0.28, blue: 0.95).opacity(0.72), isInteractive: true)
                         }
                         
                         // 🌟 3. 右下角：「刪除 (Backspace)」掣保持不變
@@ -94,11 +92,7 @@ struct CustomKeyboardView: View {
             .frame(height: 216) // 減去頂部 Toolbar，將整體高度收縮
         }
         .padding(.bottom, 36) // 🌟 增加底部 padding，將成個鍵盤推高，完全避開 iPhone 圓角
-        .background(
-            Color(UIColor.systemGray5)
-                .shadow(color: .black.opacity(0.1), radius: 10, y: -5)
-                .ignoresSafeArea()
-        )
+        .keyboardPanelSurface()
         .safeAreaPadding(.bottom)
     }
     
@@ -110,10 +104,8 @@ struct CustomKeyboardView: View {
             Text(text)
                 .font(.system(size: 22, weight: .regular))
                 .frame(width: width, height: height)
-                .background(Color(UIColor.systemBackground))
-                .cornerRadius(6)
-                .shadow(color: Color.black.opacity(isValid ? 0.3 : 0.0), radius: 0, x: 0, y: isValid ? 1 : 0)
                 .foregroundColor(isValid ? .primary : Color(UIColor.tertiaryLabel))
+                .keyboardKeySurface(cornerRadius: 10, tint: .white.opacity(isValid ? 0.18 : 0.08), isInteractive: isValid)
         }
         .disabled(!isValid)
     }
@@ -124,10 +116,8 @@ struct CustomKeyboardView: View {
             Text(title)
                 .font(.system(size: 16, weight: .bold))
                 .frame(width: width, height: height)
-                .background(color)
-                .cornerRadius(6)
-                .shadow(color: Color.black.opacity(0.3), radius: 0, x: 0, y: 1)
                 .foregroundColor(.primary)
+                .keyboardKeySurface(cornerRadius: 10, tint: .white.opacity(0.14), isInteractive: true)
         }
     }
     
@@ -137,10 +127,47 @@ struct CustomKeyboardView: View {
             icon
                 .font(.system(size: 20))
                 .frame(width: width, height: height)
-                .background(color)
-                .cornerRadius(6)
-                .shadow(color: Color.black.opacity(0.3), radius: 0, x: 0, y: 1)
                 .foregroundColor(.primary)
+                .keyboardKeySurface(cornerRadius: 10, tint: .white.opacity(0.14), isInteractive: true)
+        }
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func keyboardPanelSurface() -> some View {
+        if #available(iOS 26.0, *) {
+            self
+                .padding(.horizontal, 6)
+                .padding(.top, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 30, style: .continuous)
+                        .fill(.clear)
+                        .glassEffect(.regular.tint(.white.opacity(0.16)), in: .rect(cornerRadius: 30))
+                        .shadow(color: .black.opacity(0.12), radius: 14, y: -4)
+                        .ignoresSafeArea(edges: .bottom)
+                )
+        } else {
+            self.background(
+                Color(UIColor.systemGray5)
+                    .shadow(color: .black.opacity(0.1), radius: 10, y: -5)
+                    .ignoresSafeArea()
+            )
+        }
+    }
+    
+    @ViewBuilder
+    func keyboardKeySurface(cornerRadius: CGFloat, tint: Color, isInteractive: Bool) -> some View {
+        if #available(iOS 26.0, *) {
+            if isInteractive {
+                self.glassEffect(.regular.tint(tint).interactive(), in: .rect(cornerRadius: cornerRadius))
+            } else {
+                self.glassEffect(.regular.tint(tint), in: .rect(cornerRadius: cornerRadius))
+            }
+        } else {
+            self
+                .background(tint.opacity(0.75), in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .shadow(color: Color.black.opacity(isInteractive ? 0.18 : 0.0), radius: 0, x: 0, y: isInteractive ? 1 : 0)
         }
     }
 }

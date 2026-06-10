@@ -174,11 +174,10 @@ struct NearbyDashboardSectionView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         routeRowWithDetails(route: item.route, stopInfo: item.stop)
                     }
-                    .padding(.vertical, 4)
                 }
             }
         }
-        .alignedListSectionMargins(horizontal: 20)
+        .alignedListSectionMargins(horizontal: 16)
     }
     
     private func dashboardRouteDisplayKey(_ route: NearbyRouteModel) -> String {
@@ -223,11 +222,21 @@ struct NearbyDashboardSectionView: View {
                             .truncationMode(.tail)
                     }
                     
-                    HStack(spacing: 4) {
-                        Image(systemName: "mappin.circle.fill").font(.caption2).foregroundColor(.secondary)
-                        Text("\(resolvedStopInfo.name_tc) • \(formatDistance(distance(for: resolvedStopInfo)))")
+                    HStack(alignment: .top, spacing: 4) {
+                        Image(systemName: "mappin.circle.fill")
                             .font(.caption2)
                             .foregroundColor(.secondary)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(resolvedStopInfo.name_tc)
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                            Text(formatDistance(distance(for: resolvedStopInfo)))
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -260,14 +269,14 @@ struct NearbyDashboardSectionView: View {
 
     @ViewBuilder
     private func companyTagView(route: NearbyRouteModel) -> some View {
-        VStack(spacing: 2) {
-            Text(route.route)
-                .font(.system(size: 16, weight: .bold, design: .rounded))
-                .foregroundColor(KMBRouteTheme.foregroundColor(route: route.route, company: route.co, allRoutes: allRoutes))
-                .frame(width: 52, height: 32)
-                .background(KMBRouteTheme.backgroundColor(route: route.route, company: route.co, allRoutes: allRoutes))
-                .cornerRadius(8)
-        }
+        Text(route.route)
+            .font(.system(.body, design: .rounded))
+            .fontWeight(.bold)
+            .foregroundColor(KMBRouteTheme.foregroundColor(route: route.route, company: route.co, allRoutes: allRoutes))
+            .lineLimit(1)
+            .minimumScaleFactor(0.5)
+            .frame(width: 64, height: 52)
+            .background(RoundedRectangle(cornerRadius: 8).fill(KMBRouteTheme.backgroundColor(route: route.route, company: route.co, allRoutes: allRoutes)))
     }
     
     // MARK: - Local Helpers

@@ -93,7 +93,7 @@ struct NearbyDashboardSectionView: View {
                     Image(systemName: "mappin.slash")
                         .font(.largeTitle)
                         .foregroundColor(.secondary)
-                    Text("附近沒有九巴車站")
+                    Text("附近沒有巴士站")
                         .font(.headline)
                         .foregroundColor(.secondary)
                 }

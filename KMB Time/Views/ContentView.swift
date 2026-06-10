@@ -31,7 +31,7 @@ struct ContentView: View {
     @State var allRoutes: [RouteSuggestion] = []
     
     @State var isLoading = false
-    @State var systemMessage = "搜尋九巴路線 (例如 1A, 281A)"
+    @State var systemMessage = "搜尋巴士路線 (例如 1A, 281A)"
     
     // MARK: - Managers
     @StateObject var locationManager = LocationManager()

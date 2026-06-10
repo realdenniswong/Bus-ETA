@@ -55,7 +55,7 @@ struct DashboardView: View {
                 customKeyboardOverlay
             }
         }
-        .navigationTitle(showCustomKeyboard ? "搜尋路線" : "九巴到站預報")
+        .navigationTitle(showCustomKeyboard ? "搜尋路線" : "到站預報")
         .navigationBarTitleDisplayMode(.large)
         .toolbar { dashboardToolbar }
     }

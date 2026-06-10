@@ -42,6 +42,9 @@ struct DashboardView: View {
                 .listStyle(.insetGrouped)
                 .scrollContentBackground(.hidden)
                 .listSectionSpacing(.custom(16))
+                .overlay(alignment: .top) {
+                    listTopFade
+                }
             }
             .background(themeBackground)
             .simultaneousGesture(
@@ -65,6 +68,16 @@ struct DashboardView: View {
     private var themeBackground: some View {
         Color(.systemGroupedBackground)
             .ignoresSafeArea()
+    }
+    
+    private var listTopFade: some View {
+        LinearGradient(
+            colors: [Color(.systemGroupedBackground), Color(.systemGroupedBackground).opacity(0)],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .frame(height: 28)
+        .allowsHitTesting(false)
     }
     
     private var searchBarView: some View {

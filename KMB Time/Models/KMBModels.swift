@@ -154,13 +154,21 @@ struct NearbyRouteModel: Identifiable {
 }
 
 /// One route direction shown in search suggestions.
-struct RouteSuggestion: Hashable, Identifiable {
+struct RouteSuggestion: Codable, Hashable, Identifiable {
     let id = UUID()
     let co: String
     let route: String
     let bound: String
     let origin: String
     let destination: String
+    
+    private enum CodingKeys: String, CodingKey {
+        case co
+        case route
+        case bound
+        case origin
+        case destination
+    }
 }
 
 /// Active timer state mirrored into local notifications and Live Activity.

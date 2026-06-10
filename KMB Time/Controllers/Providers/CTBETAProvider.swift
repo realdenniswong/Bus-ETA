@@ -490,9 +490,17 @@ private final class CTBRouteStore {
         guard !hasLoadedCSVData else { return }
         hasLoadedCSVData = true
 
-        guard let csvURL = csvResourceURL(),
-              let content = try? String(contentsOf: csvURL, encoding: .utf8) else {
+        guard let csvURL = csvResourceURL() else {
             print("Bus route CSV resource not found in app bundle or project checkout.")
+            return
+        }
+        
+        if loadParsedCSVCache(for: csvURL) {
+            return
+        }
+        
+        guard let content = try? String(contentsOf: csvURL, encoding: .utf8) else {
+            print("Unable to read bus route CSV resource.")
             return
         }
 
@@ -574,6 +582,7 @@ private final class CTBRouteStore {
                 return $0.routeName.localizedStandardCompare($1.routeName) == .orderedAscending
             }
         }
+        saveParsedCSVCache(for: csvURL)
     }
 
     func routeDirections(servingStopId stopId: String) -> [CTBRouteDirection] {
@@ -727,6 +736,58 @@ private final class CTBRouteStore {
         return companyCodeByRouteDirection[key(route: route.uppercased(), direction: direction)]
     }
 
+    private func loadParsedCSVCache(for csvURL: URL) -> Bool {
+        guard let cacheURL = parsedCSVCacheURL(),
+              let data = try? Data(contentsOf: cacheURL),
+              let snapshot = try? JSONDecoder().decode(CTBParsedCSVSnapshot.self, from: data),
+              snapshot.version == CTBParsedCSVSnapshot.currentVersion,
+              snapshot.sourceFingerprint == csvFingerprint(for: csvURL),
+              !snapshot.stops.isEmpty else {
+            return false
+        }
+        
+        self.stops = snapshot.stops
+        self.stopInfoById = snapshot.stopInfoById
+        self.csvDirectionsByStopId = snapshot.directionsByStopId
+        self.companyCodeByRouteDirection = snapshot.companyCodeByRouteDirection
+        return true
+    }
+    
+    private func saveParsedCSVCache(for csvURL: URL) {
+        guard let cacheURL = parsedCSVCacheURL() else { return }
+        do {
+            let snapshot = CTBParsedCSVSnapshot(
+                version: CTBParsedCSVSnapshot.currentVersion,
+                sourceFingerprint: csvFingerprint(for: csvURL),
+                stops: stops,
+                stopInfoById: stopInfoById,
+                directionsByStopId: csvDirectionsByStopId,
+                companyCodeByRouteDirection: companyCodeByRouteDirection
+            )
+            let directoryURL = cacheURL.deletingLastPathComponent()
+            try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+            let data = try JSONEncoder().encode(snapshot)
+            try data.write(to: cacheURL, options: [.atomic])
+        } catch {
+            print("Failed to save parsed CTB CSV cache: \(error)")
+        }
+    }
+    
+    private func parsedCSVCacheURL() -> URL? {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("KMB Time", isDirectory: true)
+            .appendingPathComponent("ctb-parsed-csv-cache.json")
+    }
+    
+    private func csvFingerprint(for csvURL: URL) -> String {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: csvURL.path) else {
+            return csvURL.lastPathComponent
+        }
+        let fileSize = attributes[.size] as? NSNumber
+        let modifiedAt = attributes[.modificationDate] as? Date
+        return "\(csvURL.lastPathComponent)-\(fileSize?.int64Value ?? 0)-\(modifiedAt?.timeIntervalSince1970 ?? 0)"
+    }
+
     private func csvResourceURL() -> URL? {
         let resourceNames = ["bus_routes_all_stops", "ctb_routes_all_stops"]
         
@@ -814,7 +875,18 @@ private final class CTBRouteStore {
     }
 }
 
-private struct CTBRouteDirection: Hashable {
+private struct CTBParsedCSVSnapshot: Codable {
+    static let currentVersion = 1
+    
+    let version: Int
+    let sourceFingerprint: String
+    let stops: [StopInfo]
+    let stopInfoById: [String: StopInfo]
+    let directionsByStopId: [String: [CTBRouteDirection]]
+    let companyCodeByRouteDirection: [String: String]
+}
+
+private struct CTBRouteDirection: Codable, Hashable {
     let routeName: String
     let bound: BusDirection
     let sourceStopId: String

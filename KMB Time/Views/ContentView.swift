@@ -119,9 +119,7 @@ struct ContentView: View {
                         locationManager.requestLocation()
                     }
                     
-                    async let stopsLoad: Void = loadAllStops()
-                    async let routesLoad: Void = loadAllRoutes()
-                    _ = await (stopsLoad, routesLoad)
+                    await loadStaticRouteData()
                     reconnectActiveLiveActivity()
                     warmFavoriteETAsIfPossible()
                     

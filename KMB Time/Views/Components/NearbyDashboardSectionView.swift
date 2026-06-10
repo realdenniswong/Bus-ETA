@@ -1,11 +1,9 @@
-//
-//  NearbyDashboardSectionView.swift
-//  KMB Time
-//
+/// 檔案用途：連接首頁 UI 操作同 ContentView 狀態。
 
 import SwiftUI
 import CoreLocation
 
+/// `NearbyDashboardSectionView` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 struct NearbyDashboardSectionView: View {
     @EnvironmentObject var favoritesManager: FavoritesManager
     
@@ -23,6 +21,10 @@ struct NearbyDashboardSectionView: View {
     
     // MARK: - Sorting Helpers
     
+    /// 按畫面需要排序並回傳結果。
+    /// - Parameters:
+    ///   - for: 此函式需要嘅輸入資料。
+    /// - Returns: 符合條件並已整理嘅資料列表。
     private func sortedRoutes(for routes: [NearbyRouteModel]) -> [NearbyRouteModel] {
         return routes.sorted { a, b in
             if a.directionCode != b.directionCode {
@@ -109,6 +111,10 @@ struct NearbyDashboardSectionView: View {
     // MARK: - Renderers
     
     @ViewBuilder
+    /// 停止或收起相關追蹤、活動或流程。
+    /// - Parameters:
+    ///   - none: 呢個函式唔需要外部輸入。
+    /// - Returns: 可供 SwiftUI 顯示嘅畫面內容。
     private func renderFlatList() -> some View {
         Section {
             let uniqueRoutes = flatRoutes.reduce(into: [String: (route: NearbyRouteModel, stop: StopInfo, distance: CLLocationDistance)]()) { dict, item in
@@ -180,6 +186,10 @@ struct NearbyDashboardSectionView: View {
         .alignedListSectionMargins(horizontal: 16)
     }
     
+    /// 建立用於查找或快取嘅穩定 key。
+    /// - Parameters:
+    ///   - route: 路線編號或路線模型。
+    /// - Returns: 格式化或查找後嘅文字。
     private func dashboardRouteDisplayKey(_ route: NearbyRouteModel) -> String {
         let normalizedRoute = route.route.uppercased()
         if route.co == "KMB+CTB" {
@@ -188,6 +198,11 @@ struct NearbyDashboardSectionView: View {
         return "\(normalizedRoute)-\(route.directionCode)-\(route.co)"
     }
     
+    /// 合併多個資料來源並回傳統一結果。
+    /// - Parameters:
+    ///   - jointRoute: 路線編號或路線模型。
+    ///   - kmbRoute: 路線編號或路線模型。
+    /// - Returns: 計算後嘅 `NearbyRouteModel`。
     private func mergedJointRoute(jointRoute: NearbyRouteModel, kmbRoute: NearbyRouteModel) -> NearbyRouteModel {
         NearbyRouteModel(
             co: "KMB+CTB",
@@ -204,6 +219,11 @@ struct NearbyDashboardSectionView: View {
     // MARK: - Row Components
     
     @ViewBuilder
+    /// 整理或查找路線相關資料。
+    /// - Parameters:
+    ///   - route: 路線編號或路線模型。
+    ///   - stopInfo: 車站識別或車站資料。
+    /// - Returns: 可供 SwiftUI 顯示嘅畫面內容。
     private func routeRowWithDetails(route: NearbyRouteModel, stopInfo: StopInfo) -> some View {
         let resolvedStopInfo = resolvedStopInfo(for: route, fallback: stopInfo)
         Button(action: { onRouteSelected(route, resolvedStopInfo) }) {
@@ -268,6 +288,10 @@ struct NearbyDashboardSectionView: View {
     }
 
     @ViewBuilder
+    /// 整理或查找巴士公司顯示資料。
+    /// - Parameters:
+    ///   - route: 路線編號或路線模型。
+    /// - Returns: 可供 SwiftUI 顯示嘅畫面內容。
     private func companyTagView(route: NearbyRouteModel) -> some View {
         Text(route.route)
             .font(.system(.body, design: .rounded))
@@ -281,10 +305,19 @@ struct NearbyDashboardSectionView: View {
     
     // MARK: - Local Helpers
     
+    /// 停止或收起相關追蹤、活動或流程。
+    /// - Parameters:
+    ///   - stopModel: 車站識別或車站資料。
+    /// - Returns: 條件是否成立。
     private func shouldDisplayStop(_ stopModel: NearbyStopModel) -> Bool {
         !(stopModel.hasFetchedRoutes && stopModel.routes.isEmpty)
     }
     
+    /// 執行呢個檔案負責嘅相關功能。
+    /// - Parameters:
+    ///   - for: 此函式需要嘅輸入資料。
+    ///   - color: 畫面顏色。
+    /// - Returns: 格式化或查找後嘅文字。
     private func relativeTimeText(for etas: [ETADisplayInfo]) -> (text: String, color: Color) {
         guard let firstEta = etas.first?.etaDate else {
             return ("沒有班次", .secondary)
@@ -300,6 +333,10 @@ struct NearbyDashboardSectionView: View {
     }
     
     @ViewBuilder
+    /// 執行呢個檔案負責嘅相關功能。
+    /// - Parameters:
+    ///   - etas: 時間或到站時間資料。
+    /// - Returns: 可供 SwiftUI 顯示嘅畫面內容。
     private func etaCountdownView(etas: [ETADisplayInfo]) -> some View {
         let etaInfo = relativeTimeText(for: etas)
         Text(etaInfo.text)
@@ -311,6 +348,11 @@ struct NearbyDashboardSectionView: View {
             .cornerRadius(6)
     }
     
+    /// 停止或收起相關追蹤、活動或流程。
+    /// - Parameters:
+    ///   - for: 此函式需要嘅輸入資料。
+    ///   - fallback: 此函式需要嘅輸入資料。
+    /// - Returns: 計算後嘅 `StopInfo`。
     private func resolvedStopInfo(for route: NearbyRouteModel, fallback: StopInfo) -> StopInfo {
         if route.co == "KMB+CTB", let kmbStop = nearbyKMBStopForJointRoute(route, fallback: fallback) {
             return kmbStop
@@ -333,12 +375,21 @@ struct NearbyDashboardSectionView: View {
         )
     }
     
+    /// 判斷指定條件是否成立。
+    /// - Parameters:
+    ///   - for: 此函式需要嘅輸入資料。
+    /// - Returns: 可用嘅位置資料；沒有時為 nil。
     private func distance(for stopInfo: StopInfo) -> CLLocationDistance {
         nearbyStops.first { $0.stopInfo.identityKey == stopInfo.identityKey }?.distance
             ?? nearbyStops.first { $0.stopInfo.stop == stopInfo.stop }?.distance
             ?? 0
     }
     
+    /// 停止或收起相關追蹤、活動或流程。
+    /// - Parameters:
+    ///   - route: 路線編號或路線模型。
+    ///   - fallback: 此函式需要嘅輸入資料。
+    /// - Returns: 找到時回傳對應資料；沒有時為 nil。
     private func nearbyKMBStopForJointRoute(_ route: NearbyRouteModel, fallback: StopInfo) -> StopInfo? {
         if fallback.operatorCode == .kmb {
             return fallback
@@ -377,6 +428,11 @@ struct NearbyDashboardSectionView: View {
         return nearestStop.stopInfo
     }
     
+    /// 執行呢個檔案負責嘅相關功能。
+    /// - Parameters:
+    ///   - for: 此函式需要嘅輸入資料。
+    ///   - fallback: 此函式需要嘅輸入資料。
+    /// - Returns: 找到時回傳對應資料；沒有時為 nil。
     private func operatorCode(for route: NearbyRouteModel, fallback: BusOperator?) -> BusOperator? {
         switch route.co {
         case BusOperator.kmb.rawValue:
@@ -388,6 +444,10 @@ struct NearbyDashboardSectionView: View {
         }
     }
     
+    /// 執行呢個檔案負責嘅相關功能。
+    /// - Parameters:
+    ///   - stopName: 車站識別或車站資料。
+    /// - Returns: 格式化或查找後嘅文字。
     private func normalizedStationName(_ stopName: String) -> String {
         let withoutPoleId = stopName.replacingOccurrences(
             of: "\\s*\\(([A-Z]{1,4}\\d{1,4}|[A-Z]\\d{1,5}|\\d{1,5})\\)\\s*$",
@@ -401,6 +461,10 @@ struct NearbyDashboardSectionView: View {
         return baseName.trimmingCharacters(in: .whitespacesAndNewlines)
     }
     
+    /// 將資料格式化成畫面顯示文字。
+    /// - Parameters:
+    ///   - distance: 此函式需要嘅輸入資料。
+    /// - Returns: 格式化或查找後嘅文字。
     private func formatDistance(_ distance: CLLocationDistance) -> String {
         if distance < 1000 {
             return String(format: "%.0f 米", distance)
@@ -410,6 +474,15 @@ struct NearbyDashboardSectionView: View {
     }
     
     @ViewBuilder
+    /// 判斷指定條件是否成立。
+    /// - Parameters:
+    ///   - icon: 此函式需要嘅輸入資料。
+    ///   - color: 畫面顏色。
+    ///   - title: 畫面顯示文字。
+    ///   - description: 此函式需要嘅輸入資料。
+    ///   - buttonText: 畫面顯示文字。
+    ///   - action: 需要執行嘅 callback 或建立資料嘅 closure。
+    /// - Returns: 可供 SwiftUI 顯示嘅畫面內容。
     private func permissionCard(icon: String, color: Color, title: String, description: String, buttonText: String, action: @escaping () -> Void) -> some View {
         VStack(alignment: .center, spacing: 12) {
             Image(systemName: icon)

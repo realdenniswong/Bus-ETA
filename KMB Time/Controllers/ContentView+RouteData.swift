@@ -1,5 +1,7 @@
+/// 檔案用途：載入、快取同套用靜態路線及站點資料。
 import Foundation
 
+/// 擴充 `ContentView`，加入此檔案負責嘅相關功能。
 extension ContentView {
     var kmbETAProvider: KMBETAProvider {
         KMBETAProvider.shared
@@ -13,7 +15,16 @@ extension ContentView {
         JointRouteETAProvider.shared
     }
     
-    /// Loads cached static route data immediately, then refreshes it from providers.
+    var routeSuggestionCatalog: RouteSuggestionCatalog {
+        RouteSuggestionCatalog(suggestions: allRoutes) { route, direction in
+            ctbETAProvider.companyCode(route: route, direction: direction)
+        }
+    }
+    
+    /// 載入需要嘅資料並更新本機狀態或快取。
+    /// - Parameters:
+    ///   - none: 呢個函式唔需要外部輸入。
+    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
     func loadStaticRouteData() async {
         let loadedCachedData = await loadCachedStaticRouteData()
         
@@ -24,7 +35,10 @@ extension ContentView {
         }
     }
     
-    /// Loads route suggestions from KMB plus the bundled CTB route list.
+    /// 載入需要嘅資料並更新本機狀態或快取。
+    /// - Parameters:
+    ///   - none: 呢個函式唔需要外部輸入。
+    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
     func loadAllRoutes() async {
         do {
             let routeSuggestions = try await fetchAllRouteSuggestions()
@@ -36,7 +50,10 @@ extension ContentView {
         }
     }
     
-    /// Loads stops from KMB and CTB and builds lookup dictionaries for the UI.
+    /// 載入需要嘅資料並更新本機狀態或快取。
+    /// - Parameters:
+    ///   - none: 呢個函式唔需要外部輸入。
+    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
     func loadAllStops() async {
         do {
             let stops = try await fetchAllStops()
@@ -47,6 +64,10 @@ extension ContentView {
         }
     }
     
+    /// 載入需要嘅資料並更新本機狀態或快取。
+    /// - Parameters:
+    ///   - none: 呢個函式唔需要外部輸入。
+    /// - Returns: 條件是否成立。
     private func loadCachedStaticRouteData() async -> Bool {
         guard let snapshot = await StaticRouteDataCache.load() else { return false }
         await applyStaticRouteData(routes: snapshot.routes, stops: snapshot.stops)
@@ -54,6 +75,10 @@ extension ContentView {
         return true
     }
     
+    /// 重新整理目前畫面需要嘅資料。
+    /// - Parameters:
+    ///   - none: 呢個函式唔需要外部輸入。
+    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
     private func refreshStaticRouteData() async {
         do {
             async let routesRequest = fetchAllRouteSuggestions()
@@ -68,18 +93,31 @@ extension ContentView {
         }
     }
     
+    /// 向資料來源讀取相關巴士資料。
+    /// - Parameters:
+    ///   - none: 呢個函式唔需要外部輸入。
+    /// - Returns: 符合條件並已整理嘅資料列表。
     private func fetchAllRouteSuggestions() async throws -> [RouteSuggestion] {
         async let kmbSuggestions = kmbETAProvider.fetchRouteSuggestions()
         async let ctbSuggestions = ctbETAProvider.fetchRouteSuggestions()
-        return try await mergedRouteSuggestions(kmb: kmbSuggestions, ctb: ctbSuggestions)
+        return try await RouteSuggestionCatalog.merged(kmb: kmbSuggestions, ctb: ctbSuggestions)
     }
     
+    /// 向資料來源讀取相關巴士資料。
+    /// - Parameters:
+    ///   - none: 呢個函式唔需要外部輸入。
+    /// - Returns: 符合條件並已整理嘅資料列表。
     private func fetchAllStops() async throws -> [StopInfo] {
         async let kmbStops = kmbETAProvider.fetchStops()
         async let ctbStops = ctbETAProvider.fetchStops()
         return try await kmbStops + ctbStops
     }
     
+    /// 整理或查找路線相關資料。
+    /// - Parameters:
+    ///   - routes: 路線編號或路線模型。
+    ///   - stops: 車站識別或車站資料。
+    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
     private func applyStaticRouteData(routes: [RouteSuggestion], stops: [StopInfo]) async {
         await MainActor.run {
             self.allRoutes = routes
@@ -87,6 +125,10 @@ extension ContentView {
         await applyStops(stops)
     }
     
+    /// 停止或收起相關追蹤、活動或流程。
+    /// - Parameters:
+    ///   - stops: 車站識別或車站資料。
+    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
     private func applyStops(_ stops: [StopInfo]) async {
         let stopNamesById = Dictionary(stops.map { ($0.stop, $0.name_tc) }, uniquingKeysWith: { first, _ in first })
         let identityStopInfo = stops.map { ($0.identityKey, $0) }
@@ -100,52 +142,15 @@ extension ContentView {
         }
     }
     
+    /// 載入需要嘅資料並更新本機狀態或快取。
+    /// - Parameters:
+    ///   - none: 呢個函式唔需要外部輸入。
+    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
     private func updateNearbyStopsAfterStaticDataLoad() async {
         if let userLocation = locationManager.location {
             await updateNearbyStops(userLocation: userLocation)
             warmFavoriteETAsIfPossible()
         }
     }
-    
-    private func mergedRouteSuggestions(kmb: [RouteSuggestion], ctb: [RouteSuggestion]) -> [RouteSuggestion] {
-        var suggestionsByRouteDirectionCompany: [String: RouteSuggestion] = [:]
-        
-        for suggestion in kmb {
-            suggestionsByRouteDirectionCompany[routeSuggestionKey(suggestion)] = suggestion
-        }
-        
-        for suggestion in ctb {
-            if suggestion.co == "KMB+CTB" {
-                suggestionsByRouteDirectionCompany.removeValue(forKey: "\(suggestion.route)-\(suggestion.bound)-\(BusOperator.kmb.rawValue)")
-            }
-            suggestionsByRouteDirectionCompany[routeSuggestionKey(suggestion)] = suggestion
-        }
-        
-        return suggestionsByRouteDirectionCompany.values.sorted {
-            if $0.route == $1.route {
-                if $0.bound == $1.bound {
-                    return companySortRank($0.co) < companySortRank($1.co)
-                }
-                return $0.bound > $1.bound
-            }
-            return $0.route.localizedStandardCompare($1.route) == .orderedAscending
-        }
-    }
-    
-    private func routeSuggestionKey(_ suggestion: RouteSuggestion) -> String {
-        "\(suggestion.route)-\(suggestion.bound)-\(suggestion.co)"
-    }
-    
-    private func companySortRank(_ company: String) -> Int {
-        switch company {
-        case "KMB+CTB":
-            return 0
-        case BusOperator.kmb.rawValue:
-            return 1
-        case BusOperator.ctb.rawValue:
-            return 2
-        default:
-            return 3
-        }
-    }
+
 }

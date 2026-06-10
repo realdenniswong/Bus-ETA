@@ -1,12 +1,8 @@
-//
-//  CustomKeyboardView.swift
-//  KMB Time
-//
-//  Created by Dennis Wong on 6/4/26.
-//
+/// 檔案用途：提供車號輸入專用鍵盤同按鍵樣式。
 
 import SwiftUI
 
+/// `CustomKeyboardView` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 struct CustomKeyboardView: View {
     @Binding var text: String
     var validKeys: Set<String>?
@@ -97,6 +93,13 @@ struct CustomKeyboardView: View {
     }
     
     @ViewBuilder
+    /// 建立用於查找或快取嘅穩定 key。
+    /// - Parameters:
+    ///   - text: 畫面顯示文字。
+    ///   - width: 版面尺寸或圓角設定。
+    ///   - height: 版面尺寸或圓角設定。
+    ///   - action: 需要執行嘅 callback 或建立資料嘅 closure。
+    /// - Returns: 可供 SwiftUI 顯示嘅畫面內容。
     private func keyboardButton(_ text: String, width: CGFloat, height: CGFloat, action: @escaping () -> Void) -> some View {
         let isValid = validKeys?.contains(text) ?? true
         
@@ -111,6 +114,14 @@ struct CustomKeyboardView: View {
     }
     
     @ViewBuilder
+    /// 執行呢個檔案負責嘅相關功能。
+    /// - Parameters:
+    ///   - title: 畫面顯示文字。
+    ///   - width: 版面尺寸或圓角設定。
+    ///   - height: 版面尺寸或圓角設定。
+    ///   - color: 畫面顏色。
+    ///   - action: 需要執行嘅 callback 或建立資料嘅 closure。
+    /// - Returns: 可供 SwiftUI 顯示嘅畫面內容。
     private func actionButton(_ title: String, width: CGFloat, height: CGFloat, color: Color, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
@@ -122,6 +133,14 @@ struct CustomKeyboardView: View {
     }
     
     @ViewBuilder
+    /// 執行呢個檔案負責嘅相關功能。
+    /// - Parameters:
+    ///   - icon: 此函式需要嘅輸入資料。
+    ///   - width: 版面尺寸或圓角設定。
+    ///   - height: 版面尺寸或圓角設定。
+    ///   - color: 畫面顏色。
+    ///   - action: 需要執行嘅 callback 或建立資料嘅 closure。
+    /// - Returns: 可供 SwiftUI 顯示嘅畫面內容。
     private func actionButton(_ icon: Image, width: CGFloat, height: CGFloat, color: Color, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             icon
@@ -133,8 +152,13 @@ struct CustomKeyboardView: View {
     }
 }
 
+/// 擴充 `View`，加入此檔案負責嘅相關功能。
 private extension View {
     @ViewBuilder
+    /// 建立用於查找或快取嘅穩定 key。
+    /// - Parameters:
+    ///   - none: 呢個函式唔需要外部輸入。
+    /// - Returns: 可供 SwiftUI 顯示嘅畫面內容。
     func keyboardPanelSurface() -> some View {
         if #available(iOS 26.0, *) {
             self
@@ -157,6 +181,12 @@ private extension View {
     }
     
     @ViewBuilder
+    /// 建立用於查找或快取嘅穩定 key。
+    /// - Parameters:
+    ///   - cornerRadius: 搜尋半徑。
+    ///   - tint: 畫面顏色。
+    ///   - isInteractive: 控制此流程是否啟用嘅設定。
+    /// - Returns: 可供 SwiftUI 顯示嘅畫面內容。
     func keyboardKeySurface(cornerRadius: CGFloat, tint: Color, isInteractive: Bool) -> some View {
         if #available(iOS 26.0, *) {
             if isInteractive {

@@ -1,5 +1,7 @@
+/// 檔案用途：顯示單一路線站序、方向切換、收藏同重新整理工具列。
 import SwiftUI
 
+/// `RouteDetailsView` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 struct RouteDetailsView: View {
     @Binding var selectedDirection: String
     let routeName: String
@@ -133,6 +135,10 @@ struct RouteDetailsView: View {
             .ignoresSafeArea()
     }
     
+    /// 停止或收起相關追蹤、活動或流程。
+    /// - Parameters:
+    ///   - using: 此函式需要嘅輸入資料。
+    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
     private func scrollToHighlightedStop(using proxy: ScrollViewProxy) {
         guard let target = highlightedStopId else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {

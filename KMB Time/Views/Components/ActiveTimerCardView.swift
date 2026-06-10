@@ -1,13 +1,9 @@
-//
-//  ActiveTimerCardView.swift
-//  KMB Time
-//
-//  Created by Dennis Wong on 6/4/26.
-//
+/// 檔案用途：顯示目前啟用嘅到站提醒卡片。
 
 
 import SwiftUI
 
+/// `ActiveTimerCardView` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 struct ActiveTimerCardView: View {
     let timer: ActiveTimerModel
     let currentTime: Date
@@ -147,6 +143,10 @@ struct ActiveTimerCardView: View {
         .transition(.asymmetric(insertion: .opacity.combined(with: .move(edge: .top)), removal: .opacity.combined(with: .scale)))
     }
     
+    /// 將資料格式化成畫面顯示文字。
+    /// - Parameters:
+    ///   - date: 時間或到站時間資料。
+    /// - Returns: 格式化或查找後嘅文字。
     private func formattedTime(_ date: Date?) -> String {
         guard let date = date else { return "" }
         let formatter = DateFormatter()

@@ -1,6 +1,8 @@
+/// 檔案用途：顯示收藏路線清單、最近 ETA、距離同刪除操作。
 import CoreLocation
 import SwiftUI
 
+/// `FavouritesView` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 struct FavouritesView: View {
     @ObservedObject var favoritesManager: FavoritesManager
     let favoriteStatus: [String: FavoriteStatusModel]
@@ -76,6 +78,10 @@ struct FavouritesView: View {
     }
     
     @ViewBuilder
+    /// 整理或查找路線相關資料。
+    /// - Parameters:
+    ///   - favorite: 收藏路線資料。
+    /// - Returns: 可供 SwiftUI 顯示嘅畫面內容。
     private func favoriteRouteButton(_ favorite: FavoriteRoute) -> some View {
         let company = companyCode(for: favorite)
         Button(action: { onOpenFavorite(favorite) }) {
@@ -136,6 +142,10 @@ struct FavouritesView: View {
     }
     
     @ViewBuilder
+    /// 執行呢個檔案負責嘅相關功能。
+    /// - Parameters:
+    ///   - favorite: 收藏路線資料。
+    /// - Returns: 可供 SwiftUI 顯示嘅畫面內容。
     private func favoriteSwipeActions(_ favorite: FavoriteRoute) -> some View {
         Button(role: .destructive) {
             if let index = favoritesManager.favoriteRoutes.firstIndex(where: { $0.id == favorite.id }) {
@@ -158,6 +168,10 @@ struct FavouritesView: View {
         }
     }
     
+    /// 整理或查找巴士公司顯示資料。
+    /// - Parameters:
+    ///   - for: 此函式需要嘅輸入資料。
+    /// - Returns: 格式化或查找後嘅文字。
     private func companyCode(for favorite: FavoriteRoute) -> String {
         if favorite.company != BusOperator.kmb.rawValue {
             return favorite.company
@@ -172,6 +186,11 @@ struct FavouritesView: View {
         return matches.first(where: { $0.co == "KMB+CTB" })?.co ?? favorite.company
     }
     
+    /// 執行呢個檔案負責嘅相關功能。
+    /// - Parameters:
+    ///   - for: 此函式需要嘅輸入資料。
+    ///   - color: 畫面顏色。
+    /// - Returns: 格式化或查找後嘅文字。
     private func relativeTimeText(for etas: [ETADisplayInfo]) -> (text: String, color: Color) {
         guard let firstEta = etas.first?.etaDate else {
             return ("沒有班次", .secondary)
@@ -185,6 +204,10 @@ struct FavouritesView: View {
         return ("\(Int(diff / 60)) 分鐘", .primary)
     }
     
+    /// 執行呢個檔案負責嘅相關功能。
+    /// - Parameters:
+    ///   - etas: 時間或到站時間資料。
+    /// - Returns: 可供 SwiftUI 顯示嘅畫面內容。
     private func etaCountdownView(etas: [ETADisplayInfo]) -> some View {
         let etaInfo = relativeTimeText(for: etas)
         return Text(etaInfo.text)
@@ -196,6 +219,10 @@ struct FavouritesView: View {
             .cornerRadius(6)
     }
     
+    /// 將資料格式化成畫面顯示文字。
+    /// - Parameters:
+    ///   - distance: 此函式需要嘅輸入資料。
+    /// - Returns: 格式化或查找後嘅文字。
     private func formatDistance(_ distance: CLLocationDistance) -> String {
         if distance < 1000 {
             return String(format: "%.0f 米", distance)

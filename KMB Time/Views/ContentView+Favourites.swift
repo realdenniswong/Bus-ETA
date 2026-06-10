@@ -1,5 +1,7 @@
+/// 檔案用途：處理收藏分頁 UI 同收藏路線開啟流程。
 import SwiftUI
 
+/// 擴充 `ContentView`，加入此檔案負責嘅相關功能。
 extension ContentView {
     var favoritesTab: some View {
         NavigationStack {
@@ -42,7 +44,10 @@ extension ContentView {
         }
     }
     
-    /// Opens a saved favourite route in the route-detail screen.
+    /// 開啟指定路線或畫面流程。
+    /// - Parameters:
+    ///   - favorite: 收藏路線資料。
+    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
     func openFavoriteRoute(_ favorite: FavoriteRoute) {
         selectedTab = 0
         

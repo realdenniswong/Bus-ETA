@@ -1,8 +1,10 @@
+/// 檔案用途：定義 Live Activity / widget 顯示區塊同配色。
 import WidgetKit
 import SwiftUI
 import ActivityKit
 
 @main
+/// `BusETAWidgetBundle` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 struct BusETAWidgetBundle: WidgetBundle {
     var body: some Widget {
         BusETAWidget()
@@ -10,6 +12,7 @@ struct BusETAWidgetBundle: WidgetBundle {
 }
 
 // MARK: - 🌟 智能顯示組件 (修正版：完全移除「即將到達」與「到達」字眼)
+/// `SmartETABlock` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 struct SmartETABlock: View {
     let etaDate: Date
     let bigSize: CGFloat
@@ -44,6 +47,7 @@ struct SmartETABlock: View {
 }
 
 // MARK: - 🌟 智能顯示組件 2：靈動島緊湊模式 (單行空間)
+/// `CompactETABlock` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 struct CompactETABlock: View {
     let etaDate: Date
     @Environment(\.isLuminanceReduced) var isLuminanceReduced
@@ -67,13 +71,22 @@ struct CompactETABlock: View {
     }
 }
 
+/// 將資料格式化成畫面顯示文字。
+/// - Parameters:
+///   - date: 時間或到站時間資料。
+/// - Returns: 格式化或查找後嘅文字。
 fileprivate func formattedTime(_ date: Date) -> String {
     let formatter = DateFormatter()
     formatter.dateFormat = "HH:mm"
     return formatter.string(from: date)
 }
 
+/// `RouteBadgeTheme` 列出此功能範圍會用到嘅固定選項。
 private enum RouteBadgeTheme {
+    /// 執行呢個檔案負責嘅相關功能。
+    /// - Parameters:
+    ///   - company: 巴士公司代碼。
+    /// - Returns: 畫面應使用嘅顏色。
     static func backgroundColor(company: String) -> Color {
         switch company {
         case "CTB":
@@ -85,12 +98,17 @@ private enum RouteBadgeTheme {
         }
     }
     
+    /// 執行呢個檔案負責嘅相關功能。
+    /// - Parameters:
+    ///   - company: 巴士公司代碼。
+    /// - Returns: 畫面應使用嘅顏色。
     static func foregroundColor(company: String) -> Color {
         company == "CTB" ? Color(red: 1 / 255, green: 93 / 255, blue: 166 / 255) : .white
     }
 }
 
-// MARK: - The Widget Definition
+// MARK: - Widget 定義
+/// `BusETAWidget` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 struct BusETAWidget: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: BusETAAttributes.self) { context in

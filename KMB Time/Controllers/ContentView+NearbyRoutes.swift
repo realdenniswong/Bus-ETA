@@ -1,7 +1,12 @@
+/// 檔案用途：根據使用者位置計算附近站點同即時附近路線 ETA。
 import CoreLocation
 
+/// 擴充 `ContentView`，加入此檔案負責嘅相關功能。
 extension ContentView {
-    /// Rebuilds the nearby dashboard from the user's current location.
+    /// 更新相關狀態，令畫面或快取保持最新。
+    /// - Parameters:
+    ///   - userLocation: 用嚟計算距離嘅位置。
+    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
     func updateNearbyStops(userLocation: CLLocation) async {
         guard !allStops.isEmpty else { return }
         
@@ -23,7 +28,10 @@ extension ContentView {
         }
     }
     
-    /// Refreshes ETA rows for the stops already displayed on the nearby dashboard.
+    /// 重新整理目前畫面需要嘅資料。
+    /// - Parameters:
+    ///   - none: 呢個函式唔需要外部輸入。
+    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
     func refreshNearbyETAs() async {
         guard !nearbyStops.isEmpty else { return }
         await MainActor.run { isSearchingNearby = true }
@@ -36,6 +44,10 @@ extension ContentView {
         }
     }
     
+    /// 停止或收起相關追蹤、活動或流程。
+    /// - Parameters:
+    ///   - stops: 車站識別或車站資料。
+    /// - Returns: 符合條件並已整理嘅資料列表。
     private func nearbyStopsForAllBusesMode(_ stops: [NearbyStopModel]) async -> [NearbyStopModel] {
         var fetchedStops: [NearbyStopModel] = []
         var uniqueRouteKeys = Set<String>()
@@ -65,7 +77,11 @@ extension ContentView {
         .sorted { $0.distance < $1.distance }
     }
     
-    /// Fetches provider route cards for one displayed nearby stop.
+    /// 向資料來源讀取相關巴士資料。
+    /// - Parameters:
+    ///   - stopInfo: 車站識別或車站資料。
+    ///   - forceRefresh: 控制此流程是否啟用嘅設定。
+    /// - Returns: 符合條件並已整理嘅資料列表。
     func fetchRoutesForNearbyStop(_ stopInfo: StopInfo, forceRefresh: Bool = false) async -> [NearbyRouteModel] {
         let routes: [NearbyRouteModel]
         switch stopInfo.operatorCode {
@@ -90,6 +106,12 @@ extension ContentView {
             }
     }
     
+    /// 整理或查找路線相關資料。
+    /// - Parameters:
+    ///   - kmbRoutes: 路線編號或路線模型。
+    ///   - ctbRoutes: 路線編號或路線模型。
+    ///   - jointRoutes: 路線編號或路線模型。
+    /// - Returns: 符合條件並已整理嘅資料列表。
     private func dashboardRoutes(kmbRoutes: [NearbyRouteModel], ctbRoutes: [NearbyRouteModel], jointRoutes: [NearbyRouteModel]) -> [NearbyRouteModel] {
         let kmbOnlyRoutes = kmbRoutes.filter { route in
             !ctbETAProvider.isJointRoute(route: route.route, direction: BusDirection(routeCode: route.directionCode))
@@ -98,6 +120,12 @@ extension ContentView {
         return kmbOnlyRoutes + jointRoutes + ctbOnlyRoutes
     }
     
+    /// 整理或查找路線相關資料。
+    /// - Parameters:
+    ///   - route: 路線編號或路線模型。
+    ///   - stopId: 車站識別或車站資料。
+    ///   - forceRefresh: 控制此流程是否啟用嘅設定。
+    /// - Returns: 計算後嘅 `NearbyRouteModel`。
     private func cachedRoute(_ route: NearbyRouteModel, stopId: String, forceRefresh: Bool = false) -> NearbyRouteModel {
         let key = dashboardETAKey(route: route, stopId: stopId)
         if !route.etas.isEmpty {
@@ -112,6 +140,11 @@ extension ContentView {
         return routeWithETAs(route, etas: cachedEntry.etas)
     }
     
+    /// 整理或查找路線相關資料。
+    /// - Parameters:
+    ///   - route: 路線編號或路線模型。
+    ///   - etas: 時間或到站時間資料。
+    /// - Returns: 計算後嘅 `NearbyRouteModel`。
     private func routeWithETAs(_ route: NearbyRouteModel, etas: [ETADisplayInfo]) -> NearbyRouteModel {
         NearbyRouteModel(
             co: route.co,
@@ -127,14 +160,27 @@ extension ContentView {
     
     private var dashboardETACacheLifetime: TimeInterval { 30 }
     
+    /// 建立用於查找或快取嘅穩定 key。
+    /// - Parameters:
+    ///   - route: 路線編號或路線模型。
+    ///   - stopId: 車站識別或車站資料。
+    /// - Returns: 格式化或查找後嘅文字。
     private func dashboardETAKey(route: NearbyRouteModel, stopId: String) -> String {
         "\(route.co)-\(route.route.uppercased())-\(route.directionCode)-\(stopId)"
     }
     
+    /// 建立用於查找或快取嘅穩定 key。
+    /// - Parameters:
+    ///   - route: 路線編號或路線模型。
+    /// - Returns: 格式化或查找後嘅文字。
     private func dashboardRouteKey(route: NearbyRouteModel) -> String {
         "\(route.co)-\(route.route.uppercased())-\(route.directionCode)"
     }
     
+    /// 執行呢個檔案負責嘅相關功能。
+    /// - Parameters:
+    ///   - stopName: 車站識別或車站資料。
+    /// - Returns: 格式化或查找後嘅文字。
     private func normalizedStationName(_ stopName: String) -> String {
         let withoutPoleId = stopName.replacingOccurrences(
             of: "\\s*\\(([A-Z]{1,4}\\d{1,4}|[A-Z]\\d{1,5}|\\d{1,5})\\)\\s*$",
@@ -148,6 +194,10 @@ extension ContentView {
         return baseName.trimmingCharacters(in: .whitespacesAndNewlines)
     }
     
+    /// 執行呢個檔案負責嘅相關功能。
+    /// - Parameters:
+    ///   - from: 此函式需要嘅輸入資料。
+    /// - Returns: 可用嘅位置資料；沒有時為 nil。
     private func location(from stopInfo: StopInfo) -> CLLocation? {
         guard let latitudeText = stopInfo.lat,
               let longitudeText = stopInfo.long,
@@ -158,6 +208,12 @@ extension ContentView {
         return CLLocation(latitude: latitude, longitude: longitude)
     }
     
+    /// 停止或收起相關追蹤、活動或流程。
+    /// - Parameters:
+    ///   - from: 此函式需要嘅輸入資料。
+    ///   - userLocation: 用嚟計算距離嘅位置。
+    ///   - radius: 搜尋半徑。
+    /// - Returns: 符合條件並已整理嘅資料列表。
     private func nearbyStopModels(from stops: [StopInfo], userLocation: CLLocation, radius: CLLocationDistance) -> [NearbyStopModel] {
         stops
             .compactMap { stop -> NearbyStopModel? in

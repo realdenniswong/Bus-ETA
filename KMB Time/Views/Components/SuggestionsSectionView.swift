@@ -1,5 +1,7 @@
+/// 檔案用途：顯示搜尋建議路線清單。
 import SwiftUI
 
+/// `SuggestionsSectionView` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 struct SuggestionsSectionView: View {
     let suggestions: [RouteSuggestion]
     let allRoutes: [RouteSuggestion]
@@ -63,6 +65,10 @@ struct SuggestionsSectionView: View {
         .alignedListSectionMargins(horizontal: 16)
     }
     
+    /// 判斷指定條件是否成立。
+    /// - Parameters:
+    ///   - company: 巴士公司代碼。
+    /// - Returns: 格式化或查找後嘅文字。
     private func companyDisplayName(_ company: String) -> String {
         switch company {
         case "KMB+CTB":

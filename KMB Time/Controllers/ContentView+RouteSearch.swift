@@ -1,13 +1,28 @@
+/// 檔案用途：處理路線搜尋、provider 選擇同站點高亮邏輯。
 import CoreLocation
 import SwiftUI
 
+/// 擴充 `ContentView`，加入此檔案負責嘅相關功能。
 extension ContentView {
-    /// Loads the stop-by-stop timetable for one route direction.
+    /// 按照輸入條件搜尋路線並準備顯示結果。
+    /// - Parameters:
+    ///   - route: 路線編號或路線模型。
+    ///   - direction: 巴士方向資料。
+    ///   - company: 巴士公司代碼。
+    ///   - findNearest: 控制此流程是否啟用嘅設定。
+    ///   - targetStopCode: 車站識別或車站資料。
+    ///   - shouldScroll: 此函式需要嘅輸入資料。
+    ///   - isRefresh: 控制此流程是否啟用嘅設定。
+    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
     func searchRoute(route: String, direction: String? = nil, company: String? = nil, findNearest: Bool = false, targetStopCode: String? = nil, shouldScroll: Bool = false, isRefresh: Bool = false) async {
         guard !route.isEmpty else { return }
         
         let selectedBusDirection = BusDirection(rawValue: direction ?? selectedDirection) ?? .outbound
-        let routeCompany = company ?? resolvedCompanyForSearch(route: route, direction: selectedBusDirection)
+        let routeCompany = company ?? routeSuggestionCatalog.resolvedCompany(
+            route: route,
+            direction: selectedBusDirection,
+            preferredCompany: selectedCompany
+        )
         
         await MainActor.run {
             if let direction {
@@ -55,6 +70,10 @@ extension ContentView {
         }
     }
     
+    /// 根據路線或公司選擇合適資料提供者。
+    /// - Parameters:
+    ///   - company: 巴士公司代碼。
+    /// - Returns: 計算後嘅 `BusETAProvider`。
     func providerForCompany(_ company: String) -> BusETAProvider {
         switch company {
         case "KMB+CTB":
@@ -66,10 +85,21 @@ extension ContentView {
         }
     }
     
+    /// 根據路線或公司選擇合適資料提供者。
+    /// - Parameters:
+    ///   - route: 路線編號或路線模型。
+    ///   - direction: 巴士方向資料。
+    /// - Returns: 計算後嘅 `BusETAProvider`。
     func providerForRoute(route: String, direction: BusDirection) -> BusETAProvider {
-        providerForCompany(companyCodeForRoute(route: route, direction: direction) ?? BusOperator.kmb.rawValue)
+        providerForCompany(routeSuggestionCatalog.companyCode(route: route, direction: direction) ?? BusOperator.kmb.rawValue)
     }
     
+    /// 向資料來源讀取相關巴士資料。
+    /// - Parameters:
+    ///   - route: 路線編號或路線模型。
+    ///   - direction: 巴士方向資料。
+    ///   - company: 巴士公司代碼。
+    /// - Returns: 符合條件並已整理嘅資料列表。
     private func fetchTimetableRows(route: String, direction: BusDirection, company: String) async throws -> [StopDisplayModel] {
         switch company {
         case BusOperator.ctb.rawValue:
@@ -80,35 +110,14 @@ extension ContentView {
             return try await kmbETAProvider.fetchTimetableRows(route: route, direction: direction, stopNameById: stopDictionary)
         }
     }
+
     
-    private func resolvedCompanyForSearch(route: String, direction: BusDirection) -> String {
-        if routeHasCompany(route: route, direction: direction, company: selectedCompany) {
-            return selectedCompany
-        }
-        return companyCodeForRoute(route: route, direction: direction) ?? BusOperator.kmb.rawValue
-    }
-    
-    private func companyCodeForRoute(route: String, direction: BusDirection) -> String? {
-        let matchingSuggestions = routeSuggestions(route: route, direction: direction)
-        if matchingSuggestions.count == 1 {
-            return matchingSuggestions.first?.co
-        }
-        if let jointSuggestion = matchingSuggestions.first(where: { $0.co == "KMB+CTB" }) {
-            return jointSuggestion.co
-        }
-        return ctbETAProvider.companyCode(route: route, direction: direction)
-    }
-    
-    private func routeHasCompany(route: String, direction: BusDirection, company: String) -> Bool {
-        routeSuggestions(route: route, direction: direction).contains { $0.co == company }
-    }
-    
-    private func routeSuggestions(route: String, direction: BusDirection) -> [RouteSuggestion] {
-        let normalizedRoute = route.uppercased()
-        let bound = direction.routeCode
-        return allRoutes.filter { $0.route == normalizedRoute && $0.bound == bound }
-    }
-    
+    /// 按照輸入條件搜尋路線並準備顯示結果。
+    /// - Parameters:
+    ///   - rows: 要處理嘅資料集合。
+    ///   - findNearest: 控制此流程是否啟用嘅設定。
+    ///   - targetStopCode: 車站識別或車站資料。
+    /// - Returns: 格式化或查找後嘅文字。
     private func highlightedStopIdForRouteSearch(rows: [StopDisplayModel], findNearest: Bool, targetStopCode: String?) -> String? {
         if findNearest, let userLocation = locationManager.location {
             return rows.min { firstCandidate, secondCandidate in
@@ -141,6 +150,10 @@ extension ContentView {
         }?.id
     }
     
+    /// 停止或收起相關追蹤、活動或流程。
+    /// - Parameters:
+    ///   - stopName: 車站識別或車站資料。
+    /// - Returns: 格式化或查找後嘅文字。
     private func normalizedStopName(_ stopName: String) -> String {
         stopName.replacingOccurrences(
             of: "\\s*\\([^)]+\\)\\s*$",
@@ -149,6 +162,11 @@ extension ContentView {
         )
     }
     
+    /// 判斷指定條件是否成立。
+    /// - Parameters:
+    ///   - location: 用嚟計算距離嘅位置。
+    ///   - to: 此函式需要嘅輸入資料。
+    /// - Returns: 可用嘅位置資料；沒有時為 nil。
     private func distanceFromLocation(_ location: CLLocation, to stop: StopDisplayModel) -> CLLocationDistance {
         let stopLocation = stop.location ?? stopInfoDictionary[stop.stopId]?.clLocation ?? allStops.first(where: { $0.stop == stop.stopId })?.clLocation
         return stopLocation.map { location.distance(from: $0) } ?? .infinity

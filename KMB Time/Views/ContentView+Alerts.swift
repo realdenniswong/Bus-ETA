@@ -1,6 +1,8 @@
+/// 檔案用途：處理到站提醒確認對話框內容同按鈕。
 import SwiftUI
 import UserNotifications
 
+/// 擴充 `ContentView`，加入此檔案負責嘅相關功能。
 extension ContentView {
     /// Buttons shown in the timer confirmation alert.
     @ViewBuilder
@@ -23,10 +25,10 @@ extension ContentView {
         }
     }
     
-    /// Commits the pending timer values after the user confirms the alert.
-    ///
-    /// This schedules the local notification, starts the Live Activity, starts background location
-    /// tracking, and returns the UI to the dashboard timer card.
+    /// 執行呢個檔案負責嘅相關功能。
+    /// - Parameters:
+    ///   - none: 呢個函式唔需要外部輸入。
+    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
     func confirmTimerAlert() {
         guard let etaDate = timerTargetDate else { return }
         

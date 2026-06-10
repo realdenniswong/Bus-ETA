@@ -1,6 +1,8 @@
+/// 檔案用途：連接首頁 UI 操作同 ContentView 狀態。
 import SwiftUI
 import UserNotifications
 
+/// 擴充 `ContentView`，加入此檔案負責嘅相關功能。
 extension ContentView {
     var dashboardContentView: some View {
         DashboardView(
@@ -32,7 +34,10 @@ extension ContentView {
         )
     }
     
-    /// Cancels the active dashboard reminder and clears matching system state.
+    /// 停止或收起相關追蹤、活動或流程。
+    /// - Parameters:
+    ///   - none: 呢個函式唔需要外部輸入。
+    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
     func cancelActiveTimer() {
         withAnimation(.easeInOut(duration: 0.3)) {
             activeTimer = nil
@@ -42,7 +47,10 @@ extension ContentView {
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["KMBTimeAlarm"])
     }
     
-    /// Requests a fresh device location and refreshes nearby stops when a location is already available.
+    /// 重新整理目前畫面需要嘅資料。
+    /// - Parameters:
+    ///   - none: 呢個函式唔需要外部輸入。
+    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
     func refreshLocationAndNearbyStops() {
         locationManager.requestLocation()
         Task {
@@ -52,9 +60,10 @@ extension ContentView {
         }
     }
     
-    /// Opens the route-detail screen from a search suggestion row.
-    ///
-    /// - Parameter suggestion: Selected route direction from `searchSuggestions`.
+    /// 開啟指定路線或畫面流程。
+    /// - Parameters:
+    ///   - suggestion: 此函式需要嘅輸入資料。
+    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
     func openSuggestedRoute(_ suggestion: RouteSuggestion) {
         showCustomKeyboard = false
         
@@ -76,11 +85,11 @@ extension ContentView {
         }
     }
     
-    /// Opens the route-detail screen from a nearby dashboard route row.
-    ///
+    /// 開啟指定路線或畫面流程。
     /// - Parameters:
-    ///   - route: Route row selected from the nearby dashboard.
-    ///   - stopInfo: Dashboard stop used as the target highlight in the timetable.
+    ///   - route: 路線編號或路線模型。
+    ///   - stopInfo: 車站識別或車站資料。
+    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
     func openNearbyDashboardRoute(_ route: NearbyRouteModel, stopInfo: StopInfo) {
         let detailDirectionCode = route.detailDirectionCode ?? route.directionCode
         let newDirection = detailDirectionCode == "O" ? "outbound" : "inbound"
@@ -101,7 +110,11 @@ extension ContentView {
         }
     }
     
-    /// Prepares the timer confirmation alert from a nearby dashboard route row.
+    /// 準備稍後操作需要嘅資料同 UI 狀態。
+    /// - Parameters:
+    ///   - route: 路線編號或路線模型。
+    ///   - stopInfo: 車站識別或車站資料。
+    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
     func prepareNearbyTimerAlert(route: NearbyRouteModel, stopInfo: StopInfo) {
         guard let firstEta = route.etas.first(where: { $0.etaDate ?? Date.distantFuture > Date() }),
               let etaDate = firstEta.etaDate else { return }
@@ -116,15 +129,16 @@ extension ContentView {
         )
     }
     
-    /// Fills the pending timer fields before showing the confirmation alert.
-    ///
+    /// 準備稍後操作需要嘅資料同 UI 狀態。
     /// - Parameters:
-    ///   - route: Route number selected by the user.
-    ///   - destination: Route destination shown in the alert and Live Activity.
-    ///   - stationName: Stop name shown in the alert and Live Activity.
-    ///   - stopId: Stop id used for future ETA refreshes.
-    ///   - direction: Direction string, either `outbound` or `inbound`.
-    ///   - etaDate: ETA that the user wants to track.
+    ///   - route: 路線編號或路線模型。
+    ///   - destination: 畫面顯示文字。
+    ///   - stationName: 車站識別或車站資料。
+    ///   - stopId: 車站識別或車站資料。
+    ///   - direction: 巴士方向資料。
+    ///   - company: 巴士公司代碼。
+    ///   - etaDate: 時間或到站時間資料。
+    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
     func prepareTimerAlert(route: String, destination: String, stationName: String, stopId: String, direction: String, company: String = BusOperator.kmb.rawValue, etaDate: Date) {
         timerTargetDate = etaDate
         timerRouteName = route.uppercased()

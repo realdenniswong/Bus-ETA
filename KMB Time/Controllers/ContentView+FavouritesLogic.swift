@@ -1,7 +1,12 @@
+/// 檔案用途：更新收藏路線 ETA，並喺資料齊備後預熱收藏狀態。
 import Foundation
 
+/// 擴充 `ContentView`，加入此檔案負責嘅相關功能。
 extension ContentView {
-    /// Refreshes ETA and nearest-stop status for every saved favourite route.
+    /// 更新相關狀態，令畫面或快取保持最新。
+    /// - Parameters:
+    ///   - none: 呢個函式唔需要外部輸入。
+    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
     func updateFavoriteETAs() async {
         guard let userLocation = locationManager.location,
               !favoritesManager.favoriteRoutes.isEmpty else { return }
@@ -51,6 +56,10 @@ extension ContentView {
         }
     }
     
+    /// 執行呢個檔案負責嘅相關功能。
+    /// - Parameters:
+    ///   - none: 呢個函式唔需要外部輸入。
+    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
     func warmFavoriteETAsIfPossible() {
         guard !favoritesManager.favoriteRoutes.isEmpty,
               favoriteStatus.isEmpty,

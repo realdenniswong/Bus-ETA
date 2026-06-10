@@ -1,5 +1,7 @@
+/// 檔案用途：顯示首頁搜尋、附近路線、建議路線同即時計時卡。
 import SwiftUI
 
+/// `DashboardView` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 struct DashboardView: View {
     @ObservedObject var locationManager: LocationManager
     @Binding var searchText: String
@@ -128,6 +130,10 @@ struct DashboardView: View {
         )
     }
     
+    /// 執行呢個檔案負責嘅相關功能。
+    /// - Parameters:
+    ///   - timer: 時間或到站時間資料。
+    /// - Returns: 可供 SwiftUI 顯示嘅畫面內容。
     private func activeTimerCardView(timer: ActiveTimerModel) -> some View {
         ActiveTimerCardView(
             timer: timer,
@@ -183,14 +189,24 @@ struct DashboardView: View {
         }
     }
     
+    /// 停止或收起相關追蹤、活動或流程。
+    /// - Parameters:
+    ///   - none: 呢個函式唔需要外部輸入。
+    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
     private func dismissKeyboardSafe() {
         withAnimation(.spring()) {
             showCustomKeyboard = false
         }
     }
 }
+/// 擴充 `View`，加入此檔案負責嘅相關功能。
 private extension View {
     @ViewBuilder
+    /// 執行呢個檔案負責嘅相關功能。
+    /// - Parameters:
+    ///   - cornerRadius: 搜尋半徑。
+    ///   - isInteractive: 控制此流程是否啟用嘅設定。
+    /// - Returns: 可供 SwiftUI 顯示嘅畫面內容。
     func liquidGlassSurface(cornerRadius: CGFloat, isInteractive: Bool = false) -> some View {
         if #available(iOS 26.0, *) {
             if isInteractive {

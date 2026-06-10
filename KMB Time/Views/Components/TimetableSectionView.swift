@@ -1,12 +1,8 @@
-//
-//  TimetableSectionView.swift
-//  KMB Time
-//
-//  Created by Dennis Wong on 6/4/26.
-//
+/// 檔案用途：顯示路線站序、ETA 同站點操作。
 
 import SwiftUI
 
+/// `TimetableSectionView` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 struct TimetableSectionView: View {
     let displayData: [StopDisplayModel]
     let highlightedStopId: String?
@@ -104,6 +100,11 @@ struct TimetableSectionView: View {
         }
     }
     
+    /// 將資料格式化成畫面顯示文字。
+    /// - Parameters:
+    ///   - for: 此函式需要嘅輸入資料。
+    ///   - in: 此函式需要嘅輸入資料。
+    /// - Returns: 格式化或查找後嘅文字。
     private func formattedRemark(for etaInfo: ETADisplayInfo, in etas: [ETADisplayInfo]) -> String {
         let parts = [companyRemark(for: etaInfo), normalizedRemark(etaInfo.remark)]
             .compactMap { $0 }
@@ -111,6 +112,10 @@ struct TimetableSectionView: View {
         return parts.map { "(\($0))" }.joined()
     }
     
+    /// 整理或查找巴士公司顯示資料。
+    /// - Parameters:
+    ///   - for: 此函式需要嘅輸入資料。
+    /// - Returns: 格式化或查找後嘅文字。
     private func companyRemark(for etaInfo: ETADisplayInfo) -> String? {
         guard routeCompany == "KMB+CTB" else { return nil }
         switch etaInfo.companyCode {
@@ -121,6 +126,10 @@ struct TimetableSectionView: View {
         }
     }
     
+    /// 執行呢個檔案負責嘅相關功能。
+    /// - Parameters:
+    ///   - remark: 此函式需要嘅輸入資料。
+    /// - Returns: 格式化或查找後嘅文字。
     private func normalizedRemark(_ remark: String?) -> String? {
         guard let remark else { return nil }
         let trimmedRemark = remark.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -131,6 +140,10 @@ struct TimetableSectionView: View {
         return trimmedRemark
     }
     
+    /// 判斷指定條件是否成立。
+    /// - Parameters:
+    ///   - remark: 此函式需要嘅輸入資料。
+    /// - Returns: 條件是否成立。
     private func isLastBusRemark(_ remark: String) -> Bool {
         remark.contains("最後") || remark.contains("尾班") || remark.localizedCaseInsensitiveContains("last")
     }

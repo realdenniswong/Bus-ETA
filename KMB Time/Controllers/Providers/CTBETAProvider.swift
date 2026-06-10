@@ -1,13 +1,8 @@
+/// 檔案用途：處理城巴資料來源、CSV 快取、API 站點、ETA 同聯營路線配對。
 import CoreLocation
 import Foundation
 
-/// Citybus/CTB implementation backed by official DATA.GOV.HK v2 APIs.
-///
-/// CTB does not expose one all-stops or all-route-stops endpoint. The provider uses:
-/// - `route/CTB` for search suggestions.
-/// - `route-stop/CTB/{route}/{outbound|inbound}` for route detail rows.
-/// - `stop/{stopId}` and `eta/CTB/{stopId}/{route}` for stop names, coordinates, and live ETAs.
-/// - The bundled full bus-route CSV for nearby-stop discovery and KMB+CTB joint-route tagging.
+/// `CTBETAProvider` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 struct CTBETAProvider: BusETAProvider {
     static let shared = CTBETAProvider()
 
@@ -17,8 +12,16 @@ struct CTBETAProvider: BusETAProvider {
     private let jsonDecoder = JSONDecoder()
     private let routeStore = CTBRouteStore.shared
 
+    /// 建立物件並準備需要嘅初始狀態。
+    /// - Parameters:
+    ///   - none: 呢個函式唔需要外部輸入。
+    /// - Returns: 無回傳值；完成物件初始化。
     private init() { }
 
+    /// 向資料來源讀取相關巴士資料。
+    /// - Parameters:
+    ///   - none: 呢個函式唔需要外部輸入。
+    /// - Returns: 符合條件並已整理嘅資料列表。
     func fetchRouteSuggestions() async throws -> [RouteSuggestion] {
         let routes = try await loadRouteList()
         routeStore.loadCSVDataIfNeeded()
@@ -37,11 +40,19 @@ struct CTBETAProvider: BusETAProvider {
         .sorted(by: sortRouteSuggestions)
     }
 
+    /// 向資料來源讀取相關巴士資料。
+    /// - Parameters:
+    ///   - none: 呢個函式唔需要外部輸入。
+    /// - Returns: 符合條件並已整理嘅資料列表。
     func fetchStops() async throws -> [StopInfo] {
         routeStore.loadCSVDataIfNeeded()
         return routeStore.stops
     }
 
+    /// 向資料來源讀取相關巴士資料。
+    /// - Parameters:
+    ///   - forStopId: 車站識別或車站資料。
+    /// - Returns: 符合條件並已整理嘅資料列表。
     func fetchNearbyRoutes(forStopId stopId: String) async throws -> [NearbyRouteModel] {
         _ = try await loadRouteList()
         routeStore.loadCSVDataIfNeeded()
@@ -56,6 +67,12 @@ struct CTBETAProvider: BusETAProvider {
         }
     }
 
+    /// 向資料來源讀取相關巴士資料。
+    /// - Parameters:
+    ///   - route: 路線編號或路線模型。
+    ///   - direction: 巴士方向資料。
+    ///   - stopNameById: 車站識別或車站資料。
+    /// - Returns: 符合條件並已整理嘅資料列表。
     func fetchTimetableRows(route: String, direction: BusDirection, stopNameById: [String: String]) async throws -> [StopDisplayModel] {
         let rows = try await fetchAPIRouteStops(route: route, direction: direction)
         return await withTaskGroup(of: StopDisplayModel.self) { group in
@@ -83,6 +100,11 @@ struct CTBETAProvider: BusETAProvider {
         }
     }
 
+    /// 向資料來源讀取相關巴士資料。
+    /// - Parameters:
+    ///   - for: 此函式需要嘅輸入資料。
+    ///   - context: 查找站點同位置所需嘅上下文資料。
+    /// - Returns: 找到時回傳對應資料；沒有時為 nil。
     func fetchFavoriteStatus(for favorite: FavoriteRoute, context: RouteStopLookupContext) async throws -> FavoriteStatusModel? {
         let direction = BusDirection(rawValue: favorite.direction) ?? .outbound
         let rows = try await fetchAPIRouteStops(route: favorite.route, direction: direction)
@@ -107,17 +129,33 @@ struct CTBETAProvider: BusETAProvider {
         return FavoriteStatusModel(etas: Array(etas.prefix(3)), distance: nearestDistance, stopName: nearestStopInfo.name_tc)
     }
 
+    /// 向資料來源讀取相關巴士資料。
+    /// - Parameters:
+    ///   - route: 路線編號或路線模型。
+    ///   - direction: 巴士方向資料。
+    ///   - stopId: 車站識別或車站資料。
+    /// - Returns: 符合條件並已整理嘅資料列表。
     func fetchTimerETAs(route: String, direction: BusDirection, stopId: String) async throws -> [ETADisplayInfo] {
         try await fetchCTBETAs(stopId: stopId, route: route, direction: direction)
     }
 }
 
+/// 擴充 `CTBETAProvider`，加入此檔案負責嘅相關功能。
 extension CTBETAProvider {
+    /// 停止或收起相關追蹤、活動或流程。
+    /// - Parameters:
+    ///   - near: 此函式需要嘅輸入資料。
+    ///   - limit: 最多回傳嘅項目數量。
+    /// - Returns: 符合條件並已整理嘅資料列表。
     func nearbyStops(near location: CLLocation, limit: Int) async throws -> [StopInfo] {
         routeStore.loadCSVDataIfNeeded()
         return routeStore.nearbyStops(near: location, limit: limit)
     }
 
+    /// 向資料來源讀取相關巴士資料。
+    /// - Parameters:
+    ///   - near: 此函式需要嘅輸入資料。
+    /// - Returns: 符合條件並已整理嘅資料列表。
     func fetchNearbyRoutes(near location: CLLocation) async throws -> [NearbyRouteModel] {
         _ = try await loadRouteList()
         routeStore.loadCSVDataIfNeeded()
@@ -130,18 +168,34 @@ extension CTBETAProvider {
         }
     }
 
+    /// 判斷指定條件是否成立。
+    /// - Parameters:
+    ///   - route: 路線編號或路線模型。
+    ///   - direction: 巴士方向資料。
+    /// - Returns: 條件是否成立。
     func isJointRoute(route: String, direction: BusDirection) -> Bool {
         routeStore.loadCSVDataIfNeeded()
         return routeStore.companyCode(route: route, direction: direction) == "KMB+CTB"
     }
 
+    /// 整理或查找巴士公司顯示資料。
+    /// - Parameters:
+    ///   - route: 路線編號或路線模型。
+    ///   - direction: 巴士方向資料。
+    /// - Returns: 格式化或查找後嘅文字。
     func companyCode(route: String, direction: BusDirection) -> String? {
         routeStore.loadCSVDataIfNeeded()
         return routeStore.companyCode(route: route, direction: direction)
     }
 }
 
+/// 擴充 `CTBETAProvider`，加入此檔案負責嘅相關功能。
 private extension CTBETAProvider {
+    /// 計算或讀取附近站點同路線資料。
+    /// - Parameters:
+    ///   - for: 此函式需要嘅輸入資料。
+    ///   - near: 此函式需要嘅輸入資料。
+    /// - Returns: 符合條件並已整理嘅資料列表。
     func nearbyRouteModels(for directions: [CTBRouteDirection], near location: CLLocation?) async -> [NearbyRouteModel] {
         await withTaskGroup(of: NearbyRouteModel.self) { group in
             for direction in directions {
@@ -158,6 +212,11 @@ private extension CTBETAProvider {
         }
     }
     
+    /// 計算或讀取附近站點同路線資料。
+    /// - Parameters:
+    ///   - for: 此函式需要嘅輸入資料。
+    ///   - near: 此函式需要嘅輸入資料。
+    /// - Returns: 計算後嘅 `NearbyRouteModel`。
     func nearbyRouteModel(for direction: CTBRouteDirection, near location: CLLocation?) async -> NearbyRouteModel {
         let apiStopId = await matchedAPIStopId(
             route: direction.routeName,
@@ -186,6 +245,10 @@ private extension CTBETAProvider {
         )
     }
     
+    /// 載入需要嘅資料並更新本機狀態或快取。
+    /// - Parameters:
+    ///   - none: 呢個函式唔需要外部輸入。
+    /// - Returns: 符合條件並已整理嘅資料列表。
     func loadRouteList() async throws -> [CTBRouteAPIItem] {
         if let routes = routeStore.routeListIfLoaded() {
             return routes
@@ -208,6 +271,11 @@ private extension CTBETAProvider {
         }
     }
 
+    /// 向資料來源讀取相關巴士資料。
+    /// - Parameters:
+    ///   - route: 路線編號或路線模型。
+    ///   - direction: 巴士方向資料。
+    /// - Returns: 符合條件並已整理嘅資料列表。
     func fetchAPIRouteStops(route: String, direction: BusDirection) async throws -> [CTBRouteStopRow] {
         if let rows = routeStore.apiRouteStops(route: route, direction: direction) {
             return rows
@@ -238,6 +306,10 @@ private extension CTBETAProvider {
         }
     }
 
+    /// 向資料來源讀取相關巴士資料。
+    /// - Parameters:
+    ///   - stopId: 車站識別或車站資料。
+    /// - Returns: 找到時回傳對應資料；沒有時為 nil。
     func fetchStopInfo(stopId: String) async throws -> StopInfo? {
         if let stopInfo = routeStore.stopInfo(stopId: stopId) {
             return stopInfo
@@ -257,6 +329,13 @@ private extension CTBETAProvider {
         return stopInfo
     }
 
+    /// 停止或收起相關追蹤、活動或流程。
+    /// - Parameters:
+    ///   - route: 路線編號或路線模型。
+    ///   - direction: 巴士方向資料。
+    ///   - preferredStopId: 車站識別或車站資料。
+    ///   - near: 此函式需要嘅輸入資料。
+    /// - Returns: 格式化或查找後嘅文字。
     func matchedAPIStopId(route: String, direction: BusDirection, preferredStopId: String?, near location: CLLocation?) async -> String? {
         guard let location else { return nil }
         guard let rows = try? await fetchAPIRouteStops(route: route, direction: direction) else { return nil }
@@ -294,6 +373,10 @@ private extension CTBETAProvider {
         return bestMatch.stopId
     }
 
+    /// 停止或收起相關追蹤、活動或流程。
+    /// - Parameters:
+    ///   - from: 此函式需要嘅輸入資料。
+    /// - Returns: 可用嘅位置資料；沒有時為 nil。
     nonisolated static func stopLocation(from stopInfo: StopInfo) -> CLLocation? {
         guard let latitudeText = stopInfo.lat,
               let longitudeText = stopInfo.long,
@@ -304,6 +387,12 @@ private extension CTBETAProvider {
         return CLLocation(latitude: latitude, longitude: longitude)
     }
 
+    /// 向資料來源讀取相關巴士資料。
+    /// - Parameters:
+    ///   - stopId: 車站識別或車站資料。
+    ///   - route: 路線編號或路線模型。
+    ///   - direction: 巴士方向資料。
+    /// - Returns: 符合條件並已整理嘅資料列表。
     func fetchCTBETAs(stopId: String, route: String, direction: BusDirection) async throws -> [ETADisplayInfo] {
         if let cachedETAs = routeStore.cachedETAs(stopId: stopId, route: route, direction: direction) {
             return cachedETAs
@@ -355,6 +444,11 @@ private extension CTBETAProvider {
         return try jsonDecoder.decode(Response.self, from: data)
     }
 
+    /// 按畫面需要排序並回傳結果。
+    /// - Parameters:
+    ///   - first: 此函式需要嘅輸入資料。
+    ///   - second: 此函式需要嘅輸入資料。
+    /// - Returns: 條件是否成立。
     func sortRouteSuggestions(_ first: RouteSuggestion, _ second: RouteSuggestion) -> Bool {
         if first.route == second.route {
             if first.bound == second.bound {
@@ -367,10 +461,12 @@ private extension CTBETAProvider {
 
 }
 
+/// `CTBRouteResponse` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 private struct CTBRouteResponse: Decodable {
     let data: [CTBRouteAPIItem]
 }
 
+/// `CTBRouteAPIItem` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 private struct CTBRouteAPIItem: Decodable {
     let co: String?
     let route: String
@@ -378,10 +474,12 @@ private struct CTBRouteAPIItem: Decodable {
     let dest_tc: String
 }
 
+/// `CTBRouteStopResponse` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 private struct CTBRouteStopResponse: Decodable {
     let data: [CTBRouteStopAPIItem]
 }
 
+/// `CTBRouteStopAPIItem` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 private struct CTBRouteStopAPIItem: Decodable {
     let route: String
     let dir: String
@@ -389,10 +487,12 @@ private struct CTBRouteStopAPIItem: Decodable {
     let stop: String
 }
 
+/// `CTBStopDetailResponse` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 private struct CTBStopDetailResponse: Decodable {
     let data: CTBStopDetailData
 }
 
+/// `CTBStopDetailData` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 private struct CTBStopDetailData: Decodable {
     let stop: String?
     let name_tc: String?
@@ -400,10 +500,12 @@ private struct CTBStopDetailData: Decodable {
     let long: String?
 }
 
+/// `CTBETAResponse` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 private struct CTBETAResponse: Decodable {
     let data: [CTBETAItem]
 }
 
+/// `CTBETAItem` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 private struct CTBETAItem: Decodable {
     let route: String
     let dir: String?
@@ -411,6 +513,7 @@ private struct CTBETAItem: Decodable {
     let rmk_tc: String?
 }
 
+/// `FlexibleInt` 列出此功能範圍會用到嘅固定選項。
 private enum FlexibleInt: Decodable {
     case value(Int)
 
@@ -421,6 +524,10 @@ private enum FlexibleInt: Decodable {
         }
     }
 
+    /// 建立物件並準備需要嘅初始狀態。
+    /// - Parameters:
+    ///   - from: 此函式需要嘅輸入資料。
+    /// - Returns: 無回傳值；完成物件初始化。
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         if let intValue = try? container.decode(Int.self) {
@@ -450,14 +557,26 @@ private final class CTBRouteStore {
     private let etaCacheLifetime: TimeInterval = 12
     private let lock = NSLock()
 
+    /// 建立物件並準備需要嘅初始狀態。
+    /// - Parameters:
+    ///   - none: 呢個函式唔需要外部輸入。
+    /// - Returns: 無回傳值；完成物件初始化。
     private init() { }
 
+    /// 載入需要嘅資料並更新本機狀態或快取。
+    /// - Parameters:
+    ///   - none: 呢個函式唔需要外部輸入。
+    /// - Returns: 符合條件並已整理嘅資料列表。
     func routeListIfLoaded() -> [CTBRouteAPIItem]? {
         lock.lock()
         defer { lock.unlock() }
         return routeList.isEmpty ? nil : routeList
     }
 
+    /// 更新相關狀態，令畫面或快取保持最新。
+    /// - Parameters:
+    ///   - routes: 路線編號或路線模型。
+    /// - Returns: 符合條件並已整理嘅資料列表。
     func updateRouteList(_ routes: [CTBRouteAPIItem]) -> [CTBRouteAPIItem] {
         lock.lock()
         defer { lock.unlock() }
@@ -467,6 +586,10 @@ private final class CTBRouteStore {
         return routeList
     }
 
+    /// 判斷指定條件是否成立。
+    /// - Parameters:
+    ///   - createTask: 時間或到站時間資料。
+    /// - Returns: 符合條件並已整理嘅資料列表。
     func routeListTaskOrCreate(_ createTask: () -> Task<[CTBRouteAPIItem], Error>) -> Task<[CTBRouteAPIItem], Error> {
         lock.lock()
         defer { lock.unlock() }
@@ -478,12 +601,20 @@ private final class CTBRouteStore {
         return task
     }
 
+    /// 清除指定狀態或暫存資料。
+    /// - Parameters:
+    ///   - none: 呢個函式唔需要外部輸入。
+    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
     func clearRouteListTask() {
         lock.lock()
         defer { lock.unlock() }
         routeListTask = nil
     }
 
+    /// 載入需要嘅資料並更新本機狀態或快取。
+    /// - Parameters:
+    ///   - none: 呢個函式唔需要外部輸入。
+    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
     func loadCSVDataIfNeeded() {
         lock.lock()
         defer { lock.unlock() }
@@ -585,6 +716,10 @@ private final class CTBRouteStore {
         saveParsedCSVCache(for: csvURL)
     }
 
+    /// 整理或查找路線相關資料。
+    /// - Parameters:
+    ///   - servingStopId: 車站識別或車站資料。
+    /// - Returns: 符合條件並已整理嘅資料列表。
     func routeDirections(servingStopId stopId: String) -> [CTBRouteDirection] {
         lock.lock()
         defer { lock.unlock() }
@@ -592,6 +727,11 @@ private final class CTBRouteStore {
         return enrichedDirections(csvDirectionsByStopId[stopId] ?? [])
     }
     
+    /// 停止或收起相關追蹤、活動或流程。
+    /// - Parameters:
+    ///   - near: 此函式需要嘅輸入資料。
+    ///   - limit: 最多回傳嘅項目數量。
+    /// - Returns: 符合條件並已整理嘅資料列表。
     func nearbyStops(near location: CLLocation, limit: Int) -> [StopInfo] {
         lock.lock()
         defer { lock.unlock() }
@@ -604,6 +744,12 @@ private final class CTBRouteStore {
         .map(\.stopInfo)
     }
     
+    /// 整理或查找路線相關資料。
+    /// - Parameters:
+    ///   - near: 此函式需要嘅輸入資料。
+    ///   - radius: 搜尋半徑。
+    ///   - limitStops: 車站識別或車站資料。
+    /// - Returns: 符合條件並已整理嘅資料列表。
     func routeDirections(near location: CLLocation, radius: CLLocationDistance, limitStops: Int) -> [CTBRouteDirection] {
         lock.lock()
         defer { lock.unlock() }
@@ -626,6 +772,10 @@ private final class CTBRouteStore {
         return enrichedDirections(directions)
     }
 
+    /// 停止或收起相關追蹤、活動或流程。
+    /// - Parameters:
+    ///   - from: 此函式需要嘅輸入資料。
+    /// - Returns: 可用嘅位置資料；沒有時為 nil。
     private func stopLocation(from stopInfo: StopInfo) -> CLLocation? {
         guard let latitudeText = stopInfo.lat,
               let longitudeText = stopInfo.long,
@@ -636,16 +786,31 @@ private final class CTBRouteStore {
         return CLLocation(latitude: latitude, longitude: longitude)
     }
 
+    /// 執行呢個檔案負責嘅相關功能。
+    /// - Parameters:
+    ///   - directions: 巴士方向資料。
+    /// - Returns: 符合條件並已整理嘅資料列表。
     private func enrichedDirections(_ directions: [CTBRouteDirection]) -> [CTBRouteDirection] {
         directions
     }
 
+    /// 停止或收起相關追蹤、活動或流程。
+    /// - Parameters:
+    ///   - route: 路線編號或路線模型。
+    ///   - direction: 巴士方向資料。
+    /// - Returns: 符合條件並已整理嘅資料列表。
     func apiRouteStops(route: String, direction: BusDirection) -> [CTBRouteStopRow]? {
         lock.lock()
         defer { lock.unlock() }
         return apiRowsByRouteDirection[key(route: route.uppercased(), direction: direction)]
     }
 
+    /// 更新相關狀態，令畫面或快取保持最新。
+    /// - Parameters:
+    ///   - rows: 要處理嘅資料集合。
+    ///   - route: 路線編號或路線模型。
+    ///   - direction: 巴士方向資料。
+    /// - Returns: 符合條件並已整理嘅資料列表。
     func updateAPIRouteStops(_ rows: [CTBRouteStopRow], route: String, direction: BusDirection) -> [CTBRouteStopRow] {
         lock.lock()
         defer { lock.unlock() }
@@ -654,6 +819,12 @@ private final class CTBRouteStore {
         return sortedRows
     }
 
+    /// 停止或收起相關追蹤、活動或流程。
+    /// - Parameters:
+    ///   - route: 路線編號或路線模型。
+    ///   - direction: 巴士方向資料。
+    ///   - createTask: 時間或到站時間資料。
+    /// - Returns: 符合條件並已整理嘅資料列表。
     func apiRouteStopsTaskOrCreate(route: String, direction: BusDirection, createTask: () -> Task<[CTBRouteStopRow], Error>) -> Task<[CTBRouteStopRow], Error> {
         lock.lock()
         defer { lock.unlock() }
@@ -666,12 +837,23 @@ private final class CTBRouteStore {
         return task
     }
 
+    /// 清除指定狀態或暫存資料。
+    /// - Parameters:
+    ///   - route: 路線編號或路線模型。
+    ///   - direction: 巴士方向資料。
+    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
     func clearAPIRouteStopsTask(route: String, direction: BusDirection) {
         lock.lock()
         defer { lock.unlock() }
         apiRowsTasksByRouteDirection[key(route: route, direction: direction)] = nil
     }
 
+    /// 執行呢個檔案負責嘅相關功能。
+    /// - Parameters:
+    ///   - stopId: 車站識別或車站資料。
+    ///   - route: 路線編號或路線模型。
+    ///   - direction: 巴士方向資料。
+    /// - Returns: 符合條件並已整理嘅資料列表。
     func cachedETAs(stopId: String, route: String, direction: BusDirection) -> [ETADisplayInfo]? {
         lock.lock()
         defer { lock.unlock() }
@@ -682,12 +864,26 @@ private final class CTBRouteStore {
         return cacheEntry.etas
     }
 
+    /// 更新相關狀態，令畫面或快取保持最新。
+    /// - Parameters:
+    ///   - etas: 時間或到站時間資料。
+    ///   - stopId: 車站識別或車站資料。
+    ///   - route: 路線編號或路線模型。
+    ///   - direction: 巴士方向資料。
+    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
     func updateETACache(_ etas: [ETADisplayInfo], stopId: String, route: String, direction: BusDirection) {
         lock.lock()
         defer { lock.unlock() }
         etaCacheByStopRouteDirection[etaKey(stopId: stopId, route: route, direction: direction)] = (Date(), etas)
     }
 
+    /// 執行呢個檔案負責嘅相關功能。
+    /// - Parameters:
+    ///   - stopId: 車站識別或車站資料。
+    ///   - route: 路線編號或路線模型。
+    ///   - direction: 巴士方向資料。
+    ///   - createTask: 時間或到站時間資料。
+    /// - Returns: 符合條件並已整理嘅資料列表。
     func etaTaskOrCreate(stopId: String, route: String, direction: BusDirection, createTask: () -> Task<[ETADisplayInfo], Error>) -> Task<[ETADisplayInfo], Error> {
         lock.lock()
         defer { lock.unlock() }
@@ -700,42 +896,78 @@ private final class CTBRouteStore {
         return task
     }
 
+    /// 清除指定狀態或暫存資料。
+    /// - Parameters:
+    ///   - stopId: 車站識別或車站資料。
+    ///   - route: 路線編號或路線模型。
+    ///   - direction: 巴士方向資料。
+    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
     func clearETATask(stopId: String, route: String, direction: BusDirection) {
         lock.lock()
         defer { lock.unlock() }
         etaTasksByStopRouteDirection[etaKey(stopId: stopId, route: route, direction: direction)] = nil
     }
 
+    /// 停止或收起相關追蹤、活動或流程。
+    /// - Parameters:
+    ///   - stopId: 車站識別或車站資料。
+    /// - Returns: 找到時回傳對應資料；沒有時為 nil。
     func stopInfo(stopId: String) -> StopInfo? {
         lock.lock()
         defer { lock.unlock() }
         return stopInfoById[stopId]
     }
 
+    /// 更新相關狀態，令畫面或快取保持最新。
+    /// - Parameters:
+    ///   - stopInfo: 車站識別或車站資料。
+    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
     func updateStopInfo(_ stopInfo: StopInfo) {
         lock.lock()
         defer { lock.unlock() }
         stopInfoById[stopInfo.stop] = stopInfo
     }
     
+    /// 停止或收起相關追蹤、活動或流程。
+    /// - Parameters:
+    ///   - route: 路線編號或路線模型。
+    ///   - direction: 巴士方向資料。
+    ///   - near: 此函式需要嘅輸入資料。
+    /// - Returns: 格式化或查找後嘅文字。
     func matchedStopId(route: String, direction: BusDirection, near location: CLLocation) -> String? {
         lock.lock()
         defer { lock.unlock() }
         return matchedStopIdByRouteDirectionLocation[locationKey(route: route, direction: direction, location: location)]
     }
     
+    /// 更新相關狀態，令畫面或快取保持最新。
+    /// - Parameters:
+    ///   - stopId: 車站識別或車站資料。
+    ///   - route: 路線編號或路線模型。
+    ///   - direction: 巴士方向資料。
+    ///   - near: 此函式需要嘅輸入資料。
+    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
     func updateMatchedStopId(_ stopId: String, route: String, direction: BusDirection, near location: CLLocation) {
         lock.lock()
         defer { lock.unlock() }
         matchedStopIdByRouteDirectionLocation[locationKey(route: route, direction: direction, location: location)] = stopId
     }
 
+    /// 整理或查找巴士公司顯示資料。
+    /// - Parameters:
+    ///   - route: 路線編號或路線模型。
+    ///   - direction: 巴士方向資料。
+    /// - Returns: 格式化或查找後嘅文字。
     func companyCode(route: String, direction: BusDirection) -> String? {
         lock.lock()
         defer { lock.unlock() }
         return companyCodeByRouteDirection[key(route: route.uppercased(), direction: direction)]
     }
 
+    /// 載入需要嘅資料並更新本機狀態或快取。
+    /// - Parameters:
+    ///   - for: 此函式需要嘅輸入資料。
+    /// - Returns: 條件是否成立。
     private func loadParsedCSVCache(for csvURL: URL) -> Bool {
         guard let cacheURL = parsedCSVCacheURL(),
               let data = try? Data(contentsOf: cacheURL),
@@ -753,6 +985,10 @@ private final class CTBRouteStore {
         return true
     }
     
+    /// 解析輸入內容並轉成程式可用資料。
+    /// - Parameters:
+    ///   - for: 此函式需要嘅輸入資料。
+    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
     private func saveParsedCSVCache(for csvURL: URL) {
         guard let cacheURL = parsedCSVCacheURL() else { return }
         do {
@@ -773,12 +1009,20 @@ private final class CTBRouteStore {
         }
     }
     
+    /// 解析輸入內容並轉成程式可用資料。
+    /// - Parameters:
+    ///   - none: 呢個函式唔需要外部輸入。
+    /// - Returns: 找到時回傳對應資料；沒有時為 nil。
     private func parsedCSVCacheURL() -> URL? {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
             .appendingPathComponent("KMB Time", isDirectory: true)
             .appendingPathComponent("ctb-parsed-csv-cache.json")
     }
     
+    /// 執行呢個檔案負責嘅相關功能。
+    /// - Parameters:
+    ///   - for: 此函式需要嘅輸入資料。
+    /// - Returns: 格式化或查找後嘅文字。
     private func csvFingerprint(for csvURL: URL) -> String {
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: csvURL.path) else {
             return csvURL.lastPathComponent
@@ -788,6 +1032,10 @@ private final class CTBRouteStore {
         return "\(csvURL.lastPathComponent)-\(fileSize?.int64Value ?? 0)-\(modifiedAt?.timeIntervalSince1970 ?? 0)"
     }
 
+    /// 執行呢個檔案負責嘅相關功能。
+    /// - Parameters:
+    ///   - none: 呢個函式唔需要外部輸入。
+    /// - Returns: 找到時回傳對應資料；沒有時為 nil。
     private func csvResourceURL() -> URL? {
         let resourceNames = ["bus_routes_all_stops", "ctb_routes_all_stops"]
         
@@ -847,24 +1095,51 @@ private final class CTBRouteStore {
         return nil
     }
 
+    /// 執行呢個檔案負責嘅相關功能。
+    /// - Parameters:
+    ///   - name: 畫面顯示文字。
+    ///   - in: 此函式需要嘅輸入資料。
+    ///   - indexes: 此函式需要嘅輸入資料。
+    /// - Returns: 格式化或查找後嘅文字。
     private func value(_ name: String, in record: [String], indexes: [String: Int]) -> String? {
         guard let index = indexes[name], index < record.count else { return nil }
         let trimmed = record[index].trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    /// 建立用於查找或快取嘅穩定 key。
+    /// - Parameters:
+    ///   - route: 路線編號或路線模型。
+    ///   - direction: 巴士方向資料。
+    /// - Returns: 格式化或查找後嘅文字。
     private func key(route: String, direction: BusDirection) -> String {
         "\(route.uppercased())-\(direction.rawValue)"
     }
     
+    /// 建立用於查找或快取嘅穩定 key。
+    /// - Parameters:
+    ///   - stopId: 車站識別或車站資料。
+    ///   - route: 路線編號或路線模型。
+    ///   - direction: 巴士方向資料。
+    /// - Returns: 格式化或查找後嘅文字。
     private func etaKey(stopId: String, route: String, direction: BusDirection) -> String {
         "\(stopId)-\(route.uppercased())-\(direction.rawValue)"
     }
     
+    /// 建立用於查找或快取嘅穩定 key。
+    /// - Parameters:
+    ///   - route: 路線編號或路線模型。
+    ///   - direction: 巴士方向資料。
+    ///   - location: 用嚟計算距離嘅位置。
+    /// - Returns: 格式化或查找後嘅文字。
     private func locationKey(route: String, direction: BusDirection, location: CLLocation) -> String {
         "\(key(route: route, direction: direction))-\(String(format: "%.5f", location.coordinate.latitude))-\(String(format: "%.5f", location.coordinate.longitude))"
     }
 
+    /// 停止或收起相關追蹤、活動或流程。
+    /// - Parameters:
+    ///   - rawName: 畫面顯示文字。
+    /// - Returns: 格式化或查找後嘅文字。
     private func cleanStopName(_ rawName: String) -> String {
         let withoutBreaks = rawName.replacingOccurrences(of: "<br>", with: " ")
         let parts = withoutBreaks
@@ -875,6 +1150,7 @@ private final class CTBRouteStore {
     }
 }
 
+/// `CTBParsedCSVSnapshot` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 private struct CTBParsedCSVSnapshot: Codable {
     static let currentVersion = 1
     
@@ -886,6 +1162,7 @@ private struct CTBParsedCSVSnapshot: Codable {
     let companyCodeByRouteDirection: [String: String]
 }
 
+/// `CTBRouteDirection` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 private struct CTBRouteDirection: Codable, Hashable {
     let routeName: String
     let bound: BusDirection
@@ -895,6 +1172,7 @@ private struct CTBRouteDirection: Codable, Hashable {
     let companyCode: String
 }
 
+/// `CTBCSVRouteRow` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 private struct CTBCSVRouteRow {
     let routeName: String
     let direction: BusDirection
@@ -904,6 +1182,7 @@ private struct CTBCSVRouteRow {
     let companyCode: String
 }
 
+/// `CTBRouteStopRow` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 private struct CTBRouteStopRow {
     let routeName: String
     let direction: BusDirection
@@ -911,7 +1190,12 @@ private struct CTBRouteStopRow {
     let stopId: String
 }
 
+/// `CSVParser` 列出此功能範圍會用到嘅固定選項。
 private enum CSVParser {
+    /// 解析輸入內容並轉成程式可用資料。
+    /// - Parameters:
+    ///   - content: 此函式需要嘅輸入資料。
+    /// - Returns: 格式化或查找後嘅文字。
     static func parse(_ content: String) -> [[String]] {
         let normalizedContent = content
             .replacingOccurrences(of: "\r\n", with: "\n")
@@ -955,6 +1239,13 @@ private enum CSVParser {
         return rows
     }
 
+    /// 執行呢個檔案負責嘅相關功能。
+    /// - Parameters:
+    ///   - character: 此函式需要嘅輸入資料。
+    ///   - row: 此函式需要嘅輸入資料。
+    ///   - field: 此函式需要嘅輸入資料。
+    ///   - rows: 要處理嘅資料集合。
+    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
     private static func handleNonQuote(_ character: Character, row: inout [String], field: inout String, rows: inout [[String]]) {
         switch character {
         case ",":
@@ -973,7 +1264,12 @@ private enum CSVParser {
     }
 }
 
+/// 擴充 `BusDirection`，加入此檔案負責嘅相關功能。
 private extension BusDirection {
+    /// 建立物件並準備需要嘅初始狀態。
+    /// - Parameters:
+    ///   - routeSequence: 路線編號或路線模型。
+    /// - Returns: 無回傳值；完成物件初始化。
     init?(routeSequence: String) {
         switch routeSequence.trimmingCharacters(in: .whitespacesAndNewlines) {
         case "1":

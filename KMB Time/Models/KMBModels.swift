@@ -1,36 +1,31 @@
-//
-//  KMBModels.swift
-//  KMB Time
-//
-//  Created by Dennis Wong on 6/4/26.
-//
+/// 檔案用途：集中定義 API 回應、畫面顯示模型、收藏狀態同計時器模型。
 
 import CoreLocation
 import Foundation
 
-// MARK: - Provider Response DTOs
+// MARK: - Provider 回應 DTO
 
-/// Generic stop-list response shape used by the current KMB provider.
+/// `StopResponse` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 struct StopResponse: Codable {
     let data: [StopInfo]
 }
 
-/// Generic route-stop response shape used by the current KMB provider.
+/// `RouteStopResponse` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 struct RouteStopResponse: Codable {
     let data: [RouteStop]
 }
 
-/// KMB route-list response.
+/// `KMBRoutesResponse` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 struct KMBRoutesResponse: Codable {
     let data: [RouteItem]
 }
 
-/// KMB stop ETA response.
+/// `StopETAResponse` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 struct StopETAResponse: Codable {
     let data: [StopETAItem]
 }
 
-/// KMB route direction DTO.
+/// `RouteItem` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 struct RouteItem: Codable {
     let route: String
     let bound: String
@@ -38,13 +33,13 @@ struct RouteItem: Codable {
     let dest_tc: String
 }
 
-/// KMB route-stop DTO.
+/// `RouteStop` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 struct RouteStop: Codable {
     let seq: String
     let stop: String
 }
 
-/// KMB stop ETA DTO.
+/// `StopETAItem` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 struct StopETAItem: Codable {
     let co: String
     let route: String
@@ -58,9 +53,9 @@ struct StopETAItem: Codable {
     let seq: Int?
 }
 
-// MARK: - App Display Models
+// MARK: - App 顯示模型
 
-/// Stop model used by provider caches, nearby dashboard, and route matching.
+/// `StopInfo` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 struct StopInfo: Codable {
     let stop: String
     let name_tc: String
@@ -68,6 +63,14 @@ struct StopInfo: Codable {
     let long: String?
     let operatorCode: BusOperator?
     
+    /// 建立物件並準備需要嘅初始狀態。
+    /// - Parameters:
+    ///   - stop: 車站識別或車站資料。
+    ///   - name_tc: 畫面顯示文字。
+    ///   - lat: 此函式需要嘅輸入資料。
+    ///   - long: 此函式需要嘅輸入資料。
+    ///   - operatorCode: 巴士公司代碼。
+    /// - Returns: 無回傳值；完成物件初始化。
     init(stop: String, name_tc: String, lat: String?, long: String?, operatorCode: BusOperator? = nil) {
         self.stop = stop
         self.name_tc = name_tc
@@ -76,6 +79,7 @@ struct StopInfo: Codable {
         self.operatorCode = operatorCode
     }
     
+    /// `CodingKeys` 列出此功能範圍會用到嘅固定選項。
     private enum CodingKeys: String, CodingKey {
         case stop
         case name_tc
@@ -84,6 +88,10 @@ struct StopInfo: Codable {
         case operatorCode
     }
     
+    /// 建立物件並準備需要嘅初始狀態。
+    /// - Parameters:
+    ///   - from: 此函式需要嘅輸入資料。
+    /// - Returns: 無回傳值；完成物件初始化。
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         stop = try container.decode(String.self, forKey: .stop)
@@ -94,16 +102,21 @@ struct StopInfo: Codable {
     }
 }
 
+/// 擴充 `StopInfo`，加入此檔案負責嘅相關功能。
 extension StopInfo {
     var identityKey: String {
         "\(operatorCode?.rawValue ?? "UNKNOWN")-\(stop)"
     }
     
+    /// 執行呢個檔案負責嘅相關功能。
+    /// - Parameters:
+    ///   - with: 此函式需要嘅輸入資料。
+    /// - Returns: 計算後嘅 `StopInfo`。
     func tagged(with operatorCode: BusOperator) -> StopInfo {
         StopInfo(stop: stop, name_tc: name_tc, lat: lat, long: long, operatorCode: operatorCode)
     }
     
-    /// Stop location parsed from provider latitude/longitude strings.
+    /// 由 provider 緯度同經度文字解析出嚟嘅站點位置。
     var clLocation: CLLocation? {
         guard let lat, let long,
               let latitude = Double(lat),
@@ -114,7 +127,7 @@ extension StopInfo {
     }
 }
 
-/// One ETA value prepared for SwiftUI display.
+/// `ETADisplayInfo` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 struct ETADisplayInfo: Identifiable, Hashable {
     let id = UUID()
     let etaDate: Date?
@@ -122,7 +135,7 @@ struct ETADisplayInfo: Identifiable, Hashable {
     var companyCode: String = "KMB"
 }
 
-/// One stop row in the route-detail timetable.
+/// `StopDisplayModel` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 struct StopDisplayModel: Identifiable {
     var id: String { "\(seq)-\(stopId)" }
     let seq: Int
@@ -132,7 +145,7 @@ struct StopDisplayModel: Identifiable {
     var location: CLLocation? = nil
 }
 
-/// One nearby stop row with the routes currently serving it.
+/// `NearbyStopModel` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 struct NearbyStopModel: Identifiable {
     let id = UUID()
     let stopInfo: StopInfo
@@ -141,7 +154,7 @@ struct NearbyStopModel: Identifiable {
     var hasFetchedRoutes = false
 }
 
-/// One route card shown in the nearby dashboard.
+/// `NearbyRouteModel` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 struct NearbyRouteModel: Identifiable {
     let id = UUID()
     let co: String
@@ -154,7 +167,7 @@ struct NearbyRouteModel: Identifiable {
     var detailDirectionCode: String? = nil
 }
 
-/// One route direction shown in search suggestions.
+/// `RouteSuggestion` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 struct RouteSuggestion: Codable, Hashable, Identifiable {
     let id = UUID()
     let co: String
@@ -163,6 +176,7 @@ struct RouteSuggestion: Codable, Hashable, Identifiable {
     let origin: String
     let destination: String
     
+    /// `CodingKeys` 列出此功能範圍會用到嘅固定選項。
     private enum CodingKeys: String, CodingKey {
         case co
         case route
@@ -172,7 +186,7 @@ struct RouteSuggestion: Codable, Hashable, Identifiable {
     }
 }
 
-/// Active timer state mirrored into local notifications and Live Activity.
+/// `ActiveTimerModel` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 struct ActiveTimerModel: Identifiable, Equatable {
     let id = UUID()
     let routeName: String
@@ -186,7 +200,7 @@ struct ActiveTimerModel: Identifiable, Equatable {
     let stationName: String
 }
 
-/// Favourites-tab live status for one saved route.
+/// `FavoriteStatusModel` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 struct FavoriteStatusModel: Equatable {
     let etas: [ETADisplayInfo]
     let distance: CLLocationDistance

@@ -1,9 +1,4 @@
-//
-//  ContentView.swift
-//  KMB Time
-//
-//  Created by Dennis Wong on 6/4/26.
-//
+/// 檔案用途：主 SwiftUI 容器，持有全 app 共用狀態並切換主要畫面。
 
 import SwiftUI
 import CoreLocation
@@ -11,20 +6,22 @@ import Combine
 import UserNotifications
 import ActivityKit
 
+/// `FavoriteETA` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 struct FavoriteETA {
     let stopName: String
     let etaDate: Date?
 }
 
+/// `ContentView` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 struct ContentView: View {
-    // MARK: - Tab and Search State
+    // MARK: - 分頁同搜尋狀態
     @State var selectedTab = 0
     
     @State var searchText = ""
     @State var selectedDirection = "outbound"
     @State var selectedCompany = "KMB"
     
-    // MARK: - KMB Route and Stop Data
+    // MARK: - 路線同站點資料
     @State var stopDictionary: [String: String] = [:]
     @State var stopInfoDictionary: [String: StopInfo] = [:]
     @State var displayData: [StopDisplayModel] = []
@@ -33,23 +30,23 @@ struct ContentView: View {
     @State var isLoading = false
     @State var systemMessage = "搜尋巴士路線 (例如 1A, 281A)"
     
-    // MARK: - Managers
+    // MARK: - 管理器
     @StateObject var locationManager = LocationManager()
     @StateObject var favoritesManager = FavoritesManager()
     
-    // MARK: - Nearby Dashboard State
+    // MARK: - 附近首頁狀態
     @State var allStops: [StopInfo] = []
     @State var nearbyStops: [NearbyStopModel] = []
     @State var dashboardETAByKey: [String: (updatedAt: Date, etas: [ETADisplayInfo])] = [:]
     @State var isSearchingNearby = false
     @State var isUpdatingNearby = false
     
-    // MARK: - Refresh and Clock State
+    // MARK: - 重新整理同時鐘狀態
     let refreshTimer = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
     let clockTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     @State var currentTime = Date()
     
-    // MARK: - Active Reminder State
+    // MARK: - 到站提醒狀態
     @State var activeTimer: ActiveTimerModel? = nil
     @State var showingAddTimerAlert = false
     @State var timerTargetDate: Date? = nil
@@ -60,11 +57,11 @@ struct ContentView: View {
     @State var timerDirection = ""
     @State var timerStationName = ""
     
-    // MARK: - Favourites State
+    // MARK: - 收藏狀態
     @State var favoriteStatus: [String: FavoriteStatusModel] = [:]
     @State var isUpdatingFavorites = false
     
-    // MARK: - Navigation and UI State
+    // MARK: - 導航同介面狀態
     @State var highlightedStopId: String? = nil
     @State var scrollTriggerId: UUID = UUID()
     @State var showCustomKeyboard = false
@@ -72,9 +69,13 @@ struct ContentView: View {
     @State var dashboardScrollTarget: String? = nil
     @State var toastMessage: String? = nil
     
-    // MARK: - App Lifecycle
+    // MARK: - App 生命週期
     @Environment(\.scenePhase) var scenePhase
     
+    /// 建立物件並準備需要嘅初始狀態。
+    /// - Parameters:
+    ///   - none: 呢個函式唔需要外部輸入。
+    /// - Returns: 無回傳值；完成物件初始化。
     init() {
         UISegmentedControl.appearance().backgroundColor = .clear
     }

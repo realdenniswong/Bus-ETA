@@ -1,9 +1,8 @@
+/// 檔案用途：處理 KMB API 資料、路線建議、站點、ETA 同收藏狀態。
 import CoreLocation
 import Foundation
 
-/// KMB implementation of `BusETAProvider`.
-///
-/// This file is the only place that should know KMB endpoint paths and KMB response filtering rules.
+/// `KMBETAProvider` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 struct KMBETAProvider: BusETAProvider {
     static let shared = KMBETAProvider()
     
@@ -12,9 +11,16 @@ struct KMBETAProvider: BusETAProvider {
     private let baseURL = URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/")!
     private let jsonDecoder = JSONDecoder()
     
+    /// 建立物件並準備需要嘅初始狀態。
+    /// - Parameters:
+    ///   - none: 呢個函式唔需要外部輸入。
+    /// - Returns: 無回傳值；完成物件初始化。
     private init() { }
     
-    /// Fetches all KMB route directions and maps them into search suggestions.
+    /// 向資料來源讀取相關巴士資料。
+    /// - Parameters:
+    ///   - none: 呢個函式唔需要外部輸入。
+    /// - Returns: 符合條件並已整理嘅資料列表。
     func fetchRouteSuggestions() async throws -> [RouteSuggestion] {
         let response: KMBRoutesResponse = try await fetch(path: "route/")
         return response.data
@@ -30,7 +36,10 @@ struct KMBETAProvider: BusETAProvider {
             .sorted(by: sortRouteSuggestions)
     }
     
-    /// Fetches KMB stops, keeping only stops with valid coordinates.
+    /// 向資料來源讀取相關巴士資料。
+    /// - Parameters:
+    ///   - none: 呢個函式唔需要外部輸入。
+    /// - Returns: 符合條件並已整理嘅資料列表。
     func fetchStops() async throws -> [StopInfo] {
         let response: StopResponse = try await fetch(path: "stop/")
         return response.data.compactMap { stop in
@@ -46,7 +55,10 @@ struct KMBETAProvider: BusETAProvider {
         }
     }
     
-    /// Fetches KMB ETA rows for a stop and groups them by route/direction for dashboard cards.
+    /// 向資料來源讀取相關巴士資料。
+    /// - Parameters:
+    ///   - forStopId: 車站識別或車站資料。
+    /// - Returns: 符合條件並已整理嘅資料列表。
     func fetchNearbyRoutes(forStopId stopId: String) async throws -> [NearbyRouteModel] {
         let response: StopETAResponse = try await fetch(path: "stop-eta/\(stopId)", reloadIgnoringCache: true)
         let etaItemsByRouteDirection = Dictionary(grouping: response.data.filter { $0.service_type == 1 }) { etaItem in
@@ -70,7 +82,12 @@ struct KMBETAProvider: BusETAProvider {
         return routes.sorted { $0.route.localizedStandardCompare($1.route) == .orderedAscending }
     }
     
-    /// Fetches ordered route stops and attaches up to three ETAs to each stop row.
+    /// 向資料來源讀取相關巴士資料。
+    /// - Parameters:
+    ///   - route: 路線編號或路線模型。
+    ///   - direction: 巴士方向資料。
+    ///   - stopNameById: 車站識別或車站資料。
+    /// - Returns: 符合條件並已整理嘅資料列表。
     func fetchTimetableRows(route: String, direction: BusDirection, stopNameById: [String: String]) async throws -> [StopDisplayModel] {
         let safeRoute = route.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? route
         let routeStopResponse: RouteStopResponse = try await fetch(path: "route-stop/\(safeRoute)/\(direction.rawValue)/1", reloadIgnoringCache: true)
@@ -138,7 +155,11 @@ struct KMBETAProvider: BusETAProvider {
         }
     }
     
-    /// Finds the nearest stop for one favourite route and returns its current ETA status.
+    /// 向資料來源讀取相關巴士資料。
+    /// - Parameters:
+    ///   - for: 此函式需要嘅輸入資料。
+    ///   - context: 查找站點同位置所需嘅上下文資料。
+    /// - Returns: 找到時回傳對應資料；沒有時為 nil。
     func fetchFavoriteStatus(for favorite: FavoriteRoute, context: RouteStopLookupContext) async throws -> FavoriteStatusModel? {
         let direction = BusDirection(rawValue: favorite.direction) ?? .outbound
         let safeRoute = favorite.route.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? favorite.route
@@ -168,13 +189,19 @@ struct KMBETAProvider: BusETAProvider {
         return FavoriteStatusModel(etas: Array(etas.prefix(3)), distance: nearestDistance, stopName: nearestStopName)
     }
     
-    /// Fetches sorted ETAs for a timer's route, direction, and stop.
+    /// 向資料來源讀取相關巴士資料。
+    /// - Parameters:
+    ///   - route: 路線編號或路線模型。
+    ///   - direction: 巴士方向資料。
+    ///   - stopId: 車站識別或車站資料。
+    /// - Returns: 符合條件並已整理嘅資料列表。
     func fetchTimerETAs(route: String, direction: BusDirection, stopId: String) async throws -> [ETADisplayInfo] {
         let etaItems = try await fetchStopETAItems(stopId: stopId)
         return sortedDisplayETAs(from: etaItems, route: route, directionCode: direction.routeCode)
     }
 }
 
+/// 擴充 `KMBETAProvider`，加入此檔案負責嘅相關功能。
 private extension KMBETAProvider {
     /// Fetches and decodes one KMB API path.
     ///
@@ -195,26 +222,31 @@ private extension KMBETAProvider {
         return try jsonDecoder.decode(Response.self, from: data)
     }
     
-    /// Fetches raw stop ETA DTOs for one KMB stop.
+    /// 向資料來源讀取相關巴士資料。
+    /// - Parameters:
+    ///   - stopId: 車站識別或車站資料。
+    /// - Returns: 符合條件並已整理嘅資料列表。
     func fetchStopETAItems(stopId: String) async throws -> [StopETAItem] {
         let response: StopETAResponse = try await fetch(path: "stop-eta/\(stopId)", reloadIgnoringCache: true)
         return response.data
     }
     
-    /// Fetches raw ETA DTOs for every stop on one KMB route.
+    /// 向資料來源讀取相關巴士資料。
+    /// - Parameters:
+    ///   - route: 路線編號或路線模型。
+    /// - Returns: 符合條件並已整理嘅資料列表。
     func fetchRouteETAItems(route: String) async throws -> [StopETAItem] {
         let safeRoute = route.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? route
         let response: StopETAResponse = try await fetch(path: "route-eta/\(safeRoute)/1", reloadIgnoringCache: true)
         return response.data
     }
     
-    /// Converts KMB ETA DTOs into app display ETA models.
-    ///
+    /// 按畫面需要排序並回傳結果。
     /// - Parameters:
-    ///   - items: Raw KMB ETA DTOs.
-    ///   - route: Optional route filter.
-    ///   - directionCode: Optional `O`/`I` direction filter.
-    /// - Returns: Arrival times sorted by date.
+    ///   - from: 此函式需要嘅輸入資料。
+    ///   - route: 路線編號或路線模型。
+    ///   - directionCode: 巴士方向資料。
+    /// - Returns: 符合條件並已整理嘅資料列表。
     func sortedDisplayETAs(from items: [StopETAItem], route: String? = nil, directionCode: String? = nil) -> [ETADisplayInfo] {
         let formatter = ISO8601DateFormatter()
         return items.compactMap { item -> ETADisplayInfo? in
@@ -231,7 +263,11 @@ private extension KMBETAProvider {
         .sorted { ($0.etaDate ?? Date.distantFuture) < ($1.etaDate ?? Date.distantFuture) }
     }
     
-    /// Natural route suggestion sort shared by provider output.
+    /// 按畫面需要排序並回傳結果。
+    /// - Parameters:
+    ///   - first: 此函式需要嘅輸入資料。
+    ///   - second: 此函式需要嘅輸入資料。
+    /// - Returns: 條件是否成立。
     func sortRouteSuggestions(_ first: RouteSuggestion, _ second: RouteSuggestion) -> Bool {
         if first.route == second.route {
             return first.bound > second.bound

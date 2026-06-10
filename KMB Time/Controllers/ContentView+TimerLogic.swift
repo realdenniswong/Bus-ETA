@@ -1,9 +1,14 @@
+/// 檔案用途：管理到站提醒、Live Activity 同本地通知。
 import ActivityKit
 import SwiftUI
 import UserNotifications
 
+/// 擴充 `ContentView`，加入此檔案負責嘅相關功能。
 extension ContentView {
-    /// Refreshes the active timer with the provider's latest ETA for the tracked stop.
+    /// 執行呢個檔案負責嘅相關功能。
+    /// - Parameters:
+    ///   - none: 呢個函式唔需要外部輸入。
+    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
     func syncActiveTimer() async {
         guard let timer = activeTimer, !timer.stopId.isEmpty else { return }
         let timerDirection = BusDirection(rawValue: timer.direction) ?? .outbound
@@ -33,7 +38,10 @@ extension ContentView {
         }
     }
     
-    /// Pushes a new ETA state to any running Live Activity.
+    /// 更新相關狀態，令畫面或快取保持最新。
+    /// - Parameters:
+    ///   - etaDate: 時間或到站時間資料。
+    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
     func updateLiveActivity(etaDate: Date) {
         Task {
             for activity in Activity<BusETAAttributes>.activities {
@@ -45,7 +53,10 @@ extension ContentView {
         }
     }
     
-    /// Formats an optional date for alert copy.
+    /// 將資料格式化成畫面顯示文字。
+    /// - Parameters:
+    ///   - date: 時間或到站時間資料。
+    /// - Returns: 格式化或查找後嘅文字。
     func formattedTime(_ date: Date?) -> String {
         guard let date else { return "" }
         let formatter = DateFormatter()
@@ -53,7 +64,12 @@ extension ContentView {
         return formatter.string(from: date)
     }
     
-    /// Schedules the single local reminder used by the active timer.
+    /// 執行呢個檔案負責嘅相關功能。
+    /// - Parameters:
+    ///   - routeName: 路線編號或路線模型。
+    ///   - destination: 畫面顯示文字。
+    ///   - alertDate: 時間或到站時間資料。
+    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
     func scheduleLocalNotification(routeName: String, destination: String, alertDate: Date) {
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["KMBTimeAlarm"])
         
@@ -70,7 +86,15 @@ extension ContentView {
         UNUserNotificationCenter.current().add(request) { _ in }
     }
     
-    /// Starts a Live Activity for the selected ETA reminder.
+    /// 開始相關追蹤、活動或流程。
+    /// - Parameters:
+    ///   - routeName: 路線編號或路線模型。
+    ///   - company: 巴士公司代碼。
+    ///   - destination: 畫面顯示文字。
+    ///   - stationName: 車站識別或車站資料。
+    ///   - etaDate: 時間或到站時間資料。
+    ///   - startTime: 時間或到站時間資料。
+    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
     func startLiveActivity(routeName: String, company: String, destination: String, stationName: String, etaDate: Date, startTime: Date) {
         if ActivityAuthorizationInfo().areActivitiesEnabled {
             do {
@@ -85,7 +109,10 @@ extension ContentView {
         }
     }
     
-    /// Ends every Live Activity created by this app.
+    /// 停止或收起相關追蹤、活動或流程。
+    /// - Parameters:
+    ///   - none: 呢個函式唔需要外部輸入。
+    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
     func endLiveActivity() {
         Task {
             for activity in Activity<BusETAAttributes>.activities {
@@ -95,7 +122,10 @@ extension ContentView {
         }
     }
     
-    /// Rehydrates `activeTimer` from an existing Live Activity after app launch or foregrounding.
+    /// 執行呢個檔案負責嘅相關功能。
+    /// - Parameters:
+    ///   - none: 呢個函式唔需要外部輸入。
+    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
     func reconnectActiveLiveActivity() {
         for activity in Activity<BusETAAttributes>.activities {
             let attributes = activity.attributes

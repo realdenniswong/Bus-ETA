@@ -31,6 +31,7 @@ struct DashboardView: View {
                 if let activeTimer {
                     activeTimerCardView(timer: activeTimer)
                 }
+
                 
                 if !searchText.isEmpty {
                     suggestionsSectionView
@@ -66,37 +67,41 @@ struct DashboardView: View {
     }
     
     private var searchBarView: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 10) {
             Image(systemName: "magnifyingglass")
-                .foregroundColor(Color(UIColor.systemGray))
-                .font(.system(size: 17))
+                .foregroundStyle(.secondary)
+                .font(.system(size: 17, weight: .semibold))
             
             Text(searchText.isEmpty ? "輸入路線 (例如 1A)" : searchText)
-                .foregroundColor(searchText.isEmpty ? Color(UIColor.placeholderText) : .primary)
-                .font(.system(size: 17))
+                .foregroundStyle(searchText.isEmpty ? .secondary : .primary)
+                .font(.system(size: 17, weight: searchText.isEmpty ? .regular : .medium))
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .lineLimit(1)
             
             if !searchText.isEmpty {
-                Image(systemName: "xmark.circle.fill")
-                    .foregroundColor(Color(UIColor.systemGray3))
-                    .font(.system(size: 17))
-                    .padding(.trailing, 2)
-                    .padding(.vertical, 8)
-                    .onTapGesture {
-                        searchText = ""
-                    }
+                Button {
+                    searchText = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.tertiary)
+                        .font(.system(size: 18, weight: .semibold))
+                        .frame(width: 30, height: 30)
+                }
+                .buttonStyle(.plain)
             }
         }
-        .padding(.horizontal, 8)
-        .frame(height: 48)
-        .background(Color(UIColor.systemGray5))
-        .cornerRadius(20)
+        .padding(.leading, 16)
+        .padding(.trailing, searchText.isEmpty ? 16 : 8)
+        .frame(height: 52)
+        .liquidGlassSurface(cornerRadius: 24, isInteractive: true)
+        .padding(.horizontal, 4)
         .padding(.top, 16)
-        .listRowBackground(themeBackground)
+        .listRowBackground(Color.clear)
         .listRowInsets(EdgeInsets())
         .listRowSeparator(.hidden)
+        .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .onTapGesture {
-            withAnimation(.spring()) {
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
                 showCustomKeyboard = true
             }
         }
@@ -173,3 +178,23 @@ struct DashboardView: View {
         }
     }
 }
+private extension View {
+    @ViewBuilder
+    func liquidGlassSurface(cornerRadius: CGFloat, isInteractive: Bool = false) -> some View {
+        if #available(iOS 26.0, *) {
+            if isInteractive {
+                self.glassEffect(.regular.tint(.white.opacity(0.18)).interactive(), in: .rect(cornerRadius: cornerRadius))
+            } else {
+                self.glassEffect(.regular.tint(.white.opacity(0.16)), in: .rect(cornerRadius: cornerRadius))
+            }
+        } else {
+            self
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .strokeBorder(.white.opacity(0.35), lineWidth: 0.8)
+                )
+        }
+    }
+}
+

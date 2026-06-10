@@ -61,6 +61,7 @@ struct SuggestionsSectionView: View {
                 .font(.system(size: 14, weight: .bold))
                 .foregroundColor(.gray)
         }
+        .alignedListSectionMargins(horizontal: 20)
     }
     
     private func companyDisplayName(_ company: String) -> String {

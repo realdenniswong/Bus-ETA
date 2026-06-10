@@ -74,7 +74,8 @@ extension ContentView {
             async let jointRoutes = (try? jointRouteETAProvider.fetchNearbyRoutes(for: stopInfo)) ?? []
             routes = dashboardRoutes(kmbRoutes: await kmbRoutes, ctbRoutes: [], jointRoutes: await jointRoutes)
         case .ctb:
-            routes = (try? await ctbETAProvider.fetchNearbyRoutes(forStopId: stopInfo.stop)) ?? []
+            let ctbRoutes = (try? await ctbETAProvider.fetchNearbyRoutes(forStopId: stopInfo.stop)) ?? []
+            routes = dashboardRoutes(kmbRoutes: [], ctbRoutes: ctbRoutes, jointRoutes: [])
         case nil:
             async let kmbRoutes = (try? kmbETAProvider.fetchNearbyRoutes(forStopId: stopInfo.stop)) ?? []
             async let jointRoutes = (try? jointRouteETAProvider.fetchNearbyRoutes(for: stopInfo)) ?? []

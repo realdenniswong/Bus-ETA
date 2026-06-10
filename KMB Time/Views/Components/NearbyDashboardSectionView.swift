@@ -178,6 +178,7 @@ struct NearbyDashboardSectionView: View {
                 }
             }
         }
+        .alignedListSectionMargins(horizontal: 20)
     }
     
     private func dashboardRouteDisplayKey(_ route: NearbyRouteModel) -> String {

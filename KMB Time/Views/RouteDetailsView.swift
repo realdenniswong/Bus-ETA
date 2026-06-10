@@ -60,6 +60,7 @@ struct RouteDetailsView: View {
             Text("回程 (Inbound)").tag("inbound")
         }
         .pickerStyle(.segmented)
+        .padding(.horizontal, 20)
         .padding(.top, 12)
         .onChange(of: selectedDirection) { _, newValue in
             onDirectionChanged(newValue)

@@ -18,15 +18,18 @@ struct FavouritesView: View {
                     .padding()
                     .listRowBackground(Color.clear)
             } else {
-                ForEach(sortedFavorites) { favorite in
-                    favoriteRouteButton(favorite)
-                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                            favoriteSwipeActions(favorite)
-                        }
+                Section {
+                    ForEach(sortedFavorites) { favorite in
+                        favoriteRouteButton(favorite)
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                favoriteSwipeActions(favorite)
+                            }
+                    }
+                    .onDelete { indexSet in
+                        favoritesManager.favoriteRoutes.remove(atOffsets: indexSet)
+                    }
                 }
-                .onDelete { indexSet in
-                    favoritesManager.favoriteRoutes.remove(atOffsets: indexSet)
-                }
+                .alignedListSectionMargins(horizontal: 20)
             }
         }
         .navigationTitle("常用路線")

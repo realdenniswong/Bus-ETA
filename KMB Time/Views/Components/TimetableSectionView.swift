@@ -84,7 +84,7 @@ struct TimetableSectionView: View {
                         .padding(.top, index == 0 ? 16 : 0)
                         .padding(.bottom, index == displayData.count - 1 ? 16 : 0)
                         .id(stop.id)
-                        .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+                        .listRowInsets(EdgeInsets(top: 0, leading: 10, bottom: 0, trailing: 10))
                         .listRowSeparator(.hidden)
                         .listRowBackground(Color(.secondarySystemGroupedBackground))
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -99,6 +99,7 @@ struct TimetableSectionView: View {
                         }
                     }
                 }
+                .alignedListSectionMargins(horizontal: 20)
             }
         }
     }

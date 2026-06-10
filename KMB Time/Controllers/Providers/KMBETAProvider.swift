@@ -75,29 +75,56 @@ struct KMBETAProvider: BusETAProvider {
         let safeRoute = route.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? route
         let routeStopResponse: RouteStopResponse = try await fetch(path: "route-stop/\(safeRoute)/\(direction.rawValue)/1", reloadIgnoringCache: true)
         
-        var rows: [StopDisplayModel] = []
-        for routeStop in routeStopResponse.data {
-            let stopId = routeStop.stop
-            let stopSequence = Int(routeStop.seq) ?? 0
-            let stopName = stopNameById[stopId] ?? "未知車站"
-            let etaItems = try? await fetchStopETAItems(stopId: stopId)
-            let matchingETAs = sortedDisplayETAs(
-                from: etaItems ?? [],
-                route: route,
-                directionCode: direction.routeCode
-            )
-            
-            rows.append(
-                StopDisplayModel(
+        if let routeETAItems = try? await fetchRouteETAItems(route: route) {
+            let etaItemsByStop = Dictionary(grouping: routeETAItems) { $0.stop ?? "" }
+            return routeStopResponse.data.map { routeStop in
+                let stopId = routeStop.stop
+                let stopSequence = Int(routeStop.seq) ?? 0
+                let stopName = stopNameById[stopId] ?? "未知車站"
+                let matchingETAs = sortedDisplayETAs(
+                    from: etaItemsByStop[stopId] ?? [],
+                    route: route,
+                    directionCode: direction.routeCode
+                )
+                
+                return StopDisplayModel(
                     seq: stopSequence,
                     stopId: stopId,
                     stopNameTc: stopName,
                     etas: Array(matchingETAs.prefix(3))
                 )
-            )
+            }
+            .sorted { $0.seq < $1.seq }
         }
         
-        return rows.sorted { $0.seq < $1.seq }
+        return await withTaskGroup(of: StopDisplayModel.self) { group in
+            for routeStop in routeStopResponse.data {
+                group.addTask {
+                    let stopId = routeStop.stop
+                    let stopSequence = Int(routeStop.seq) ?? 0
+                    let stopName = stopNameById[stopId] ?? "未知車站"
+                    let etaItems = try? await fetchStopETAItems(stopId: stopId)
+                    let matchingETAs = await sortedDisplayETAs(
+                        from: etaItems ?? [],
+                        route: route,
+                        directionCode: direction.routeCode
+                    )
+                    
+                    return StopDisplayModel(
+                        seq: stopSequence,
+                        stopId: stopId,
+                        stopNameTc: stopName,
+                        etas: Array(matchingETAs.prefix(3))
+                    )
+                }
+            }
+            
+            var rows: [StopDisplayModel] = []
+            for await row in group {
+                rows.append(row)
+            }
+            return rows.sorted { $0.seq < $1.seq }
+        }
     }
     
     /// Finds the nearest stop for one favourite route and returns its current ETA status.
@@ -160,6 +187,13 @@ private extension KMBETAProvider {
     /// Fetches raw stop ETA DTOs for one KMB stop.
     func fetchStopETAItems(stopId: String) async throws -> [StopETAItem] {
         let response: StopETAResponse = try await fetch(path: "stop-eta/\(stopId)", reloadIgnoringCache: true)
+        return response.data
+    }
+    
+    /// Fetches raw ETA DTOs for every stop on one KMB route.
+    func fetchRouteETAItems(route: String) async throws -> [StopETAItem] {
+        let safeRoute = route.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? route
+        let response: StopETAResponse = try await fetch(path: "route-eta/\(safeRoute)/1", reloadIgnoringCache: true)
         return response.data
     }
     

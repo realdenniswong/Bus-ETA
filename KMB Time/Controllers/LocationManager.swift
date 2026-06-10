@@ -11,6 +11,9 @@ import Combine
 
 class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     private let manager = CLLocationManager()
+    private let foregroundAccuracy = kCLLocationAccuracyNearestTenMeters
+    private let cachedLocationMaxAge: TimeInterval = 60
+    private let cachedLocationMaxAccuracy: CLLocationAccuracy = 150
     
     @Published var location: CLLocation?
     @Published var authorizationStatus: CLAuthorizationStatus = .notDetermined
@@ -22,8 +25,10 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     override init() {
         super.init()
         manager.delegate = self
-        manager.desiredAccuracy = kCLLocationAccuracyBest
+        manager.desiredAccuracy = foregroundAccuracy
+        manager.distanceFilter = 20
         self.authorizationStatus = manager.authorizationStatus
+        self.location = recentCachedLocation
         
         manager.allowsBackgroundLocationUpdates = true
         manager.showsBackgroundLocationIndicator = false
@@ -31,21 +36,31 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     }
     
     func requestLocation() {
-        isLocating = true
-        if manager.authorizationStatus == .notDetermined {
-            manager.requestWhenInUseAuthorization()
-        } else if manager.authorizationStatus == .authorizedWhenInUse || manager.authorizationStatus == .authorizedAlways {
-            manager.startUpdatingLocation()
-        } else {
-            isLocating = false
+        let status = manager.authorizationStatus
+        guard status == .authorizedWhenInUse || status == .authorizedAlways else {
+            isLocating = status == .notDetermined
+            if status == .notDetermined {
+                manager.requestWhenInUseAuthorization()
+            }
+            return
         }
+        
+        if let cachedLocation = recentCachedLocation {
+            location = cachedLocation
+            isLocating = false
+        } else {
+            isLocating = true
+        }
+        
+        manager.desiredAccuracy = foregroundAccuracy
+        manager.requestLocation()
     }
     
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         DispatchQueue.main.async {
             self.authorizationStatus = manager.authorizationStatus
             if manager.authorizationStatus == .authorizedWhenInUse || manager.authorizationStatus == .authorizedAlways {
-                manager.startUpdatingLocation()
+                self.requestLocation()
             } else {
                 self.isLocating = false
             }
@@ -72,8 +87,19 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         }
     }
     
+    private var recentCachedLocation: CLLocation? {
+        guard let cachedLocation = manager.location ?? location,
+              cachedLocation.horizontalAccuracy >= 0,
+              cachedLocation.horizontalAccuracy <= cachedLocationMaxAccuracy,
+              abs(cachedLocation.timestamp.timeIntervalSinceNow) <= cachedLocationMaxAge else {
+            return nil
+        }
+        return cachedLocation
+    }
+    
     func startBackgroundTracking() {
         self.isBackgroundTracking = true
+        self.manager.desiredAccuracy = kCLLocationAccuracyBest
         self.manager.allowsBackgroundLocationUpdates = true
         self.manager.showsBackgroundLocationIndicator = false
         self.manager.pausesLocationUpdatesAutomatically = false
@@ -85,6 +111,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     func stopBackgroundTracking() {
         self.isBackgroundTracking = false
         self.manager.stopUpdatingLocation()
+        self.manager.desiredAccuracy = foregroundAccuracy
         print("🐛 [LocationManager] 背景定位已成功關閉。")
     }
 }

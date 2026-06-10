@@ -62,6 +62,7 @@ struct ContentView: View {
     
     // MARK: - Favourites State
     @State var favoriteStatus: [String: FavoriteStatusModel] = [:]
+    @State var isUpdatingFavorites = false
     
     // MARK: - Navigation and UI State
     @State var highlightedStopId: String? = nil
@@ -114,19 +115,24 @@ struct ContentView: View {
                     clearExpiredTimerIfNeeded(referenceDate: currentTime)
                 }
                 .task {
+                    if locationManager.authorizationStatus == .authorizedWhenInUse || locationManager.authorizationStatus == .authorizedAlways {
+                        locationManager.requestLocation()
+                    }
+                    
                     async let stopsLoad: Void = loadAllStops()
                     async let routesLoad: Void = loadAllRoutes()
                     _ = await (stopsLoad, routesLoad)
                     reconnectActiveLiveActivity()
+                    warmFavoriteETAsIfPossible()
                     
-                    if locationManager.authorizationStatus == .authorizedWhenInUse || locationManager.authorizationStatus == .authorizedAlways {
-                        locationManager.requestLocation()
-                    }
                     UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
                 }
                 .onChange(of: locationManager.location) { _, newValue in
                     if let location = newValue, !locationManager.isBackgroundTracking {
-                        Task { await updateNearbyStops(userLocation: location) }
+                        Task {
+                            await updateNearbyStops(userLocation: location)
+                            warmFavoriteETAsIfPossible()
+                        }
                     }
                 }
                 .onChange(of: locationManager.backgroundHeartbeat) { _, _ in
@@ -136,13 +142,7 @@ struct ContentView: View {
                     if newPhase == .active {
                         reconnectActiveLiveActivity()
                         locationManager.requestLocation()
-                        if !isNavigatingToRoute {
-                            Task {
-                                if let location = locationManager.location {
-                                    await updateNearbyStops(userLocation: location)
-                                }
-                            }
-                        }
+                        Task { await refreshVisibleData(rebuildNearbyWhenEmpty: true) }
                     }
                 }
             }

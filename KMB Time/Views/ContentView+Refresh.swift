@@ -1,8 +1,8 @@
 import SwiftUI
 
 extension ContentView {
-    /// Refreshes whichever screen is currently visible during the 30-second timer tick.
-    func refreshVisibleData() async {
+    /// Refreshes whichever screen is currently visible during timer ticks or app foregrounding.
+    func refreshVisibleData(rebuildNearbyWhenEmpty: Bool = false) async {
         if activeTimer != nil {
             await syncActiveTimer()
         }
@@ -10,8 +10,12 @@ extension ContentView {
         if selectedTab == 0 {
             if isNavigatingToRoute && !displayData.isEmpty && !showCustomKeyboard {
                 await searchRoute(route: searchText.uppercased(), direction: selectedDirection, company: selectedCompany, findNearest: false, shouldScroll: false, isRefresh: true)
-            } else if !isNavigatingToRoute && !nearbyStops.isEmpty && !showCustomKeyboard {
-                await refreshNearbyETAs()
+            } else if !isNavigatingToRoute && !showCustomKeyboard {
+                if !nearbyStops.isEmpty {
+                    await refreshNearbyETAs()
+                } else if rebuildNearbyWhenEmpty, let location = locationManager.location {
+                    await updateNearbyStops(userLocation: location)
+                }
             }
         } else if selectedTab == 1 {
             await updateFavoriteETAs()

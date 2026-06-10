@@ -46,6 +46,7 @@ extension ContentView {
             
             if let userLocation = locationManager.location {
                 await updateNearbyStops(userLocation: userLocation)
+                warmFavoriteETAsIfPossible()
             }
         } catch {
             print("Failed to load stops: \(error)")

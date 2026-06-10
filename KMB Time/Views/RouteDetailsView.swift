@@ -20,10 +20,11 @@ struct RouteDetailsView: View {
         ScrollViewReader { routeProxy in
             ZStack {
                 List {
-                    directionPicker
+                    directionPickerSection
                     timetableSection
                 }
                 .listStyle(.insetGrouped)
+                .listSectionSpacing(8)
                 .scrollContentBackground(.hidden)
                 .background(themeBackground)
                 
@@ -54,19 +55,24 @@ struct RouteDetailsView: View {
         }
     }
     
+    private var directionPickerSection: some View {
+        Section {
+            directionPicker
+        }
+        .alignedListSectionMargins(horizontal: 16)
+    }
+    
     private var directionPicker: some View {
         Picker("Direction", selection: $selectedDirection) {
             Text("去程 (Outbound)").tag("outbound")
             Text("回程 (Inbound)").tag("inbound")
         }
         .pickerStyle(.segmented)
-        .padding(.horizontal, 16)
-        .padding(.top, 12)
         .onChange(of: selectedDirection) { _, newValue in
             onDirectionChanged(newValue)
         }
         .listRowBackground(Color.clear)
-        .listRowInsets(EdgeInsets())
+        .listRowInsets(EdgeInsets(top: 2, leading: 0, bottom: 0, trailing: 0))
         .listRowSeparator(.hidden)
     }
     

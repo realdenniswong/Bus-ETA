@@ -76,13 +76,24 @@ struct KMBETAProvider: BusETAProvider {
         let routeStopResponse: RouteStopResponse = try await fetch(path: "route-stop/\(safeRoute)/\(direction.rawValue)/1", reloadIgnoringCache: true)
         
         if let routeETAItems = try? await fetchRouteETAItems(route: route) {
-            let etaItemsByStop = Dictionary(grouping: routeETAItems) { $0.stop ?? "" }
+            let etaItemsByStop = Dictionary(grouping: routeETAItems.compactMap { item -> (String, StopETAItem)? in
+                guard let stopId = item.stop else { return nil }
+                return (stopId, item)
+            }) { $0.0 }
+                .mapValues { pairs in pairs.map(\.1) }
+            let etaItemsBySequence = Dictionary(grouping: routeETAItems.compactMap { item -> (Int, StopETAItem)? in
+                guard let sequence = item.seq else { return nil }
+                return (sequence, item)
+            }) { $0.0 }
+                .mapValues { pairs in pairs.map(\.1) }
+            
             return routeStopResponse.data.map { routeStop in
                 let stopId = routeStop.stop
                 let stopSequence = Int(routeStop.seq) ?? 0
                 let stopName = stopNameById[stopId] ?? "未知車站"
+                let etaItems = etaItemsByStop[stopId] ?? etaItemsBySequence[stopSequence] ?? []
                 let matchingETAs = sortedDisplayETAs(
-                    from: etaItemsByStop[stopId] ?? [],
+                    from: etaItems,
                     route: route,
                     directionCode: direction.routeCode
                 )

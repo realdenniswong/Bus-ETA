@@ -81,7 +81,7 @@ struct TimetableSectionView: View {
                             
                             Spacer(minLength: 0)
                         }
-                        .padding(.top, index == 0 ? 16 : 0)
+                        .padding(.top, index == 0 ? 10 : 0)
                         .padding(.bottom, index == displayData.count - 1 ? 16 : 0)
                         .id(stop.id)
                         .listRowInsets(EdgeInsets(top: 0, leading: 6, bottom: 0, trailing: 6))

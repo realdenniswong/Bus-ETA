@@ -55,6 +55,7 @@ struct StopETAItem: Codable {
     let eta: String?
     let rmk_tc: String?
     let stop: String?
+    let seq: Int?
 }
 
 // MARK: - App Display Models

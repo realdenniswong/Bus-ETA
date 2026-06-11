@@ -3,12 +3,12 @@ import SwiftUI
 
 /// 擴充 `ContentView`，加入此檔案負責嘅相關功能。
 extension ContentView {
-    /// Route suggestions matching the current custom-keyboard search text.
+    /// 符合目前自訂鍵盤搜尋文字嘅路線建議。
     var searchSuggestions: [RouteSuggestion] {
         routeSuggestionCatalog.searchSuggestions(for: searchText)
     }
     
-    /// Keys that can still produce at least one route suggestion from the current search prefix.
+    /// 目前搜尋前綴下仍然可以產生至少一個路線建議嘅按鍵。
     var validNextKeys: Set<String>? {
         routeSuggestionCatalog.validNextKeys(for: searchText)
     }

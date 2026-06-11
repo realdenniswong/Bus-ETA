@@ -3,7 +3,7 @@
 import CoreLocation
 import Foundation
 
-// MARK: - Provider 回應 DTO
+// MARK: - 供應方回應資料物件
 
 /// `StopResponse` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 struct StopResponse: Codable {
@@ -53,7 +53,7 @@ struct StopETAItem: Codable {
     let seq: Int?
 }
 
-// MARK: - App 顯示模型
+// MARK: - 應用程式顯示模型
 
 /// `StopInfo` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 struct StopInfo: Codable {
@@ -62,7 +62,7 @@ struct StopInfo: Codable {
     let lat: String?
     let long: String?
     let operatorCode: BusOperator?
-    
+
     /// 建立物件並準備需要嘅初始狀態。
     /// - Parameters:
     ///   - stop: 車站識別或車站資料。
@@ -78,7 +78,7 @@ struct StopInfo: Codable {
         self.long = long
         self.operatorCode = operatorCode
     }
-    
+
     /// `CodingKeys` 列出此功能範圍會用到嘅固定選項。
     private enum CodingKeys: String, CodingKey {
         case stop
@@ -87,7 +87,7 @@ struct StopInfo: Codable {
         case long
         case operatorCode
     }
-    
+
     /// 建立物件並準備需要嘅初始狀態。
     /// - Parameters:
     ///   - from: 此函式需要嘅輸入資料。
@@ -107,7 +107,7 @@ extension StopInfo {
     var identityKey: String {
         "\(operatorCode?.rawValue ?? "UNKNOWN")-\(stop)"
     }
-    
+
     /// 執行呢個檔案負責嘅相關功能。
     /// - Parameters:
     ///   - with: 此函式需要嘅輸入資料。
@@ -115,7 +115,7 @@ extension StopInfo {
     func tagged(with operatorCode: BusOperator) -> StopInfo {
         StopInfo(stop: stop, name_tc: name_tc, lat: lat, long: long, operatorCode: operatorCode)
     }
-    
+
     /// 由 provider 緯度同經度文字解析出嚟嘅站點位置。
     var clLocation: CLLocation? {
         guard let lat, let long,
@@ -143,6 +143,7 @@ struct StopDisplayModel: Identifiable {
     let stopNameTc: String
     let etas: [ETADisplayInfo]
     var location: CLLocation? = nil
+    var operatorStopIds: [String: String] = [:]
 }
 
 /// `NearbyStopModel` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
@@ -165,6 +166,7 @@ struct NearbyRouteModel: Identifiable {
     var displayStopId: String? = nil
     let etas: [ETADisplayInfo]
     var detailDirectionCode: String? = nil
+    var operatorStopIds: [String: String] = [:]
 }
 
 /// `RouteSuggestion` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
@@ -175,7 +177,7 @@ struct RouteSuggestion: Codable, Hashable, Identifiable {
     let bound: String
     let origin: String
     let destination: String
-    
+
     /// `CodingKeys` 列出此功能範圍會用到嘅固定選項。
     private enum CodingKeys: String, CodingKey {
         case co
@@ -198,6 +200,7 @@ struct ActiveTimerModel: Identifiable, Equatable {
     let stopId: String
     let direction: String
     let stationName: String
+    let operatorStopIds: [String: String]
 }
 
 /// `FavoriteStatusModel` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
@@ -205,10 +208,22 @@ struct FavoriteStatusModel: Equatable {
     let etas: [ETADisplayInfo]
     let distance: CLLocationDistance
     let stopName: String
-    
+    let stopId: String
+    let operatorStopIds: [String: String]
+
+    init(etas: [ETADisplayInfo], distance: CLLocationDistance, stopName: String, stopId: String = "", operatorStopIds: [String: String] = [:]) {
+        self.etas = etas
+        self.distance = distance
+        self.stopName = stopName
+        self.stopId = stopId
+        self.operatorStopIds = operatorStopIds
+    }
+
     static func == (lhs: FavoriteStatusModel, rhs: FavoriteStatusModel) -> Bool {
         lhs.distance == rhs.distance &&
         lhs.stopName == rhs.stopName &&
+        lhs.stopId == rhs.stopId &&
+        lhs.operatorStopIds == rhs.operatorStopIds &&
         lhs.etas.first?.etaDate == rhs.etas.first?.etaDate
     }
 }

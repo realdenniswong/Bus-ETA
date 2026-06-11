@@ -42,7 +42,7 @@ extension ContentView {
         withAnimation(.easeInOut(duration: 0.3)) {
             activeTimer = nil
         }
-        endLiveActivity()
+        Task { await endLiveActivity() }
         locationManager.stopBackgroundTracking()
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["KMBTimeAlarm"])
     }
@@ -125,7 +125,8 @@ extension ContentView {
             stopId: route.co == "KMB+CTB" ? stopInfo.stop : (route.displayStopId ?? stopInfo.stop),
             direction: route.directionCode == "O" ? "outbound" : "inbound",
             company: route.co,
-            etaDate: etaDate
+            etaDate: etaDate,
+            operatorStopIds: route.operatorStopIds
         )
     }
     
@@ -139,7 +140,7 @@ extension ContentView {
     ///   - company: 巴士公司代碼。
     ///   - etaDate: 時間或到站時間資料。
     /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
-    func prepareTimerAlert(route: String, destination: String, stationName: String, stopId: String, direction: String, company: String = BusOperator.kmb.rawValue, etaDate: Date) {
+    func prepareTimerAlert(route: String, destination: String, stationName: String, stopId: String, direction: String, company: String = BusOperator.kmb.rawValue, etaDate: Date, operatorStopIds: [String: String] = [:]) {
         timerTargetDate = etaDate
         timerRouteName = route.uppercased()
         timerCompany = company
@@ -147,6 +148,7 @@ extension ContentView {
         timerStopId = stopId
         timerDirection = direction
         timerDestination = destination
+        timerOperatorStopIds = operatorStopIds
         showingAddTimerAlert = true
     }
 }

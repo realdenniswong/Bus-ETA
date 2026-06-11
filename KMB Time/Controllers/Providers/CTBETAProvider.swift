@@ -18,10 +18,10 @@ struct CTBETAProvider: BusETAProvider {
     /// - Returns: 無回傳值；完成物件初始化。
     private init() { }
 
-    /// 向資料來源讀取相關巴士資料。
+    /// 讀取 CTB 路線清單同 CSV 公司標記，並轉成搜尋建議。
     /// - Parameters:
     ///   - none: 呢個函式唔需要外部輸入。
-    /// - Returns: 符合條件並已整理嘅資料列表。
+    /// - Returns: 已整理同排序嘅 CTB／聯營路線建議列表。
     func fetchRouteSuggestions() async throws -> [RouteSuggestion] {
         let routes = try await loadRouteList()
         routeStore.loadCSVDataIfNeeded()
@@ -40,19 +40,19 @@ struct CTBETAProvider: BusETAProvider {
         .sorted(by: sortRouteSuggestions)
     }
 
-    /// 向資料來源讀取相關巴士資料。
+    /// 讀取 CSV 快取入面可用嘅 CTB 車站資料。
     /// - Parameters:
     ///   - none: 呢個函式唔需要外部輸入。
-    /// - Returns: 符合條件並已整理嘅資料列表。
+    /// - Returns: 已載入快取嘅車站資料列表。
     func fetchStops() async throws -> [StopInfo] {
         routeStore.loadCSVDataIfNeeded()
         return routeStore.stops
     }
 
-    /// 向資料來源讀取相關巴士資料。
+    /// 用指定車站識別碼查找 CTB／聯營附近路線，並配對可用 ETA。
     /// - Parameters:
-    ///   - forStopId: 車站識別或車站資料。
-    /// - Returns: 符合條件並已整理嘅資料列表。
+    ///   - forStopId: 要查詢嘅車站識別碼。
+    /// - Returns: 已按路線整理同排序嘅附近路線顯示資料。
     func fetchNearbyRoutes(forStopId stopId: String) async throws -> [NearbyRouteModel] {
         _ = try await loadRouteList()
         routeStore.loadCSVDataIfNeeded()
@@ -67,12 +67,12 @@ struct CTBETAProvider: BusETAProvider {
         }
     }
 
-    /// 向資料來源讀取相關巴士資料。
+    /// 讀取 CTB 指定路線方向嘅站序、站名同每站 ETA。
     /// - Parameters:
-    ///   - route: 路線編號或路線模型。
-    ///   - direction: 巴士方向資料。
-    ///   - stopNameById: 車站識別或車站資料。
-    /// - Returns: 符合條件並已整理嘅資料列表。
+    ///   - route: 要查詢嘅路線編號。
+    ///   - direction: 要查詢嘅行車方向。
+    ///   - stopNameById: 以車站識別碼索引嘅備用站名對照表。
+    /// - Returns: 已按站序整理嘅 CTB 時間表顯示列。
     func fetchTimetableRows(route: String, direction: BusDirection, stopNameById: [String: String]) async throws -> [StopDisplayModel] {
         let rows = try await fetchAPIRouteStops(route: route, direction: direction)
         return await withTaskGroup(of: StopDisplayModel.self) { group in
@@ -87,7 +87,8 @@ struct CTBETAProvider: BusETAProvider {
                         stopId: row.stopId,
                         stopNameTc: resolvedStopInfo?.name_tc ?? stopNameById[row.stopId] ?? "未知車站",
                         etas: Array(resolvedETAs.prefix(3)),
-                        location: resolvedStopInfo.flatMap { Self.stopLocation(from: $0) }
+                        location: resolvedStopInfo.flatMap { Self.stopLocation(from: $0) },
+                        operatorStopIds: [operatorCode.rawValue: row.stopId]
                     )
                 }
             }
@@ -100,11 +101,11 @@ struct CTBETAProvider: BusETAProvider {
         }
     }
 
-    /// 向資料來源讀取相關巴士資料。
+    /// 找出 CTB 收藏路線最接近用戶嘅上車站，並讀取該站 ETA。
     /// - Parameters:
-    ///   - for: 此函式需要嘅輸入資料。
+    ///   - for: 要更新狀態嘅收藏路線。
     ///   - context: 查找站點同位置所需嘅上下文資料。
-    /// - Returns: 找到時回傳對應資料；沒有時為 nil。
+    /// - Returns: 找到最近有效站點時回傳收藏狀態；否則為 nil。
     func fetchFavoriteStatus(for favorite: FavoriteRoute, context: RouteStopLookupContext) async throws -> FavoriteStatusModel? {
         let direction = BusDirection(rawValue: favorite.direction) ?? .outbound
         let rows = try await fetchAPIRouteStops(route: favorite.route, direction: direction)
@@ -126,15 +127,21 @@ struct CTBETAProvider: BusETAProvider {
 
         guard let nearestRow, let nearestStopInfo else { return nil }
         let etas = try await fetchCTBETAs(stopId: nearestRow.stopId, route: favorite.route, direction: direction)
-        return FavoriteStatusModel(etas: Array(etas.prefix(3)), distance: nearestDistance, stopName: nearestStopInfo.name_tc)
+        return FavoriteStatusModel(
+            etas: Array(etas.prefix(3)),
+            distance: nearestDistance,
+            stopName: nearestStopInfo.name_tc,
+            stopId: nearestRow.stopId,
+            operatorStopIds: [operatorCode.rawValue: nearestRow.stopId]
+        )
     }
 
-    /// 向資料來源讀取相關巴士資料。
+    /// 讀取 CTB 指定路線、方向同車站嘅倒數計時 ETA。
     /// - Parameters:
-    ///   - route: 路線編號或路線模型。
-    ///   - direction: 巴士方向資料。
-    ///   - stopId: 車站識別或車站資料。
-    /// - Returns: 符合條件並已整理嘅資料列表。
+    ///   - route: 要查詢嘅路線編號。
+    ///   - direction: 要查詢嘅行車方向。
+    ///   - stopId: 要查詢嘅 CTB 車站識別碼。
+    /// - Returns: 已過濾同排序嘅 ETA 顯示資料列表。
     func fetchTimerETAs(route: String, direction: BusDirection, stopId: String) async throws -> [ETADisplayInfo] {
         try await fetchCTBETAs(stopId: stopId, route: route, direction: direction)
     }
@@ -152,10 +159,10 @@ extension CTBETAProvider {
         return routeStore.nearbyStops(near: location, limit: limit)
     }
 
-    /// 向資料來源讀取相關巴士資料。
+    /// 以座標查找附近 CTB／聯營路線，並配對可用 ETA。
     /// - Parameters:
-    ///   - near: 此函式需要嘅輸入資料。
-    /// - Returns: 符合條件並已整理嘅資料列表。
+    ///   - near: 用嚟查找附近車站嘅座標。
+    /// - Returns: 已按路線整理同排序嘅附近路線顯示資料。
     func fetchNearbyRoutes(near location: CLLocation) async throws -> [NearbyRouteModel] {
         _ = try await loadRouteList()
         routeStore.loadCSVDataIfNeeded()
@@ -241,7 +248,8 @@ private extension CTBETAProvider {
             destNameTc: direction.destinationName,
             displayStopName: direction.companyCode == BusOperator.ctb.rawValue ? matchedStopName : nil,
             displayStopId: apiStopId,
-            etas: Array(etas.prefix(3))
+            etas: Array(etas.prefix(3)),
+            operatorStopIds: apiStopId.map { [operatorCode.rawValue: $0] } ?? [:]
         )
     }
     
@@ -271,11 +279,11 @@ private extension CTBETAProvider {
         }
     }
 
-    /// 向資料來源讀取相關巴士資料。
+    /// 讀取並快取 CTB API 回傳嘅指定路線站序。
     /// - Parameters:
-    ///   - route: 路線編號或路線模型。
-    ///   - direction: 巴士方向資料。
-    /// - Returns: 符合條件並已整理嘅資料列表。
+    ///   - route: 要查詢嘅路線編號。
+    ///   - direction: 要查詢嘅行車方向。
+    /// - Returns: 已轉成內部格式並按路線方向快取嘅站序資料。
     func fetchAPIRouteStops(route: String, direction: BusDirection) async throws -> [CTBRouteStopRow] {
         if let rows = routeStore.apiRouteStops(route: route, direction: direction) {
             return rows
@@ -306,10 +314,10 @@ private extension CTBETAProvider {
         }
     }
 
-    /// 向資料來源讀取相關巴士資料。
+    /// 讀取指定 CTB 車站詳情，並寫入本機車站快取。
     /// - Parameters:
-    ///   - stopId: 車站識別或車站資料。
-    /// - Returns: 找到時回傳對應資料；沒有時為 nil。
+    ///   - stopId: 要查詢嘅 CTB 車站識別碼。
+    /// - Returns: 找到完整站點資料時回傳 `StopInfo`；否則為 nil。
     func fetchStopInfo(stopId: String) async throws -> StopInfo? {
         if let stopInfo = routeStore.stopInfo(stopId: stopId) {
             return stopInfo
@@ -366,8 +374,8 @@ private extension CTBETAProvider {
             return bestMatch
         }
 
-        // CTB's imported CSV coordinates can differ from v2 stop API coordinates by over 200m
-        // for the same named stop, so keep this wider than normal pole matching.
+        // CTB 匯入 CSV 嘅座標同 v2 車站 API 座標，就算同名車站都可能相差超過 200 米，
+        // 所以呢度要比一般站柱配對用更闊嘅距離容許值。
         guard let bestMatch, bestMatch.distance <= 350 else { return nil }
         routeStore.updateMatchedStopId(bestMatch.stopId, route: route, direction: direction, near: location)
         return bestMatch.stopId
@@ -387,12 +395,12 @@ private extension CTBETAProvider {
         return CLLocation(latitude: latitude, longitude: longitude)
     }
 
-    /// 向資料來源讀取相關巴士資料。
+    /// 讀取指定 CTB 車站、路線同方向嘅 ETA，並使用短期快取避免重複請求。
     /// - Parameters:
-    ///   - stopId: 車站識別或車站資料。
-    ///   - route: 路線編號或路線模型。
-    ///   - direction: 巴士方向資料。
-    /// - Returns: 符合條件並已整理嘅資料列表。
+    ///   - stopId: 要查詢嘅 CTB 車站識別碼。
+    ///   - route: 要查詢嘅路線編號。
+    ///   - direction: 要查詢嘅行車方向。
+    /// - Returns: 已過濾同排序嘅 ETA 顯示資料列表。
     func fetchCTBETAs(stopId: String, route: String, direction: BusDirection) async throws -> [ETADisplayInfo] {
         if let cachedETAs = routeStore.cachedETAs(stopId: stopId, route: route, direction: direction) {
             return cachedETAs

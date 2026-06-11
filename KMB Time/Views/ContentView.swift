@@ -56,6 +56,7 @@ struct ContentView: View {
     @State var timerStopId = ""
     @State var timerDirection = ""
     @State var timerStationName = ""
+    @State var timerOperatorStopIds: [String: String] = [:]
     
     // MARK: - 收藏狀態
     @State var favoriteStatus: [String: FavoriteStatusModel] = [:]

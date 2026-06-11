@@ -10,14 +10,14 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     private let foregroundAccuracy = kCLLocationAccuracyHundredMeters
     private let cachedLocationMaxAge: TimeInterval = 10 * 60
     private let cachedLocationMaxAccuracy: CLLocationAccuracy = 500
-    
+
     @Published var location: CLLocation?
     @Published var authorizationStatus: CLAuthorizationStatus = .notDetermined
     @Published var isLocating = false
-    
+
     @Published var isBackgroundTracking = false
     @Published var backgroundHeartbeat = Date()
-    
+
     /// 建立物件並準備需要嘅初始狀態。
     /// - Parameters:
     ///   - none: 呢個函式唔需要外部輸入。
@@ -29,12 +29,12 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         manager.distanceFilter = 20
         self.authorizationStatus = manager.authorizationStatus
         self.location = recentCachedLocation
-        
+
         manager.allowsBackgroundLocationUpdates = true
         manager.showsBackgroundLocationIndicator = false
         manager.pausesLocationUpdatesAutomatically = false
     }
-    
+
     /// 向系統要求所需權限或資料。
     /// - Parameters:
     ///   - none: 呢個函式唔需要外部輸入。
@@ -49,7 +49,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             }
             return
         }
-        
+
         if let cachedLocation = recentCachedLocation {
             location = cachedLocation
             isLocating = false
@@ -57,11 +57,11 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         } else {
             isLocating = true
         }
-        
+
         manager.desiredAccuracy = foregroundAccuracy
         manager.requestLocation()
     }
-    
+
     /// 接收 Core Location 回呼並更新定位狀態。
     /// - Parameters:
     ///   - manager: 系統或 app manager 物件。
@@ -76,7 +76,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             }
         }
     }
-    
+
     /// 接收 Core Location 回呼並更新定位狀態。
     /// - Parameters:
     ///   - manager: 系統或 app manager 物件。
@@ -88,14 +88,14 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             self.location = first
             self.isLocating = false
             self.logLocationTiming("live location", startedAt: first.timestamp, location: first)
-            
+
             self.backgroundHeartbeat = Date()
             if !self.isBackgroundTracking {
                 manager.stopUpdatingLocation()
             }
         }
     }
-    
+
     /// 接收 Core Location 回呼並更新定位狀態。
     /// - Parameters:
     ///   - manager: 系統或 app manager 物件。
@@ -107,7 +107,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             self.isLocating = false
         }
     }
-    
+
     private var recentCachedLocation: CLLocation? {
         guard let cachedLocation = manager.location ?? location,
               cachedLocation.horizontalAccuracy >= 0,
@@ -117,8 +117,8 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         }
         return cachedLocation
     }
-    
-    /// Print timing and accuracy for location updates.
+
+    /// 輸出位置更新嘅耗時同準確度。
     /// - Parameters:
     ///   - label: Step name.
     ///   - startedAt: Start time or location timestamp.
@@ -128,18 +128,24 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         let milliseconds = Int(Date().timeIntervalSince(startedAt) * 1_000)
         print("[Performance] location \(label): \(milliseconds)ms accuracy=\(Int(location.horizontalAccuracy))m")
     }
-    
+
     /// 開始相關追蹤、活動或流程。
     /// - Parameters:
     ///   - none: 呢個函式唔需要外部輸入。
     /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
     func startBackgroundTracking() {
+        if manager.authorizationStatus == .authorizedWhenInUse {
+            manager.requestAlwaysAuthorization()
+        } else if manager.authorizationStatus == .notDetermined {
+            manager.requestWhenInUseAuthorization()
+        }
+
         self.isBackgroundTracking = true
         self.manager.desiredAccuracy = kCLLocationAccuracyBest
         self.manager.allowsBackgroundLocationUpdates = true
         self.manager.showsBackgroundLocationIndicator = false
         self.manager.pausesLocationUpdatesAutomatically = false
-        
+
         self.manager.startUpdatingLocation()
         print("🐛 [LocationManager] 背景定位已成功開火！")
     }

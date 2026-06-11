@@ -47,7 +47,7 @@ extension ContentView {
         let secondsLeft = timer.etaDate.timeIntervalSince(referenceDate)
         if secondsLeft <= -10 {
             withAnimation { activeTimer = nil }
-            endLiveActivity()
+            Task { await endLiveActivity() }
             locationManager.stopBackgroundTracking()
         }
     }

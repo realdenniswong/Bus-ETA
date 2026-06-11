@@ -3,10 +3,9 @@ import Foundation
 
 /// 擴充 `ContentView`，加入此檔案負責嘅相關功能。
 extension ContentView {
-    /// 更新相關狀態，令畫面或快取保持最新。
-    /// - Parameters:
-    ///   - none: 呢個函式唔需要外部輸入。
-    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
+    /// 更新每條已收藏路線嘅 ETA、最近站點同距離狀態。
+    ///
+    /// 每條收藏會並行請求，完成後喺主執行緒一次過發布完整 `favoriteStatus` 字典。無位置、無收藏，或者已有更新進行緊時會提早結束。
     func updateFavoriteETAs() async {
         guard let userLocation = locationManager.location,
               !favoritesManager.favoriteRoutes.isEmpty else { return }
@@ -56,10 +55,9 @@ extension ContentView {
         }
     }
     
-    /// 執行呢個檔案負責嘅相關功能。
-    /// - Parameters:
-    ///   - none: 呢個函式唔需要外部輸入。
-    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
+    /// 收藏、位置同靜態站點資料準備好後，啟動第一次收藏 ETA 更新。
+    ///
+    /// 避免啟動後收藏首頁長時間空白；如果狀態資料已存在，仍然會略過重複更新。
     func warmFavoriteETAsIfPossible() {
         guard !favoritesManager.favoriteRoutes.isEmpty,
               favoriteStatus.isEmpty,

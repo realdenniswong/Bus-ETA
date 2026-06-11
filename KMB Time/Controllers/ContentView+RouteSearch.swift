@@ -4,16 +4,15 @@ import SwiftUI
 
 /// 擴充 `ContentView`，加入此檔案負責嘅相關功能。
 extension ContentView {
-    /// 按照輸入條件搜尋路線並準備顯示結果。
+    /// 擷取指定路線嘅時間表列，並發布到路線詳情 UI。
     /// - Parameters:
-    ///   - route: 路線編號或路線模型。
-    ///   - direction: 巴士方向資料。
-    ///   - company: 巴士公司代碼。
-    ///   - findNearest: 控制此流程是否啟用嘅設定。
-    ///   - targetStopCode: 車站識別或車站資料。
-    ///   - shouldScroll: 此函式需要嘅輸入資料。
-    ///   - isRefresh: 控制此流程是否啟用嘅設定。
-    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
+    ///   - route: 使用者輸入或從建議選取嘅路線號碼。
+    ///   - direction: 可選路線方向覆寫；無提供時使用目前選取方向。
+    ///   - company: 可選營辦商覆寫；否則由建議目錄同已選營辦商推算。
+    ///   - findNearest: 為 `true` 時，會高亮最接近使用者目前位置嘅列。
+    ///   - targetStopCode: 從收藏或附近路線開啟後，可選擇要高亮嘅站點代碼。
+    ///   - shouldScroll: 載入後觸發路線詳情列表捲動到高亮列。
+    ///   - isRefresh: 重新整理可見資料時，保持現有列同載入狀態穩定。
     func searchRoute(route: String, direction: String? = nil, company: String? = nil, findNearest: Bool = false, targetStopCode: String? = nil, shouldScroll: Bool = false, isRefresh: Bool = false) async {
         guard !route.isEmpty else { return }
         
@@ -70,10 +69,9 @@ extension ContentView {
         }
     }
     
-    /// 根據路線或公司選擇合適資料提供者。
-    /// - Parameters:
-    ///   - company: 巴士公司代碼。
-    /// - Returns: 計算後嘅 `BusETAProvider`。
+    /// 根據已解析嘅營辦商代碼選擇對應 ETA provider。
+    /// - Parameter company: 營辦商代碼，例如 `KMB`、`CTB` 或 `KMB+CTB`。
+    /// - Returns: 負責為該營辦商擷取時間表、收藏或計時器 ETA 資料嘅 provider。
     func providerForCompany(_ company: String) -> BusETAProvider {
         switch company {
         case "KMB+CTB":
@@ -85,21 +83,12 @@ extension ContentView {
         }
     }
     
-    /// 根據路線或公司選擇合適資料提供者。
+    /// 從符合營辦商代碼嘅 provider 擷取所選路線站點列。
     /// - Parameters:
-    ///   - route: 路線編號或路線模型。
-    ///   - direction: 巴士方向資料。
-    /// - Returns: 計算後嘅 `BusETAProvider`。
-    func providerForRoute(route: String, direction: BusDirection) -> BusETAProvider {
-        providerForCompany(routeSuggestionCatalog.companyCode(route: route, direction: direction) ?? BusOperator.kmb.rawValue)
-    }
-    
-    /// 向資料來源讀取相關巴士資料。
-    /// - Parameters:
-    ///   - route: 路線編號或路線模型。
-    ///   - direction: 巴士方向資料。
-    ///   - company: 巴士公司代碼。
-    /// - Returns: 符合條件並已整理嘅資料列表。
+    ///   - route: 要載入嘅路線號碼。
+    ///   - direction: 路線嘅去程或回程方向。
+    ///   - company: 已解析營辦商代碼，用嚟選擇 KMB、CTB 或聯營資料。
+    /// - Returns: 已補本站名同 ETA 顯示資料嘅時間表列。
     private func fetchTimetableRows(route: String, direction: BusDirection, company: String) async throws -> [StopDisplayModel] {
         switch company {
         case BusOperator.ctb.rawValue:
@@ -112,12 +101,12 @@ extension ContentView {
     }
 
     
-    /// 按照輸入條件搜尋路線並準備顯示結果。
+    /// 解析路線搜尋完成後應該高亮邊一個站點列。
     /// - Parameters:
-    ///   - rows: 要處理嘅資料集合。
-    ///   - findNearest: 控制此流程是否啟用嘅設定。
-    ///   - targetStopCode: 車站識別或車站資料。
-    /// - Returns: 格式化或查找後嘅文字。
+    ///   - rows: 所選路線同方向返回嘅時間表列。
+    ///   - findNearest: 啟用時使用使用者目前位置選擇最近列。
+    ///   - targetStopCode: 來自收藏、附近路線或深層連結選取嘅偏好站點代碼。
+    /// - Returns: 要高亮嘅列識別碼；無合適配對時返回 `nil`。
     private func highlightedStopIdForRouteSearch(rows: [StopDisplayModel], findNearest: Bool, targetStopCode: String?) -> String? {
         if findNearest, let userLocation = locationManager.location {
             return rows.min { firstCandidate, secondCandidate in
@@ -150,10 +139,9 @@ extension ContentView {
         }?.id
     }
     
-    /// 停止或收起相關追蹤、活動或流程。
-    /// - Parameters:
-    ///   - stopName: 車站識別或車站資料。
-    /// - Returns: 格式化或查找後嘅文字。
+    /// 跨營辦商比較站名之前，移除站名尾段嘅站柱或月台文字。
+    /// - Parameter stopName: 原始中文站名，可能以括號 metadata 作結。
+    /// - Returns: 適合做相等比較嘅標準化站名。
     private func normalizedStopName(_ stopName: String) -> String {
         stopName.replacingOccurrences(
             of: "\\s*\\([^)]+\\)\\s*$",
@@ -162,11 +150,11 @@ extension ContentView {
         )
     }
     
-    /// 判斷指定條件是否成立。
+    /// 計算參考位置到時間表列站點嘅距離。
     /// - Parameters:
-    ///   - location: 用嚟計算距離嘅位置。
-    ///   - to: 此函式需要嘅輸入資料。
-    /// - Returns: 可用嘅位置資料；沒有時為 nil。
+    ///   - location: 作為距離起點嘅使用者位置或目標站點位置。
+    ///   - stop: 需要從列、字典或完整站點列表解析站點位置嘅時間表列。
+    /// - Returns: 以米為單位嘅距離；站點無可用座標時返回 `.infinity`。
     private func distanceFromLocation(_ location: CLLocation, to stop: StopDisplayModel) -> CLLocationDistance {
         let stopLocation = stop.location ?? stopInfoDictionary[stop.stopId]?.clLocation ?? allStops.first(where: { $0.stop == stop.stopId })?.clLocation
         return stopLocation.map { location.distance(from: $0) } ?? .infinity

@@ -48,7 +48,8 @@ extension ContentView {
             stopId: stop.stopId,
             direction: selectedDirection == "outbound" ? "outbound" : "inbound",
             company: selectedCompany,
-            etaDate: etaDate
+            etaDate: etaDate,
+            operatorStopIds: stop.operatorStopIds
         )
     }
     

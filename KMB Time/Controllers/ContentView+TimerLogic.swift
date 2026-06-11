@@ -5,17 +5,21 @@ import UserNotifications
 
 /// 擴充 `ContentView`，加入此檔案負責嘅相關功能。
 extension ContentView {
-    /// 執行呢個檔案負責嘅相關功能。
-    /// - Parameters:
-    ///   - none: 呢個函式唔需要外部輸入。
-    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
+    /// 用最新 provider ETA 更新目前啟用嘅到站提醒。
+    ///
+    /// 當 ETA 變動超過 10 秒，會更新 app 內計時器、重新排程兩分鐘前本地通知，並將新到站時間推送到任何啟用中嘅 Live Activity。
     func syncActiveTimer() async {
         guard let timer = activeTimer, !timer.stopId.isEmpty else { return }
         let timerDirection = BusDirection(rawValue: timer.direction) ?? .outbound
         
         do {
             let provider = providerForCompany(timer.company)
-            let etas = try await provider.fetchTimerETAs(route: timer.routeName, direction: timerDirection, stopId: timer.stopId)
+            let etas = try await provider.fetchTimerETAs(
+                route: timer.routeName,
+                direction: timerDirection,
+                stopId: timer.stopId,
+                operatorStopIds: timer.operatorStopIds
+            )
             guard let newEtaDate = etas.first?.etaDate else { return }
             
             let difference = abs(newEtaDate.timeIntervalSince(timer.etaDate))
@@ -38,10 +42,8 @@ extension ContentView {
         }
     }
     
-    /// 更新相關狀態，令畫面或快取保持最新。
-    /// - Parameters:
-    ///   - etaDate: 時間或到站時間資料。
-    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
+    /// 將新到站時間發布到所有運行中嘅巴士 ETA Live Activity。
+    /// - Parameter etaDate: 更新後 ETA，會同時用於 Live Activity 狀態同過期時間。
     func updateLiveActivity(etaDate: Date) {
         Task {
             for activity in Activity<BusETAAttributes>.activities {
@@ -53,10 +55,9 @@ extension ContentView {
         }
     }
     
-    /// 將資料格式化成畫面顯示文字。
-    /// - Parameters:
-    ///   - date: 時間或到站時間資料。
-    /// - Returns: 格式化或查找後嘅文字。
+    /// 將可選 ETA 格式化成精簡計時器顯示文字。
+    /// - Parameter date: 要格式化嘅 ETA；`nil` 代表無可用時間。
+    /// - Returns: `HH:mm` 字串；當 `date` 係 `nil` 時返回空字串。
     func formattedTime(_ date: Date?) -> String {
         guard let date else { return "" }
         let formatter = DateFormatter()
@@ -64,12 +65,11 @@ extension ContentView {
         return formatter.string(from: date)
     }
     
-    /// 執行呢個檔案負責嘅相關功能。
+    /// 為目前啟用計時器排程唯一一個待發送嘅到站提示通知。
     /// - Parameters:
-    ///   - routeName: 路線編號或路線模型。
-    ///   - destination: 畫面顯示文字。
-    ///   - alertDate: 時間或到站時間資料。
-    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
+    ///   - routeName: 通知內容顯示嘅路線號碼。
+    ///   - destination: 通知內容顯示嘅目的地。
+    ///   - alertDate: 兩分鐘前提示應該送出嘅時間。
     func scheduleLocalNotification(routeName: String, destination: String, alertDate: Date) {
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["KMBTimeAlarm"])
         
@@ -86,19 +86,27 @@ extension ContentView {
         UNUserNotificationCenter.current().add(request) { _ in }
     }
     
-    /// 開始相關追蹤、活動或流程。
+    /// 裝置允許 Live Activity 時，為巴士計時器啟動 Live Activity。
     /// - Parameters:
-    ///   - routeName: 路線編號或路線模型。
-    ///   - company: 巴士公司代碼。
-    ///   - destination: 畫面顯示文字。
-    ///   - stationName: 車站識別或車站資料。
-    ///   - etaDate: 時間或到站時間資料。
-    ///   - startTime: 時間或到站時間資料。
-    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
-    func startLiveActivity(routeName: String, company: String, destination: String, stationName: String, etaDate: Date, startTime: Date) {
+    ///   - routeName: Activity 顯示嘅路線號碼。
+    ///   - company: Activity 屬性顯示嘅營辦商代碼。
+    ///   - destination: Activity 顯示嘅路線目的地。
+    ///   - stationName: Activity 顯示嘅站名。
+    ///   - etaDate: 目前目標到站時間。
+    ///   - startTime: 計時器建立時間，用嚟喺重新連接後保留活動內容。
+    func startLiveActivity(routeName: String, company: String, destination: String, stationName: String, etaDate: Date, startTime: Date, stopId: String, direction: String, operatorStopIds: [String: String]) {
         if ActivityAuthorizationInfo().areActivitiesEnabled {
             do {
-                let attributes = BusETAAttributes(routeName: routeName, company: company, destination: destination, stationName: stationName, startTime: startTime)
+                let attributes = BusETAAttributes(
+                    routeName: routeName,
+                    company: company,
+                    destination: destination,
+                    stationName: stationName,
+                    startTime: startTime,
+                    stopId: stopId,
+                    direction: direction,
+                    operatorStopIds: operatorStopIds
+                )
                 let remaining = Int(etaDate.timeIntervalSince(Date()))
                 let state = BusETAAttributes.ContentState(etaDate: etaDate, remainingSeconds: remaining)
                 let content = ActivityContent(state: state, staleDate: etaDate.addingTimeInterval(60))
@@ -109,23 +117,19 @@ extension ContentView {
         }
     }
     
-    /// 停止或收起相關追蹤、活動或流程。
-    /// - Parameters:
-    ///   - none: 呢個函式唔需要外部輸入。
-    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
-    func endLiveActivity() {
-        Task {
-            for activity in Activity<BusETAAttributes>.activities {
-                let state = BusETAAttributes.ContentState(etaDate: activity.content.state.etaDate, remainingSeconds: 0)
-                await activity.end(ActivityContent(state: state, staleDate: nil), dismissalPolicy: .immediate)
-            }
+    /// 即時結束所有運行中嘅巴士 ETA Live Activity。
+    ///
+    /// 最終狀態會保留最後 ETA，但將剩餘秒數設為零，令活動可以乾淨地關閉。
+    func endLiveActivity() async {
+        for activity in Activity<BusETAAttributes>.activities {
+            let state = BusETAAttributes.ContentState(etaDate: activity.content.state.etaDate, remainingSeconds: 0)
+            await activity.end(ActivityContent(state: state, staleDate: nil), dismissalPolicy: .immediate)
         }
     }
     
-    /// 執行呢個檔案負責嘅相關功能。
-    /// - Parameters:
-    ///   - none: 呢個函式唔需要外部輸入。
-    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
+    /// 應用程式啟動或返回前景後，從現有即時活動重建 `activeTimer`。
+    ///
+    /// 已過期活動會即時結束；如果目前無顯示計時器，仍然有效嘅活動會複製返到本地狀態。
     func reconnectActiveLiveActivity() {
         for activity in Activity<BusETAAttributes>.activities {
             let attributes = activity.attributes
@@ -140,9 +144,10 @@ extension ContentView {
                         etaDate: state.etaDate,
                         targetAlertDate: state.etaDate.addingTimeInterval(-120),
                         startTime: attributes.startTime,
-                        stopId: "",
-                        direction: "",
-                        stationName: attributes.stationName
+                        stopId: attributes.stopId,
+                        direction: attributes.direction,
+                        stationName: attributes.stationName,
+                        operatorStopIds: attributes.operatorStopIds
                     )
                 }
             } else {

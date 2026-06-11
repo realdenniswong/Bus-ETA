@@ -3,12 +3,11 @@
 import SwiftUI
 import Combine
 
-// The model for a saved route
-/// `FavoriteRoute` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
+/// 使用者標記為收藏嘅路線儲存表示。
 struct FavoriteRoute: Identifiable, Codable {
     var id: String { "\(route)-\(direction)-\(company)" }
     let route: String
-    let direction: String // "outbound" or "inbound"
+    let direction: String // "outbound" 或 "inbound"
     let destNameTc: String
     let company: String
     
@@ -20,13 +19,12 @@ struct FavoriteRoute: Identifiable, Codable {
         case company
     }
     
-    /// 建立物件並準備需要嘅初始狀態。
+    /// 建立收藏路線紀錄。
     /// - Parameters:
-    ///   - route: 路線編號或路線模型。
-    ///   - direction: 巴士方向資料。
-    ///   - destNameTc: 畫面顯示文字。
-    ///   - company: 巴士公司代碼。
-    /// - Returns: 無回傳值；完成物件初始化。
+    ///   - route: 使用者儲存嘅路線號碼。
+    ///   - direction: 方向原始值，通常係 `outbound` 或 `inbound`。
+    ///   - destNameTc: 收藏列表顯示嘅中文目的地名稱。
+    ///   - company: 營辦商代碼；舊呼叫位置預設為 KMB。
     init(route: String, direction: String, destNameTc: String, company: String = BusOperator.kmb.rawValue) {
         self.route = route
         self.direction = direction
@@ -34,10 +32,8 @@ struct FavoriteRoute: Identifiable, Codable {
         self.company = company
     }
     
-    /// 建立物件並準備需要嘅初始狀態。
-    /// - Parameters:
-    ///   - from: 此函式需要嘅輸入資料。
-    /// - Returns: 無回傳值；完成物件初始化。
+    /// 解碼已儲存收藏，並為支援營辦商之前建立嘅紀錄補上 KMB 公司代碼。
+    /// - Parameter decoder: 讀取持久化收藏 JSON 嘅 decoder。
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         route = try container.decode(String.self, forKey: .route)
@@ -47,18 +43,16 @@ struct FavoriteRoute: Identifiable, Codable {
     }
 }
 
-// The manager that talks to UserDefaults
-/// `FavoritesManager` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
+/// 將收藏路線持久化到 `UserDefaults` 嘅可觀察儲存物件。
 class FavoritesManager: ObservableObject {
     @Published var favoriteRoutes: [FavoriteRoute] = []
     
     private var cancellables = Set<AnyCancellable>()
     
-    /// 建立物件並準備需要嘅初始狀態。
+    /// 載入已儲存收藏，並開始觀察之後變更以作持久化。
     /// - Parameters:
-    ///   - userDefaults: 此函式需要嘅輸入資料。
-    ///   - storageKey: 用嚟查找、快取或請求資料嘅識別值。
-    /// - Returns: 無回傳值；完成物件初始化。
+    ///   - userDefaults: 用於讀寫收藏嘅儲存後端。
+    ///   - storageKey: 儲存已編碼 `[FavoriteRoute]` payload 嘅 key。
     init(userDefaults: UserDefaults = .standard, storageKey: String = "saved_kmb_favorites") {
         if let data = userDefaults.data(forKey: storageKey),
            let decoded = try? JSONDecoder().decode([FavoriteRoute].self, from: data) {
@@ -75,14 +69,12 @@ class FavoritesManager: ObservableObject {
             .store(in: &cancellables)
     }
     
-    // Add if it doesn't exist, remove if it does
-    /// 切換指定項目嘅狀態。
+    /// 路線未收藏時加入收藏；已有配對收藏時移除。
     /// - Parameters:
-    ///   - route: 路線編號或路線模型。
-    ///   - direction: 巴士方向資料。
-    ///   - destName: 畫面顯示文字。
-    ///   - company: 巴士公司代碼。
-    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
+    ///   - route: 要切換收藏狀態嘅路線號碼。
+    ///   - direction: 收藏身份包含嘅方向原始值。
+    ///   - destName: 為顯示而儲存嘅中文目的地名稱。
+    ///   - company: 收藏身份包含嘅營辦商代碼。
     func toggleFavorite(route: String, direction: String, destName: String, company: String = BusOperator.kmb.rawValue) {
         let favId = "\(route)-\(direction)-\(company)"
         if let index = favoriteRoutes.firstIndex(where: { $0.id == favId }) {
@@ -92,13 +84,12 @@ class FavoritesManager: ObservableObject {
         }
     }
     
-    // Check if a route is currently favorited
-    /// 判斷指定條件是否成立。
+    /// 檢查配對路線同方向是否已儲存。
     /// - Parameters:
-    ///   - route: 路線編號或路線模型。
-    ///   - direction: 巴士方向資料。
-    ///   - company: 巴士公司代碼。
-    /// - Returns: 條件是否成立。
+    ///   - route: 要檢查嘅路線號碼。
+    ///   - direction: 要檢查嘅方向原始值。
+    ///   - company: 可選營辦商代碼；省略時會配對不分公司嘅舊收藏。
+    /// - Returns: 存在配對收藏時返回 `true`。
     func isFavorite(route: String, direction: String, company: String? = nil) -> Bool {
         if let company {
             return favoriteRoutes.contains(where: { $0.id == "\(route)-\(direction)-\(company)" })

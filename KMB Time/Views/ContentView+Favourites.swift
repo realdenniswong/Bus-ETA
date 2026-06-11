@@ -18,10 +18,11 @@ extension ContentView {
                         route: favorite.route,
                         destination: favorite.destNameTc,
                         stationName: status.stopName,
-                        stopId: "",
+                        stopId: status.stopId,
                         direction: favorite.direction,
                         company: company,
-                        etaDate: etaDate
+                        etaDate: etaDate,
+                        operatorStopIds: status.operatorStopIds
                     )
                 },
                 onRefresh: {
@@ -50,12 +51,19 @@ extension ContentView {
     /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
     func openFavoriteRoute(_ favorite: FavoriteRoute) {
         selectedTab = 0
-        
+
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            let direction = BusDirection(rawValue: favorite.direction) ?? .outbound
+            let company = routeSuggestionCatalog.resolvedCompany(
+                route: favorite.route,
+                direction: direction,
+                preferredCompany: favorite.company
+            )
             searchText = favorite.route
             selectedDirection = favorite.direction
+            selectedCompany = company
             isNavigatingToRoute = true
-            Task { await searchRoute(route: favorite.route, direction: favorite.direction, findNearest: true, shouldScroll: true) }
+            Task { await searchRoute(route: favorite.route, direction: favorite.direction, company: company, findNearest: true, shouldScroll: true) }
         }
     }
 }

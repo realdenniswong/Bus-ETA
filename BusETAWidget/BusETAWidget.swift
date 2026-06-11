@@ -23,7 +23,7 @@ struct SmartETABlock: View {
     var body: some View {
         VStack(alignment: .trailing, spacing: 2) {
             if isLuminanceReduced {
-                // AOD 熄芒狀態
+                // 常亮顯示熄芒狀態
                 Text(formattedTime(etaDate))
                     .font(.system(size: bigSize, weight: .bold, design: .rounded))
                     .monospacedDigit()
@@ -107,12 +107,12 @@ private enum RouteBadgeTheme {
     }
 }
 
-// MARK: - Widget 定義
+// MARK: - 小工具定義
 /// `BusETAWidget` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 struct BusETAWidget: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: BusETAAttributes.self) { context in
-            // MARK: - 鎖屏 / 通知中心 Banner
+            // MARK: - 鎖屏 / 通知中心橫額
             VStack(spacing: 16) {
                 
                 HStack(alignment: .center, spacing: 10) {
@@ -162,7 +162,7 @@ struct BusETAWidget: Widget {
             
         } dynamicIsland: { context in
             DynamicIsland {
-                // MARK: - 靈動島展開狀態 (Expanded)
+                // MARK: - 靈動島展開狀態
                 
                 DynamicIslandExpandedRegion(.leading) {
                     Text(context.attributes.routeName)

@@ -21,10 +21,9 @@ extension ContentView {
         }
     }
     
-    /// 載入需要嘅資料並更新本機狀態或快取。
-    /// - Parameters:
-    ///   - none: 呢個函式唔需要外部輸入。
-    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
+    /// 載入首頁需要嘅靜態路線同站點資料。
+    ///
+    /// 如有快取快照，會先套用以加快 UI 顯示，再喺背景更新 KMB 同 CTB 資料。無快取時會即時完成網絡更新先返回。
     func loadStaticRouteData() async {
         let startedAt = Date()
         let loadedCachedData = await loadCachedStaticRouteData()
@@ -37,39 +36,10 @@ extension ContentView {
         }
     }
     
-    /// 載入需要嘅資料並更新本機狀態或快取。
-    /// - Parameters:
-    ///   - none: 呢個函式唔需要外部輸入。
-    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
-    func loadAllRoutes() async {
-        do {
-            let routeSuggestions = try await fetchAllRouteSuggestions()
-            await MainActor.run {
-                self.allRoutes = routeSuggestions
-            }
-        } catch {
-            print("Failed to load route suggestions: \(error)")
-        }
-    }
-    
-    /// 載入需要嘅資料並更新本機狀態或快取。
-    /// - Parameters:
-    ///   - none: 呢個函式唔需要外部輸入。
-    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
-    func loadAllStops() async {
-        do {
-            let stops = try await fetchAllStops()
-            await applyStops(stops)
-            await updateNearbyStopsAfterStaticDataLoad()
-        } catch {
-            print("Failed to load stops: \(error)")
-        }
-    }
-    
-    /// 載入需要嘅資料並更新本機狀態或快取。
-    /// - Parameters:
-    ///   - none: 呢個函式唔需要外部輸入。
-    /// - Returns: 條件是否成立。
+    /// 嘗試還原之前儲存嘅靜態路線快照。
+    ///
+    /// 找到快照時，會套用快取路線、站點、查表字典同附近站點狀態，然後返回 `true`。
+    /// - Returns: 成功還原快取資料時返回 `true`，否則返回 `false`。
     private func loadCachedStaticRouteData() async -> Bool {
         guard let snapshot = await StaticRouteDataCache.load() else { return false }
         await applyStaticRouteData(routes: snapshot.routes, stops: snapshot.stops)
@@ -77,10 +47,9 @@ extension ContentView {
         return true
     }
     
-    /// 重新整理目前畫面需要嘅資料。
-    /// - Parameters:
-    ///   - none: 呢個函式唔需要外部輸入。
-    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
+    /// 從兩間營辦商下載最新路線建議同站點紀錄。
+    ///
+    /// 更新成功後會取代記憶體內嘅路線同站點狀態，儲存新快照供下次啟動使用，並喺已有使用者位置時重新計算附近站點。
     private func refreshStaticRouteData() async {
         let startedAt = Date()
         do {
@@ -97,31 +66,26 @@ extension ContentView {
         }
     }
     
-    /// 向資料來源讀取相關巴士資料。
-    /// - Parameters:
-    ///   - none: 呢個函式唔需要外部輸入。
-    /// - Returns: 符合條件並已整理嘅資料列表。
+    /// 並行擷取 KMB 同 CTB 路線建議目錄，並合併重複嘅聯營路線。
+    /// - Returns: 按 `RouteSuggestionCatalog` 規則排序、可直接顯示嘅路線建議列表。
     private func fetchAllRouteSuggestions() async throws -> [RouteSuggestion] {
         async let kmbSuggestions = kmbETAProvider.fetchRouteSuggestions()
         async let ctbSuggestions = ctbETAProvider.fetchRouteSuggestions()
         return try await RouteSuggestionCatalog.merged(kmb: kmbSuggestions, ctb: ctbSuggestions)
     }
     
-    /// 向資料來源讀取相關巴士資料。
-    /// - Parameters:
-    ///   - none: 呢個函式唔需要外部輸入。
-    /// - Returns: 符合條件並已整理嘅資料列表。
+    /// 並行擷取所有已知 KMB 同 CTB 站點紀錄。
+    /// - Returns: 合併後嘅站點列表，用作建立站名字典同附近站點結果。
     private func fetchAllStops() async throws -> [StopInfo] {
         async let kmbStops = kmbETAProvider.fetchStops()
         async let ctbStops = ctbETAProvider.fetchStops()
         return try await kmbStops + ctbStops
     }
     
-    /// 整理或查找路線相關資料。
+    /// 將完整靜態資料套用到搜尋同附近首頁會用到嘅狀態。
     /// - Parameters:
-    ///   - routes: 路線編號或路線模型。
-    ///   - stops: 車站識別或車站資料。
-    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
+    ///   - routes: 已合併嘅 KMB、CTB 同聯營路線建議。
+    ///   - stops: 兩間營辦商嘅站點紀錄。
     private func applyStaticRouteData(routes: [RouteSuggestion], stops: [StopInfo]) async {
         await MainActor.run {
             self.allRoutes = routes
@@ -129,10 +93,8 @@ extension ContentView {
         await applyStops(stops)
     }
     
-    /// 停止或收起相關追蹤、活動或流程。
-    /// - Parameters:
-    ///   - stops: 車站識別或車站資料。
-    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
+    /// 儲存站點資料，並重建路線搜尋、收藏同附近配對會用到嘅查表字典。
+    /// - Parameter stops: KMB 同 CTB 站點紀錄，包含營辦商專用身份鍵。
     private func applyStops(_ stops: [StopInfo]) async {
         let stopNamesById = Dictionary(stops.map { ($0.stop, $0.name_tc) }, uniquingKeysWith: { first, _ in first })
         let identityStopInfo = stops.map { ($0.identityKey, $0) }
@@ -146,10 +108,9 @@ extension ContentView {
         }
     }
     
-    /// 載入需要嘅資料並更新本機狀態或快取。
-    /// - Parameters:
-    ///   - none: 呢個函式唔需要外部輸入。
-    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
+    /// 路線同站點字典可用後，重建附近站點同收藏 ETA 狀態。
+    ///
+    /// 位置管理器未有目前使用者位置前，呢個方法唔會執行任何更新。
     private func updateNearbyStopsAfterStaticDataLoad() async {
         if let userLocation = locationManager.location {
             await updateNearbyStops(userLocation: userLocation)

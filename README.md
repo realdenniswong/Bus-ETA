@@ -6,34 +6,62 @@
 
 ## 主要結構
 
-`ContentView` 係 app 狀態中心，持有搜尋文字、已選方向、站點字典、附近車站、收藏狀態、計時器同 navigation 狀態。畫面拆咗做幾個 SwiftUI view：
+`ContentView` 係 app 狀態同 navigation 中心，持有 tab、搜尋文字、已選方向、已選公司、路線/站點查表、附近車站、收藏 ETA、active timer、toast、自訂鍵盤同 route detail navigation 狀態。主要邏輯拆咗做幾個 extension：
+
+- `ContentView+RouteData`：載入靜態路線/站點 cache，背景刷新 KMB/CTB 資料，建立站名同站點查表。
+- `ContentView+NearbyRoutes`：根據定位搵附近站點，分批載入附近路線 ETA，並管理首頁 ETA cache。
+- `ContentView+RouteSearch`：處理路線搜尋、provider 選擇、站點高亮同 route detail 資料載入。
+- `ContentView+FavouritesLogic`：更新收藏路線最近站點、距離同 ETA。
+- `ContentView+TimerLogic`：同步 active timer、Live Activity 同本地通知。
+- `ContentView+Refresh`：集中處理 30 秒刷新、返回前景刷新同過期 timer 清理。
+
+畫面層拆咗做幾個 SwiftUI view：
 
 - `DashboardView`：首頁搜尋、附近路線、建議路線同 active timer。
 - `RouteDetailsView`：單一路線站序、ETA、收藏同重新整理。
 - `FavouritesView`：收藏路線列表，同最近 ETA / 距離。
 - `BusETAWidget`：Live Activity / widget 顯示。
 
-資料層用 provider 包住唔同公司 API：
+資料層用 provider 同 manager 包住唔同職責：
 
 - `BusETAProvider` 定義所有 provider 要提供嘅方法。
 - `KMBETAProvider` 負責九巴 API。
 - `CTBETAProvider` 負責城巴 API 同 CSV/API cache。
 - `JointRouteETAProvider` 合併 KMB + CTB 聯營路線顯示。
+- `RouteSuggestionCatalog` 負責搜尋建議、公司判斷同 KMB/CTB 建議合併。
+- `LocationManager` 包裝前景定位、背景定位同 background heartbeat。
+- `FavoritesManager` 用 `UserDefaults` 儲存收藏路線。
+- `StaticRouteDataCache` 將路線建議同站點快照存入 app support directory，令下次啟動可以先用 cache 顯示。
 
 ## App 啟動流程
 
 `KMB_TimeApp.body` 會建立 `ContentView`。
 
-`ContentView.body` 入面 `.task` 會按以下次序做：
+`ContentView.body` 會建立兩個 tab：首頁 `dashboardContentView` 同收藏頁 `favoritesTab`。首頁用 `NavigationStack` 加 `ScrollViewReader`，並用 `isNavigatingToRoute` 打開 `routeDetailView`。同時有兩個 timer：
+
+- `refreshTimer`：每 30 秒呼叫 `refreshVisibleData()`，刷新目前可見嘅路線、附近 ETA、收藏 ETA 或 active timer。
+- `clockTimer`：每 1 秒更新 `currentTime`，並呼叫 `clearExpiredTimerIfNeeded(referenceDate:)` 清走過期提醒。
+
+`ContentView.body` 入面 `.task` 會按以下次序做一次啟動工作：
 
 1. 如果定位已授權，呼叫 `locationManager.requestLocation()`。
 2. 呼叫 `loadStaticRouteData()`。
-3. `loadStaticRouteData()` 先試 `loadCachedStaticRouteData()`，有 cache 就 `applyStaticRouteData(routes:stops:)`。
-4. 同時 `refreshStaticRouteData()` 會重新向 `KMBETAProvider.fetchRouteSuggestions()`、`CTBETAProvider.fetchRouteSuggestions()`、`KMBETAProvider.fetchStops()`、`CTBETAProvider.fetchStops()` 拎最新資料。
-5. 路線建議用 `RouteSuggestionCatalog.merged(kmb:ctb:)` 合併。
-6. 站點資料經 `applyStops(_:)` 建立 `stopDictionary`、`stopInfoDictionary` 同 `allStops`。
-7. `reconnectActiveLiveActivity()` 嘗試接回未完嘅 Live Activity。
-8. `warmFavoriteETAsIfPossible()` 喺定位同站點資料齊備時預先更新收藏 ETA。
+3. `loadStaticRouteData()` 先試 `StaticRouteDataCache.load()`。如果有有效 cache，會立即 `applyStaticRouteData(routes:stops:)`，再用背景 `Task` 執行 `refreshStaticRouteData()`。
+4. 如果無 cache，`loadStaticRouteData()` 會等待 `refreshStaticRouteData()` 完成，先令 app 有可用路線同站點資料。
+5. `refreshStaticRouteData()` 會並行呼叫 `fetchAllRouteSuggestions()` 同 `fetchAllStops()`。
+6. `fetchAllRouteSuggestions()` 會並行讀取 KMB 同 CTB route suggestions，再用 `RouteSuggestionCatalog.merged(kmb:ctb:)` 合併同排序。
+7. `fetchAllStops()` 會並行讀取 KMB 同 CTB stops，再交畀 `applyStops(_:)` 建立 `allStops`、`stopDictionary` 同 `stopInfoDictionary`。
+8. 靜態資料套用後，如果已有定位，`updateNearbyStopsAfterStaticDataLoad()` 會重建附近站點，並呼叫 `warmFavoriteETAsIfPossible()` 預熱收藏 ETA。
+9. `reconnectActiveLiveActivity()` 嘗試由現有 Live Activity 重建 `activeTimer`，或者結束已過期嘅 activity。
+10. `warmFavoriteETAsIfPossible()` 會喺收藏、定位同站點資料齊備，而且目前未有收藏狀態時，啟動第一次收藏 ETA 更新。
+11. `UNUserNotificationCenter.current().requestAuthorization(...)` 會要求通知權限，供到站提醒使用。
+
+啟動後仲有幾個 lifecycle 更新：
+
+- `locationManager.location` 改變時，如果唔係背景追蹤中，就重新計算附近站點同預熱收藏 ETA。
+- `locationManager.backgroundHeartbeat` 改變時，會檢查 active timer 是否過期。
+- app 返回 `.active` 時，會重新接回 Live Activity、要求一次定位，並呼叫 `refreshVisibleData(rebuildNearbyWhenEmpty: true)`。
+- route detail 關閉時，`clearRouteDetailState()` 會清走搜尋/站序/highlight/keyboard 狀態，然後用目前定位重建附近站點。
 
 ## 搜尋路線流程
 

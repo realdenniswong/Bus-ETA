@@ -1,6 +1,8 @@
-# KMB Time
+# Bus ETA
 
 呢個 app 係用 SwiftUI 寫嘅香港巴士 ETA 工具，主要支援九巴、城巴同部分聯營路線。app 會載入靜態路線/站點資料，根據使用者位置搵附近車站，並用 provider 去即時 API 拎到站時間。
+
+> Note: The public app display name is **Bus ETA**, but the Xcode project, target, and some internal names still use **KMB Time**. This app originally started as a KMB-only route ETA tool, so I kept the original project name to avoid unnecessary Xcode project churn while expanding the app to support Citybus and joint KMB/CTB routes.
 
 ## 主要結構
 

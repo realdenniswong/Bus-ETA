@@ -171,10 +171,7 @@ struct NearbyDashboardSectionView: View {
             }
             
             if filteredRoutes.isEmpty {
-                Text("暫無服務...")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .padding(.vertical, 4)
+                pendingStopRows()
             } else {
                 ForEach(filteredRoutes, id: \.route.id) { item in
                     VStack(alignment: .leading, spacing: 4) {
@@ -184,6 +181,71 @@ struct NearbyDashboardSectionView: View {
             }
         }
         .alignedListSectionMargins(horizontal: 16)
+    }
+    
+    @ViewBuilder
+    /// Show route-shaped placeholders while nearby route ETA requests are still in progress.
+    /// - Parameters:
+    ///   - none: 呢個函式唔需要外部輸入。
+    /// - Returns: 可供 SwiftUI 顯示嘅畫面內容。
+    private func pendingStopRows() -> some View {
+        let pendingCount = nearbyStops.contains { !$0.hasFetchedRoutes } ? 6 : 0
+        if pendingCount == 0 {
+            Text("暫無服務...")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .padding(.vertical, 4)
+        } else {
+            ForEach(0..<pendingCount, id: \.self) { _ in
+                routeSkeletonRow()
+            }
+        }
+    }
+    
+    @ViewBuilder
+    /// Render a skeleton row with the same shape as a loaded nearby route row.
+    /// - Parameters:
+    ///   - none: 呢個函式唔需要外部輸入。
+    /// - Returns: 可供 SwiftUI 顯示嘅畫面內容。
+    private func routeSkeletonRow() -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.secondary.opacity(0.14))
+                .frame(width: 64, height: 52)
+                .overlay {
+                    Text("路線")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(.secondary.opacity(0.55))
+                }
+            
+            VStack(alignment: .leading, spacing: 6) {
+                skeletonBar(width: 120, height: 14)
+                HStack(spacing: 4) {
+                    Image(systemName: "mappin.circle.fill")
+                        .font(.caption2)
+                        .foregroundColor(.secondary.opacity(0.45))
+                    skeletonBar(width: 150, height: 10)
+                }
+                skeletonBar(width: 54, height: 9)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            
+            etaLoadingMaskView()
+            Image(systemName: "chevron.right")
+                .font(.caption)
+                .foregroundColor(.secondary.opacity(0.35))
+        }
+    }
+    
+    /// Draw one rounded placeholder bar for skeleton rows.
+    /// - Parameters:
+    ///   - width: Bar width.
+    ///   - height: Bar height.
+    /// - Returns: 可供 SwiftUI 顯示嘅畫面內容。
+    private func skeletonBar(width: CGFloat, height: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: height / 2, style: .continuous)
+            .fill(Color.secondary.opacity(0.18))
+            .frame(width: width, height: height)
     }
     
     /// 建立用於查找或快取嘅穩定 key。
@@ -319,7 +381,9 @@ struct NearbyDashboardSectionView: View {
     ///   - color: 畫面顏色。
     /// - Returns: 格式化或查找後嘅文字。
     private func relativeTimeText(for etas: [ETADisplayInfo]) -> (text: String, color: Color) {
-        guard let firstEta = etas.first?.etaDate else {
+        guard let firstEta = etas
+            .compactMap(\.etaDate)
+            .first(where: { $0 >= currentTime.addingTimeInterval(-60) }) else {
             return ("沒有班次", .secondary)
         }
         
@@ -346,6 +410,27 @@ struct NearbyDashboardSectionView: View {
             .padding(.vertical, 4)
             .background(etaInfo.color.opacity(0.1))
             .cornerRadius(6)
+    }
+    
+    @ViewBuilder
+    /// 顯示 ETA 載入中狀態，避免空白或誤會為沒有班次。
+    /// - Parameters:
+    ///   - none: 呢個函式唔需要外部輸入。
+    /// - Returns: 可供 SwiftUI 顯示嘅畫面內容。
+    private func etaLoadingMaskView() -> some View {
+        Text("載入中")
+            .font(.system(size: 14, weight: .bold))
+            .foregroundColor(.secondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.secondary.opacity(0.12))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .strokeBorder(Color.secondary.opacity(0.16), lineWidth: 0.8)
+            )
     }
     
     /// 停止或收起相關追蹤、活動或流程。

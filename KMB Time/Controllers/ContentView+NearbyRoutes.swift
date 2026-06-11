@@ -8,6 +8,7 @@ extension ContentView {
     ///   - userLocation: 用嚟計算距離嘅位置。
     /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
     func updateNearbyStops(userLocation: CLLocation) async {
+        let stepStart = Date()
         guard !allStops.isEmpty else { return }
         
         let shouldStartUpdate = await MainActor.run {
@@ -19,13 +20,15 @@ extension ContentView {
         guard shouldStartUpdate else { return }
         
         let dashboardStops = nearbyStopModels(from: allStops, userLocation: userLocation, radius: 300)
-        let nearbyStopsWithRoutes = await nearbyStopsForAllBusesMode(dashboardStops)
+        logTiming("nearby stop search", startedAt: stepStart, detail: "\(dashboardStops.count) stops")
         
         await MainActor.run {
-            self.nearbyStops = nearbyStopsWithRoutes
+            self.nearbyStops = dashboardStops
             self.isSearchingNearby = false
-            self.isUpdatingNearby = false
         }
+        logTiming("nearby UI update", startedAt: stepStart)
+        
+        await progressivelyFetchRoutes(for: dashboardStops)
     }
     
     /// 重新整理目前畫面需要嘅資料。
@@ -35,46 +38,77 @@ extension ContentView {
     func refreshNearbyETAs() async {
         guard !nearbyStops.isEmpty else { return }
         await MainActor.run { isSearchingNearby = true }
+        await progressivelyFetchRoutes(for: nearbyStops, forceRefresh: true)
+    }
+    
+    /// Fetch nearby route ETAs in small batches and publish each stop as soon as it completes.
+    /// - Parameters:
+    ///   - stops: Candidate nearby stops already shown on screen.
+    ///   - forceRefresh: Whether to bypass the short ETA cache.
+    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
+    private func progressivelyFetchRoutes(for stops: [NearbyStopModel], forceRefresh: Bool = false) async {
+        let routeStart = Date()
+        let sortedStops = stops.sorted { $0.distance < $1.distance }
+        let visibleStops = Array(sortedStops.prefix(8))
+        let deferredStops = Array(sortedStops.dropFirst(8).prefix(12))
         
-        let refreshedStops = await nearbyStopsForAllBusesMode(nearbyStops)
+        await fetchRouteBatches(for: visibleStops, forceRefresh: forceRefresh, concurrencyLimit: 4)
+        logTiming("visible ETA fetching", startedAt: routeStart, detail: "\(visibleStops.count) stops")
+        
+        if !deferredStops.isEmpty {
+            await fetchRouteBatches(for: deferredStops, forceRefresh: forceRefresh, concurrencyLimit: 2)
+            logTiming("deferred ETA fetching", startedAt: routeStart, detail: "\(deferredStops.count) stops")
+        }
         
         await MainActor.run {
-            self.nearbyStops = refreshedStops
             self.isSearchingNearby = false
+            self.isUpdatingNearby = false
         }
     }
     
-    /// 停止或收起相關追蹤、活動或流程。
+    /// Fetch route data with a bounded number of concurrent API requests.
     /// - Parameters:
-    ///   - stops: 車站識別或車站資料。
-    /// - Returns: 符合條件並已整理嘅資料列表。
-    private func nearbyStopsForAllBusesMode(_ stops: [NearbyStopModel]) async -> [NearbyStopModel] {
-        var fetchedStops: [NearbyStopModel] = []
-        var uniqueRouteKeys = Set<String>()
-        let maxUniqueRoutes = 24
-        
-        for stop in stops.sorted(by: { $0.distance < $1.distance }) {
-            var stopWithRoutes = stop
-            stopWithRoutes.routes = await fetchRoutesForNearbyStop(stop.stopInfo)
-            stopWithRoutes.hasFetchedRoutes = true
-            fetchedStops.append(stopWithRoutes)
-            
-            for route in stopWithRoutes.routes {
-                uniqueRouteKeys.insert(dashboardRouteKey(route: route))
-            }
-            if uniqueRouteKeys.count >= maxUniqueRoutes {
-                break
-            }
+    ///   - stops: Stops to fetch.
+    ///   - forceRefresh: Whether to bypass the short ETA cache.
+    ///   - concurrencyLimit: Maximum concurrent stop fetches.
+    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
+    private func fetchRouteBatches(for stops: [NearbyStopModel], forceRefresh: Bool, concurrencyLimit: Int) async {
+        guard !stops.isEmpty else { return }
+        let batches = stride(from: 0, to: stops.count, by: concurrencyLimit).map {
+            Array(stops[$0..<min($0 + concurrencyLimit, stops.count)])
         }
         
-        let fetchedStopIds = Set(fetchedStops.map { $0.stopInfo.identityKey })
-        let unfetchedStops = stops.filter { !fetchedStopIds.contains($0.stopInfo.identityKey) }
-        return (fetchedStops + unfetchedStops.map { stop in
-            var stopWithoutRoutes = stop
-            stopWithoutRoutes.routes = []
-            return stopWithoutRoutes
-        })
-        .sorted { $0.distance < $1.distance }
+        for batch in batches {
+            await withTaskGroup(of: NearbyStopModel.self) { group in
+                for stop in batch {
+                    group.addTask {
+                        let startedAt = Date()
+                        var stopWithRoutes = stop
+                        stopWithRoutes.routes = await fetchRoutesForNearbyStop(stop.stopInfo, forceRefresh: forceRefresh)
+                        stopWithRoutes.hasFetchedRoutes = true
+                        logTiming("ETA fetching", startedAt: startedAt, detail: stop.stopInfo.name_tc)
+                        return stopWithRoutes
+                    }
+                }
+                
+                for await stopWithRoutes in group {
+                    await applyNearbyStopRoutes(stopWithRoutes)
+                }
+            }
+        }
+    }
+    
+    /// Update a single nearby stop row after its ETA request finishes.
+    /// - Parameters:
+    ///   - stop: Updated stop model.
+    /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
+    private func applyNearbyStopRoutes(_ stop: NearbyStopModel) async {
+        let updateStart = Date()
+        await MainActor.run {
+            guard let index = self.nearbyStops.firstIndex(where: { $0.stopInfo.identityKey == stop.stopInfo.identityKey }) else { return }
+            self.nearbyStops[index] = stop
+        }
+        logTiming("UI update", startedAt: updateStart, detail: stop.stopInfo.name_tc)
     }
     
     /// 向資料來源讀取相關巴士資料。
@@ -98,12 +132,11 @@ extension ContentView {
             async let ctbRoutes = (try? ctbETAProvider.fetchNearbyRoutes(forStopId: stopInfo.stop)) ?? []
             routes = dashboardRoutes(kmbRoutes: await kmbRoutes, ctbRoutes: await ctbRoutes, jointRoutes: await jointRoutes)
         }
-        return routes
-            .map { cachedRoute($0, stopId: stopInfo.identityKey, forceRefresh: forceRefresh) }
-            .sorted {
-                if $0.route == $1.route { return $0.directionCode < $1.directionCode }
-                return $0.route.localizedStandardCompare($1.route) == .orderedAscending
-            }
+        let routesWithCachedETAs = await cachedRoutes(routes, stopId: stopInfo.identityKey, forceRefresh: forceRefresh)
+        return routesWithCachedETAs.sorted {
+            if $0.route == $1.route { return $0.directionCode < $1.directionCode }
+            return $0.route.localizedStandardCompare($1.route) == .orderedAscending
+        }
     }
     
     /// 整理或查找路線相關資料。
@@ -120,24 +153,28 @@ extension ContentView {
         return kmbOnlyRoutes + jointRoutes + ctbOnlyRoutes
     }
     
-    /// 整理或查找路線相關資料。
+    /// Apply the short ETA cache and save fresh ETA results on the main actor.
     /// - Parameters:
-    ///   - route: 路線編號或路線模型。
-    ///   - stopId: 車站識別或車站資料。
-    ///   - forceRefresh: 控制此流程是否啟用嘅設定。
-    /// - Returns: 計算後嘅 `NearbyRouteModel`。
-    private func cachedRoute(_ route: NearbyRouteModel, stopId: String, forceRefresh: Bool = false) -> NearbyRouteModel {
-        let key = dashboardETAKey(route: route, stopId: stopId)
-        if !route.etas.isEmpty {
-            dashboardETAByKey[key] = (Date(), route.etas)
-            return route
+    ///   - routes: Route models returned by providers.
+    ///   - stopId: Stop identity used in cache keys.
+    ///   - forceRefresh: Whether to skip cached values.
+    /// - Returns: Routes with cached ETAs filled when available.
+    private func cachedRoutes(_ routes: [NearbyRouteModel], stopId: String, forceRefresh: Bool = false) async -> [NearbyRouteModel] {
+        await MainActor.run {
+            routes.map { route in
+                let key = dashboardETAKey(route: route, stopId: stopId)
+                if !route.etas.isEmpty {
+                    dashboardETAByKey[key] = (Date(), route.etas)
+                    return route
+                }
+                guard !forceRefresh,
+                      let cachedEntry = dashboardETAByKey[key],
+                      Date().timeIntervalSince(cachedEntry.updatedAt) <= dashboardETACacheLifetime else {
+                    return route
+                }
+                return routeWithETAs(route, etas: cachedEntry.etas)
+            }
         }
-        guard !forceRefresh,
-              let cachedEntry = dashboardETAByKey[key],
-              Date().timeIntervalSince(cachedEntry.updatedAt) <= dashboardETACacheLifetime else {
-            return route
-        }
-        return routeWithETAs(route, etas: cachedEntry.etas)
     }
     
     /// 整理或查找路線相關資料。
@@ -225,3 +262,18 @@ extension ContentView {
             .sorted { $0.distance < $1.distance }
     }
 }
+/// Print compact timing diagnostics for launch and nearby ETA performance.
+/// - Parameters:
+///   - step: Step name.
+///   - startedAt: Start time.
+///   - detail: Optional context for the log line.
+/// - Returns: 無回傳值；會透過 console 輸出完成工作。
+nonisolated private func logTiming(_ step: String, startedAt: Date, detail: String? = nil) {
+    let milliseconds = Int(Date().timeIntervalSince(startedAt) * 1_000)
+    if let detail, !detail.isEmpty {
+        print("[Performance] \(step): \(milliseconds)ms (\(detail))")
+    } else {
+        print("[Performance] \(step): \(milliseconds)ms")
+    }
+}
+

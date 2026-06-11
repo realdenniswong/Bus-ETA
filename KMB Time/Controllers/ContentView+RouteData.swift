@@ -26,7 +26,9 @@ extension ContentView {
     ///   - none: 呢個函式唔需要外部輸入。
     /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
     func loadStaticRouteData() async {
+        let startedAt = Date()
         let loadedCachedData = await loadCachedStaticRouteData()
+        print("[Performance] route loading initial: \(Int(Date().timeIntervalSince(startedAt) * 1_000))ms cache=\(loadedCachedData)")
         
         if loadedCachedData {
             Task { await refreshStaticRouteData() }
@@ -80,10 +82,12 @@ extension ContentView {
     ///   - none: 呢個函式唔需要外部輸入。
     /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
     private func refreshStaticRouteData() async {
+        let startedAt = Date()
         do {
             async let routesRequest = fetchAllRouteSuggestions()
             async let stopsRequest = fetchAllStops()
             let (routes, stops) = try await (routesRequest, stopsRequest)
+            print("[Performance] route loading refresh network: \(Int(Date().timeIntervalSince(startedAt) * 1_000))ms routes=\(routes.count) stops=\(stops.count)")
             
             await applyStaticRouteData(routes: routes, stops: stops)
             await StaticRouteDataCache.save(StaticRouteDataCache.makeSnapshot(routes: routes, stops: stops))

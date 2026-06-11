@@ -192,7 +192,9 @@ struct FavouritesView: View {
     ///   - color: 畫面顏色。
     /// - Returns: 格式化或查找後嘅文字。
     private func relativeTimeText(for etas: [ETADisplayInfo]) -> (text: String, color: Color) {
-        guard let firstEta = etas.first?.etaDate else {
+        guard let firstEta = etas
+            .compactMap(\.etaDate)
+            .first(where: { $0 >= currentTime.addingTimeInterval(-60) }) else {
             return ("沒有班次", .secondary)
         }
         

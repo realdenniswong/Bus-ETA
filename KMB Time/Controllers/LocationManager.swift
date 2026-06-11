@@ -7,9 +7,9 @@ import Combine
 /// `LocationManager` 負責支援 KMB Time app 入面對應嘅資料或畫面邏輯。
 class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     private let manager = CLLocationManager()
-    private let foregroundAccuracy = kCLLocationAccuracyNearestTenMeters
-    private let cachedLocationMaxAge: TimeInterval = 60
-    private let cachedLocationMaxAccuracy: CLLocationAccuracy = 150
+    private let foregroundAccuracy = kCLLocationAccuracyHundredMeters
+    private let cachedLocationMaxAge: TimeInterval = 10 * 60
+    private let cachedLocationMaxAccuracy: CLLocationAccuracy = 500
     
     @Published var location: CLLocation?
     @Published var authorizationStatus: CLAuthorizationStatus = .notDetermined
@@ -40,6 +40,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     ///   - none: 呢個函式唔需要外部輸入。
     /// - Returns: 無回傳值；會透過狀態更新或副作用完成工作。
     func requestLocation() {
+        let startedAt = Date()
         let status = manager.authorizationStatus
         guard status == .authorizedWhenInUse || status == .authorizedAlways else {
             isLocating = status == .notDetermined
@@ -52,6 +53,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         if let cachedLocation = recentCachedLocation {
             location = cachedLocation
             isLocating = false
+            logLocationTiming("cached location", startedAt: startedAt, location: cachedLocation)
         } else {
             isLocating = true
         }
@@ -85,6 +87,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         DispatchQueue.main.async {
             self.location = first
             self.isLocating = false
+            self.logLocationTiming("live location", startedAt: first.timestamp, location: first)
             
             self.backgroundHeartbeat = Date()
             if !self.isBackgroundTracking {
@@ -113,6 +116,17 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             return nil
         }
         return cachedLocation
+    }
+    
+    /// Print timing and accuracy for location updates.
+    /// - Parameters:
+    ///   - label: Step name.
+    ///   - startedAt: Start time or location timestamp.
+    ///   - location: Location returned by Core Location.
+    /// - Returns: 無回傳值；會透過 console 輸出完成工作。
+    private func logLocationTiming(_ label: String, startedAt: Date, location: CLLocation) {
+        let milliseconds = Int(Date().timeIntervalSince(startedAt) * 1_000)
+        print("[Performance] location \(label): \(milliseconds)ms accuracy=\(Int(location.horizontalAccuracy))m")
     }
     
     /// 開始相關追蹤、活動或流程。

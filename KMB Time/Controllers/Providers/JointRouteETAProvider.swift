@@ -216,7 +216,10 @@ private extension JointRouteETAProvider {
     ///   - etas: 時間或到站時間資料。
     /// - Returns: 符合條件並已整理嘅資料列表。
     func sortedETAs(_ etas: [ETADisplayInfo]) -> [ETADisplayInfo] {
-        etas.sorted { ($0.etaDate ?? Date.distantFuture) < ($1.etaDate ?? Date.distantFuture) }
+        let staleETAThreshold = Date().addingTimeInterval(-60)
+        return etas
+            .filter { ($0.etaDate ?? Date.distantPast) >= staleETAThreshold }
+            .sorted { ($0.etaDate ?? Date.distantFuture) < ($1.etaDate ?? Date.distantFuture) }
     }
     
     /// 執行呢個檔案負責嘅相關功能。

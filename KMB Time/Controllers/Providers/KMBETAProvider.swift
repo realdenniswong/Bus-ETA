@@ -219,7 +219,10 @@ private extension KMBETAProvider {
         }
         
         let (data, _) = try await URLSession.shared.data(for: request)
-        return try jsonDecoder.decode(Response.self, from: data)
+        let decodeStart = Date()
+        let response = try jsonDecoder.decode(Response.self, from: data)
+        print("[Performance] JSON decoding KMB \(path): \(Int(Date().timeIntervalSince(decodeStart) * 1_000))ms")
+        return response
     }
     
     /// 向資料來源讀取相關巴士資料。
@@ -249,13 +252,15 @@ private extension KMBETAProvider {
     /// - Returns: 符合條件並已整理嘅資料列表。
     func sortedDisplayETAs(from items: [StopETAItem], route: String? = nil, directionCode: String? = nil) -> [ETADisplayInfo] {
         let formatter = ISO8601DateFormatter()
+        let staleETAThreshold = Date().addingTimeInterval(-60)
         return items.compactMap { item -> ETADisplayInfo? in
             if let route, item.route != route { return nil }
             if let directionCode, item.dir != directionCode { return nil }
             guard item.service_type == 1,
                   let etaText = item.eta,
                   !etaText.isEmpty,
-                  let etaDate = formatter.date(from: etaText) else {
+                  let etaDate = formatter.date(from: etaText),
+                  etaDate >= staleETAThreshold else {
                 return nil
             }
             return ETADisplayInfo(etaDate: etaDate, remark: item.rmk_tc, companyCode: operatorCode.rawValue)

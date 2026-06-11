@@ -404,13 +404,15 @@ private extension CTBETAProvider {
             Task {
                 let response: CTBETAResponse = try await fetch(path: "eta/CTB/\(safeStopId)/\(safeRoute)", reloadIgnoringCache: true)
                 let formatter = ISO8601DateFormatter()
+                let staleETAThreshold = Date().addingTimeInterval(-60)
 
                 return response.data.compactMap { item -> ETADisplayInfo? in
                     if item.route.uppercased() != route.uppercased() { return nil }
                     if let itemDirection = item.dir, itemDirection != direction.routeCode { return nil }
                     guard let etaText = item.eta,
                           !etaText.isEmpty,
-                          let etaDate = formatter.date(from: etaText) else {
+                          let etaDate = formatter.date(from: etaText),
+                          etaDate >= staleETAThreshold else {
                         return nil
                     }
 
@@ -441,7 +443,10 @@ private extension CTBETAProvider {
         }
 
         let (data, _) = try await URLSession.shared.data(for: request)
-        return try jsonDecoder.decode(Response.self, from: data)
+        let decodeStart = Date()
+        let response = try jsonDecoder.decode(Response.self, from: data)
+        print("[Performance] JSON decoding CTB \(path): \(Int(Date().timeIntervalSince(decodeStart) * 1_000))ms")
+        return response
     }
 
     /// 按畫面需要排序並回傳結果。

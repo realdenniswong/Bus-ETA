@@ -33,14 +33,22 @@ enum StaticRouteDataCache {
     ///   - none: 呢個函式唔需要外部輸入。
     /// - Returns: 找到時回傳對應資料；沒有時為 nil。
     static func load() async -> StaticRouteDataSnapshot? {
+        let startedAt = Date()
         guard let fileURL = cacheFileURL(),
-              let data = try? Data(contentsOf: fileURL),
-              let snapshot = try? JSONDecoder().decode(StaticRouteDataSnapshot.self, from: data),
+              let data = try? Data(contentsOf: fileURL) else {
+            print("[Performance] route loading cache miss")
+            return nil
+        }
+        let decodeStart = Date()
+        guard let snapshot = try? JSONDecoder().decode(StaticRouteDataSnapshot.self, from: data),
               snapshot.version == currentVersion,
               !snapshot.routes.isEmpty,
               !snapshot.stops.isEmpty else {
+            print("[Performance] JSON decoding static cache failed: \(Int(Date().timeIntervalSince(decodeStart) * 1_000))ms")
             return nil
         }
+        print("[Performance] JSON decoding static cache: \(Int(Date().timeIntervalSince(decodeStart) * 1_000))ms")
+        print("[Performance] route loading cache: \(Int(Date().timeIntervalSince(startedAt) * 1_000))ms routes=\(snapshot.routes.count) stops=\(snapshot.stops.count)")
         return snapshot
     }
     

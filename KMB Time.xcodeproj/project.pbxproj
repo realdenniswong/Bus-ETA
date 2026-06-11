@@ -410,6 +410,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "KMB-Time-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Bus ETA";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.navigation";
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "我們需要背景定位來在巴士到站時為您自動更新並關閉提醒卡片。";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "We use your location to find nearby bus stops.";
@@ -460,6 +461,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "KMB-Time-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Bus ETA";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.navigation";
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "我們需要背景定位來在巴士到站時為您自動更新並關閉提醒卡片。";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "We use your location to find nearby bus stops.";

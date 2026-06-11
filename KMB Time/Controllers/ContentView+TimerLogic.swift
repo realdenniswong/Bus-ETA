@@ -33,9 +33,7 @@ extension ContentView {
             }
             
             let alertDate = newEtaDate.addingTimeInterval(-120)
-            if alertDate.timeIntervalSince(Date()) > 0 {
-                scheduleLocalNotification(routeName: timer.routeName, destination: timer.destination, alertDate: alertDate)
-            }
+            scheduleLocalNotification(routeName: timer.routeName, destination: timer.destination, alertDate: alertDate)
             updateLiveActivity(etaDate: newEtaDate)
         } catch {
             print("Active timer sync failed: \(error)")

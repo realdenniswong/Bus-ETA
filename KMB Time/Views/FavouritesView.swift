@@ -28,7 +28,8 @@ struct FavouritesView: View {
                             }
                     }
                     .onDelete { indexSet in
-                        favoritesManager.favoriteRoutes.remove(atOffsets: indexSet)
+                        let favoriteIdsToDelete = Set(indexSet.map { sortedFavorites[$0].id })
+                        favoritesManager.favoriteRoutes.removeAll { favoriteIdsToDelete.contains($0.id) }
                     }
                 }
                 .alignedListSectionMargins(horizontal: 16)
